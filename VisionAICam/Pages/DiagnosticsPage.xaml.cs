@@ -24,5 +24,15 @@ namespace VisionAICam.Pages
         {
             InitializeComponent();
         }
+
+        private void RefreshCamerasButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void TestModelButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
     }
 }

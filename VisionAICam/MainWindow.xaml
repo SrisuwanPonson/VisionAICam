@@ -64,6 +64,10 @@
                  Background="#FFB300" BorderBrush="#FFA000" BorderThickness="2"
                  Foreground="#263238" FontWeight="Bold" FontSize="16" 
                  Style="{x:Null}" Click="SettingsButton_Click"/>
+            <Button Content="Model" Width="110" Height="40" Margin="10,15"
+                 Background="#009688" BorderBrush="#00695C" BorderThickness="2"
+                 Foreground="White" FontWeight="Bold" FontSize="16"
+                 Style="{x:Null}" Click="ModelButton_Click"/>
             <Button Content="Camera" Width="110" Height="40" Margin="10,15"
                  Background="#8E24AA" BorderBrush="#6A1B9A" BorderThickness="2"
                  Foreground="White" FontWeight="Bold" FontSize="16"

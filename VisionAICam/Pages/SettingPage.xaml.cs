@@ -24,5 +24,10 @@ namespace VisionAICam.Pages
         {
             InitializeComponent();
         }
+
+        private void BrowseModelButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
     }
 }

@@ -8,7 +8,24 @@
       d:DesignHeight="450" d:DesignWidth="800"
       Title="ModelPage">
 
-    <Grid>
-        
+    <Grid Margin="30">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="Model Management" FontSize="28" FontWeight="Bold" Margin="0,0,0,20"/>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,0,20">
+            <TextBlock Text="Current Model:" FontSize="16" VerticalAlignment="Center"/>
+            <TextBlock x:Name="CurrentModelPathText" Text="(none loaded)" FontSize="16" FontWeight="Bold" Margin="10,0"/>
+            <Button Content="Load Model..." Margin="20,0,0,0" Padding="16,4" Click="LoadModelButton_Click"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Vertical">
+            <TextBlock Text="Model Details:" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock x:Name="ModelDetailsText" Text="No model loaded." FontSize="14" TextWrapping="Wrap"/>
+            <!-- Optionally, add a test area for running inference on a sample image -->
+        </StackPanel>
     </Grid>
 </Page>

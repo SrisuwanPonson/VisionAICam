@@ -1,14 +1,56 @@
 ﻿<Page x:Class="VisionAICam.Pages.DiagnosticsPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-      xmlns:local="clr-namespace:VisionAICam.Pages"
-      mc:Ignorable="d" 
-      d:DesignHeight="450" d:DesignWidth="800"
-      Title="DiagnosticsPage">
+      Title="DiagnosticsPage"
+      Width="800"
+      Height="450">
 
-    <Grid>
-        
+    <Grid Margin="30">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="Diagnostics" FontSize="28" FontWeight="Bold" Margin="0,0,0,20"/>
+        <StackPanel Grid.Row="1" Orientation="Vertical">
+
+            <!-- System Info -->
+            <GroupBox Header="System Information" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock x:Name="OsVersionText" Text="OS: "/>
+                    <TextBlock x:Name="DotNetVersionText" Text=".NET: "/>
+                    <TextBlock x:Name="MemoryText" Text="Memory: "/>
+                    <TextBlock x:Name="CpuText" Text="CPU: "/>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- Camera Diagnostics -->
+            <GroupBox Header="Camera Diagnostics" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock x:Name="CameraListText" Text="Detected Cameras: "/>
+                    <Button Content="Refresh Cameras" Width="150" Margin="0,10,0,0" Click="RefreshCamerasButton_Click"/>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- Model Diagnostics -->
+            <GroupBox Header="Model Diagnostics" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock x:Name="ModelInfoText" Text="Model: "/>
+                    <Button Content="Test Model Inference" Width="180" Margin="0,10,0,0" Click="TestModelButton_Click"/>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- Performance Metrics -->
+            <GroupBox Header="Performance" Margin="0,0,0,16">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="FpsText" Text="FPS: " Margin="0,0,20,0"/>
+                    <TextBlock x:Name="InferenceTimeText" Text="Inference Time: "/>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- Logs -->
+            <GroupBox Header="Logs">
+                <TextBox x:Name="LogTextBox" Height="60" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+            </GroupBox>
+        </StackPanel>
     </Grid>
 </Page>

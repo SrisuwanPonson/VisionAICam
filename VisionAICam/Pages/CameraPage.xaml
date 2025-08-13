@@ -14,7 +14,8 @@
             <Setter Property="Background" Value="#FF1976D2"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="18"/>
-            <Setter Property="Padding" Value="16,0"/>
+            <Setter Property="Padding" Value="16,6"/>
+            <!-- Updated vertical padding -->
             <Setter Property="Height" Value="36"/>
             <Setter Property="Margin" Value="0,8,8,8"/>
             <Setter Property="BorderBrush" Value="#FF1565C0"/>
