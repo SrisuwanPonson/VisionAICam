@@ -1,0 +1,123 @@
+﻿<Window x:Class="VisionAICam.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="VisionAICam"
+        Height="450"
+        Width="800"
+        WindowState="Maximized">
+
+    <Window.Resources>
+        <!-- Circular Button Style with Hover Effect -->
+        <Style x:Key="CircleButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="60"/>
+            <Setter Property="Height" Value="60"/>
+            <Setter Property="Background" Value="#FFF"/>
+            <Setter Property="BorderBrush" Value="#2196F3"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="24"/>
+            <Setter Property="Foreground" Value="#2196F3"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse Fill="{TemplateBinding Background}" 
+                                     Stroke="{TemplateBinding BorderBrush}" 
+                                     StrokeThickness="{TemplateBinding BorderThickness}"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#2196F3"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <DockPanel>
+        <!-- Bottom horizontal navigator bar -->
+        <DockPanel DockPanel.Dock="Bottom" Height="70" LastChildFill="False" FlowDirection="RightToLeft">
+            <DockPanel.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#263238" Offset="0"/>
+                    <GradientStop Color="#455A64" Offset="1"/>
+                </LinearGradientBrush>
+            </DockPanel.Background>
+
+            <Button Content="User" Width="110" Height="40" Margin="100,15,10,15"
+                Background="#F4511E" BorderBrush="#BF360C" BorderThickness="2"
+                Foreground="White" FontWeight="Bold" FontSize="16" 
+                Style="{x:Null}" Click="UserButton_Click"/>
+            <Button Content="Data" Width="110" Height="40" Margin="10,15"
+                Background="#0288D1" BorderBrush="#0277BD" BorderThickness="2"
+                Foreground="White" FontWeight="Bold" FontSize="16" 
+                Style="{x:Null}" Click="DataButton_Click"/>
+            <Button Content="Diagnostic" Width="110" Height="40" Margin="10,15"
+                Background="#43A047" BorderBrush="#388E3C" BorderThickness="2"
+                Foreground="White" FontWeight="Bold" FontSize="16" 
+                Style="{x:Null}" Click="DiagnosticButton_Click"/>
+            <Button Content="Settings" Width="110" Height="40" Margin="10,15"
+                 Background="#FFB300" BorderBrush="#FFA000" BorderThickness="2"
+                 Foreground="#263238" FontWeight="Bold" FontSize="16" 
+                 Style="{x:Null}" Click="SettingsButton_Click"/>
+            <Button Content="Camera" Width="110" Height="40" Margin="10,15"
+                 Background="#8E24AA" BorderBrush="#6A1B9A" BorderThickness="2"
+                 Foreground="White" FontWeight="Bold" FontSize="16"
+                 Style="{x:Null}" Click="CameraButton_Click"/>
+        </DockPanel>
+
+        <!-- Left statistics panel -->
+        <StackPanel DockPanel.Dock="Left"
+            Width="140"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Stretch"
+            Margin="0">
+            <StackPanel.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#607D8B" Offset="0"/>
+                    <GradientStop Color="#263238" Offset="1"/>
+                </LinearGradientBrush>
+            </StackPanel.Background>
+            <Border BorderBrush="#FFEB3B" BorderThickness="0,0,4,0" Margin="0,0,0,10">
+                <TextBlock Text="Statistics"
+                   Foreground="#FFEB3B"
+                   FontSize="20"
+                   FontWeight="Bold"
+                   Margin="10,20,10,10"/>
+            </Border>
+            <!-- Add your statistic controls here -->
+        </StackPanel>
+
+        <!-- Right-side vertical navigator bar -->
+        <StackPanel DockPanel.Dock="Right" 
+                    Orientation="Vertical" 
+                    Width="100"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Stretch"
+                    Margin="0">
+            <StackPanel.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#212121" Offset="0"/>
+                    <GradientStop Color="#424242" Offset="1"/>
+                </LinearGradientBrush>
+            </StackPanel.Background>
+            <Button Name="StartStopButton" 
+                    Content="&#xE768;" 
+                    Margin="0,30,0,0" 
+                    Style="{StaticResource CircleButtonStyle}" 
+                    Click="StartStopButton_Click"/>
+            <Button Name="PauseButton" 
+                    Content="&#xE769;" 
+                    Margin="10" 
+                    Style="{StaticResource CircleButtonStyle}" 
+                    Click="PauseButton_Click"/>
+        </StackPanel>
+
+        <!-- Main content area for pages -->
+        <Frame x:Name="MainContent" NavigationUIVisibility="Hidden" />
+    </DockPanel>
+</Window>
