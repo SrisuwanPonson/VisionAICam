@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
 using System.Management;
+using VisionAICam; // For AppSettings and SettingsManager
 
 namespace VisionAICam.Pages
 {
@@ -15,12 +16,31 @@ namespace VisionAICam.Pages
         private VideoCapture? _capture;
         private Thread? _cameraThread;
         private bool _isRunning;
+        private AppSettings? _appSettings;
 
         public CameraPage()
         {
             InitializeComponent();
+            _appSettings = SettingsManager.Load();
             DiscoverAndPopulateCameras();
             this.Unloaded += CameraPage_Unloaded;
+            this.IsVisibleChanged += CameraPage_IsVisibleChanged; // Handle visibility changes
+
+            // Set sliders from settings (guard against null)
+            if (_appSettings != null)
+            {
+                BrightnessSlider.Value = _appSettings.Brightness;
+                ContrastSlider.Value = _appSettings.Contrast;
+                ExposureSlider.Value = _appSettings.Exposure;
+            }
+        }
+
+        private void CameraPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (!this.IsVisible)
+            {
+                StopCamera();
+            }
         }
 
         private void CameraPage_Unloaded(object sender, RoutedEventArgs e)
@@ -30,15 +50,12 @@ namespace VisionAICam.Pages
 
         private void StopCamera()
         {
-            if (_isRunning)
-            {
-                _isRunning = false;
-                _cameraThread?.Join();
-                _capture?.Release();
-                _capture?.Dispose();
-                _capture = null;
-                _cameraThread = null;
-            }
+            _isRunning = false;
+            _cameraThread?.Join();
+            _capture?.Release();
+            _capture?.Dispose();
+            _capture = null;
+            _cameraThread = null;
         }
 
         private void CameraLoop()
@@ -60,7 +77,6 @@ namespace VisionAICam.Pages
                 Thread.Sleep(30); // ~30 FPS
             }
         }
-
 
         private void DiscoverAndPopulateCameras()
         {
@@ -95,13 +111,29 @@ namespace VisionAICam.Pages
             }
             else
             {
-                CameraComboBox.SelectedIndex = 0;
+                // Restore last used camera index if available
+                if (_appSettings != null && _appSettings.CameraIndex >= 0 && _appSettings.CameraIndex < CameraComboBox.Items.Count)
+                    CameraComboBox.SelectedIndex = _appSettings.CameraIndex;
+                else
+                    CameraComboBox.SelectedIndex = 0;
+            }
+        }
+
+        private void CameraComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_appSettings != null)
+            {
+                _appSettings.CameraIndex = CameraComboBox.SelectedIndex;
+                SettingsManager.Save(_appSettings);
             }
         }
 
         private void SelectCameraButton_Click_1(object sender, RoutedEventArgs e)
         {
             StopCamera();
+
+            // Always reload the latest settings
+            _appSettings = SettingsManager.Load();
 
             int camIndex = CameraComboBox.SelectedIndex;
             if (camIndex < 0)
@@ -116,6 +148,22 @@ namespace VisionAICam.Pages
                 MessageBox.Show("Could not open selected camera.");
                 return;
             }
+
+            // Apply settings to camera
+            if (_appSettings != null)
+            {
+                _capture.Set(VideoCaptureProperties.Brightness, _appSettings.Brightness);
+                _capture.Set(VideoCaptureProperties.Contrast, _appSettings.Contrast);
+                _capture.Set(VideoCaptureProperties.Exposure, _appSettings.Exposure);
+            }
+
+            // Initialize sliders with current camera values (in case camera overrides)
+            Dispatcher.Invoke(() =>
+            {
+                BrightnessSlider.Value = _capture.Get(VideoCaptureProperties.Brightness);
+                ContrastSlider.Value = _capture.Get(VideoCaptureProperties.Contrast);
+                ExposureSlider.Value = _capture.Get(VideoCaptureProperties.Exposure);
+            });
 
             _isRunning = true;
             _cameraThread = new Thread(CameraLoop);
@@ -154,6 +202,45 @@ namespace VisionAICam.Pages
             else
             {
                 MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_capture != null && _capture.IsOpened())
+            {
+                _capture.Set(VideoCaptureProperties.Brightness, e.NewValue);
+            }
+            if (_appSettings != null)
+            {
+                _appSettings.Brightness = e.NewValue;
+                SettingsManager.Save(_appSettings);
+            }
+        }
+
+        private void ContrastSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_capture != null && _capture.IsOpened())
+            {
+                _capture.Set(VideoCaptureProperties.Contrast, e.NewValue);
+            }
+            if (_appSettings != null)
+            {
+                _appSettings.Contrast = e.NewValue;
+                SettingsManager.Save(_appSettings);
+            }
+        }
+
+        private void ExposureSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_capture != null && _capture.IsOpened())
+            {
+                _capture.Set(VideoCaptureProperties.Exposure, e.NewValue);
+            }
+            if (_appSettings != null)
+            {
+                _appSettings.Exposure = e.NewValue;
+                SettingsManager.Save(_appSettings);
             }
         }
     }

@@ -24,5 +24,35 @@ namespace VisionAICam.Pages
         {
             InitializeComponent();
         }
+
+        private void ChangePhotoButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void EditProfileButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void ChangePasswordButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void LogoutButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void LoginButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void RegisterButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
     }
 }

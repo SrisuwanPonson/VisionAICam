@@ -69,5 +69,10 @@ namespace VisionAICam
         {
             MainContent.Navigate(new ModelPage()); // Navigate to ModelPage
         }
+
+        private void ProductionButton_Click(object sender, RoutedEventArgs e)
+        {
+            MainContent.Navigate(new Production());
+        }
     }
 }

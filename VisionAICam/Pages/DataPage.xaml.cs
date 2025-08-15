@@ -24,5 +24,20 @@ namespace VisionAICam.Pages
         {
             InitializeComponent();
         }
+
+        private void FilterButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void ExportButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void DeleteButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
     }
 }

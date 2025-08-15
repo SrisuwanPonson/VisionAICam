@@ -24,5 +24,10 @@ namespace VisionAICam.Pages
         {
             InitializeComponent();
         }
+
+        private void SnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+
+        }
     }
 }

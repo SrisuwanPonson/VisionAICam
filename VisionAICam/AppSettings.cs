@@ -9,6 +9,10 @@ namespace VisionAICam
     public class AppSettings
     {
         public int CameraIndex { get; set; } = 0;
-        // Add other settings as needed
+        public double Brightness { get; set; } = 128;
+        public double Contrast { get; set; } = 128;
+        public double Exposure { get; set; } = -6;
+        public string DefaultModelPath { get; set; } = "";
+        public string Theme { get; set; } = "Light";
     }
 }

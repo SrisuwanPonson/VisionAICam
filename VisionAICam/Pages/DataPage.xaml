@@ -1,14 +1,50 @@
 ﻿<Page x:Class="VisionAICam.Pages.DataPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-      xmlns:local="clr-namespace:VisionAICam.Pages"
-      mc:Ignorable="d" 
-      d:DesignHeight="450" d:DesignWidth="800"
-      Title="DataPage">
+      Title="DataPage"
+      Width="800"
+      Height="450">
 
-    <Grid>
-        
+    <Grid Margin="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="2*"/>
+            <ColumnDefinition Width="3*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Search/Filter Controls -->
+        <StackPanel Orientation="Horizontal" Grid.ColumnSpan="2" Margin="0,0,0,10">
+            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBox x:Name="SearchTextBox" Width="200" Margin="0,0,10,0"/>
+            <Button Content="Filter" Width="80" Margin="0,0,10,0" Click="FilterButton_Click"/>
+            <Button Content="Export" Width="80" Margin="0,0,10,0" Click="ExportButton_Click"/>
+            <Button Content="Delete Selected" Width="120" Click="DeleteButton_Click"/>
+        </StackPanel>
+
+        <!-- Data Table/List -->
+        <DataGrid x:Name="DataGrid"
+                  Grid.Row="1" Grid.Column="0"
+                  AutoGenerateColumns="False"
+                  SelectionMode="Single"
+                  Margin="0,0,10,0">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="*"/>
+                <DataGridTextColumn Header="File Name" Binding="{Binding FileName}" Width="*"/>
+                <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="*"/>
+                <DataGridTextColumn Header="Confidence" Binding="{Binding Confidence}" Width="*"/>
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Preview/Details Panel -->
+        <StackPanel Grid.Row="1" Grid.Column="1">
+            <Border BorderBrush="Gray" BorderThickness="1" Margin="0,0,0,10">
+                <Image x:Name="PreviewImage" Height="200" Stretch="Uniform"/>
+            </Border>
+            <TextBlock x:Name="DetailsTextBlock" Text="Select a row to see details." TextWrapping="Wrap"/>
+        </StackPanel>
     </Grid>
 </Page>
+

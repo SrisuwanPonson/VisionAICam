@@ -1,0 +1,24 @@
+﻿<?xml version='1.0' encoding='utf-8'?>
+<SettingsFile xmlns="http://schemas.microsoft.com/VisualStudio/2004/01/settings" CurrentProfile="(Default)" GeneratedClassNamespace="VisionAICam.Properties" GeneratedClassName="Settings">
+  <Profiles />
+  <Settings>
+    <Setting Name="DefaultCamera" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Logitech C920</Value>
+    </Setting>
+    <Setting Name="Brightness" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">128</Value>
+    </Setting>
+    <Setting Name="Contrast" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">128</Value>
+    </Setting>
+    <Setting Name="Exposure" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">-6</Value>
+    </Setting>
+    <Setting Name="DefaultModelPath" Type="System.String" Scope="User">
+      <Value Profile="(Default)">C:\models\model.onnx</Value>
+    </Setting>
+    <Setting Name="Theme" Type="System.String" Scope="User">
+      <Value Profile="(Default)">Light</Value>
+    </Setting>
+  </Settings>
+</SettingsFile>

@@ -1,14 +1,80 @@
 ﻿<Page x:Class="VisionAICam.Pages.UserPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
-      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-      xmlns:local="clr-namespace:VisionAICam.Pages"
-      mc:Ignorable="d" 
-      d:DesignHeight="450" d:DesignWidth="800"
-      Title="UserPage">
+      Title="UserPage"
+      Width="800"
+      Height="450">
 
-    <Grid>
-        
+    <Grid Margin="30">
+        <TabControl x:Name="UserTabControl">
+            <!-- Profile Tab -->
+            <TabItem Header="Profile">
+                <Grid Margin="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="3*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="User Profile" FontSize="28" FontWeight="Bold" Grid.ColumnSpan="2" Margin="0,0,0,20"/>
+
+                    <!-- Profile Section -->
+                    <StackPanel Grid.Row="1" Grid.Column="0" VerticalAlignment="Top">
+                        <Border BorderBrush="Gray" BorderThickness="1" Width="120" Height="120" CornerRadius="60" Margin="0,0,0,20">
+                            <Image x:Name="ProfileImage" Stretch="UniformToFill"/>
+                        </Border>
+                        <Button Content="Change Photo" Width="120" Click="ChangePhotoButton_Click"/>
+                    </StackPanel>
+
+                    <!-- User Info Section -->
+                    <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Top">
+                        <TextBlock Text="Name:" FontWeight="Bold"/>
+                        <TextBlock x:Name="UserNameText" Text="John Doe" Margin="0,0,0,10"/>
+                        <TextBlock Text="Email:" FontWeight="Bold"/>
+                        <TextBlock x:Name="UserEmailText" Text="john@example.com" Margin="0,0,0,10"/>
+                        <TextBlock Text="Role:" FontWeight="Bold"/>
+                        <TextBlock x:Name="UserRoleText" Text="Admin" Margin="0,0,0,20"/>
+                        <Button Content="Edit Profile" Width="120" Margin="0,0,0,10" Click="EditProfileButton_Click"/>
+                        <Button Content="Change Password" Width="120" Margin="0,0,0,10" Click="ChangePasswordButton_Click"/>
+                        <Button Content="Logout" Width="120" Click="LogoutButton_Click"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Login Tab -->
+            <TabItem Header="Login">
+                <Grid Margin="40">
+                    <StackPanel>
+                        <TextBlock Text="Username"/>
+                        <TextBox x:Name="LoginUsernameTextBox" Margin="0,0,0,10"/>
+                        <TextBlock Text="Password"/>
+                        <PasswordBox x:Name="LoginPasswordBox" Margin="0,0,0,20"/>
+                        <Button Content="Login" Width="100" Click="LoginButton_Click"/>
+                        <TextBlock x:Name="LoginErrorText" Foreground="Red" Margin="0,10,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Register Tab -->
+            <TabItem Header="Register">
+                <Grid Margin="40">
+                    <StackPanel>
+                        <TextBlock Text="Username"/>
+                        <TextBox x:Name="RegUsernameTextBox" Margin="0,0,0,10"/>
+                        <TextBlock Text="Email"/>
+                        <TextBox x:Name="RegEmailTextBox" Margin="0,0,0,10"/>
+                        <TextBlock Text="Password"/>
+                        <PasswordBox x:Name="RegPasswordBox" Margin="0,0,0,10"/>
+                        <TextBlock Text="Confirm Password"/>
+                        <PasswordBox x:Name="RegConfirmPasswordBox" Margin="0,0,0,20"/>
+                        <Button Content="Register" Width="100" Click="RegisterButton_Click"/>
+                        <TextBlock x:Name="RegisterErrorText" Foreground="Red" Margin="0,10,0,0"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </Grid>
 </Page>

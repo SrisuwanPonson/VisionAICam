@@ -52,6 +52,10 @@
                 Background="#F4511E" BorderBrush="#BF360C" BorderThickness="2"
                 Foreground="White" FontWeight="Bold" FontSize="16" 
                 Style="{x:Null}" Click="UserButton_Click"/>
+            <Button Content="Production" Width="110" Height="40" Margin="10,15"
+                Background="#1976D2" BorderBrush="#0D47A1" BorderThickness="2"
+                Foreground="White" FontWeight="Bold" FontSize="16"
+                Style="{x:Null}" Click="ProductionButton_Click"/>
             <Button Content="Data" Width="110" Height="40" Margin="10,15"
                 Background="#0288D1" BorderBrush="#0277BD" BorderThickness="2"
                 Foreground="White" FontWeight="Bold" FontSize="16" 
