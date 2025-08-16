@@ -113,16 +113,18 @@
                     <GradientStop Color="#424242" Offset="1"/>
                 </LinearGradientBrush>
             </StackPanel.Background>
-            <Button Name="StartStopButton" 
+            <Button x:Name="StartStopButton" 
                     Content="&#xE768;" 
                     Margin="0,30,0,0" 
                     Style="{StaticResource CircleButtonStyle}" 
-                    Click="StartStopButton_Click"/>
-            <Button Name="PauseButton" 
+                    Click="StartStopButton_Click"
+                    ToolTip="Start/Stop Production"/>
+            <Button x:Name="PauseButton" 
                     Content="&#xE769;" 
                     Margin="10" 
                     Style="{StaticResource CircleButtonStyle}" 
-                    Click="PauseButton_Click"/>
+                    Click="PauseButton_Click"
+                    ToolTip="Pause/Resume Production"/>
         </StackPanel>
 
         <!-- Main content area for pages -->

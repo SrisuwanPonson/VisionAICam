@@ -100,5 +100,19 @@ namespace VisionAICam.Pages
                 DefaultModelPathText.Text = dialog.FileName;
             }
         }
+
+        private void SelectFromModelManagementButton_Click(object sender, RoutedEventArgs e)
+        {
+            // For now, use a file dialog. You can later open a custom model management window.
+            var dialog = new OpenFileDialog
+            {
+                Title = "Select Model from Model Management",
+                Filter = "Model Files|*.onnx;*.pb;*.pt;*.tflite|All Files|*.*"
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                DefaultModelPathText.Text = dialog.FileName;
+            }
+        }
     }
 }
