@@ -5,109 +5,124 @@
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
       xmlns:local="clr-namespace:VisionAICam.Pages"
       mc:Ignorable="d" 
-      d:DesignHeight="600" d:DesignWidth="800"
-      Title="ModelPage">
+      d:DesignHeight="800" d:DesignWidth="1200"
+      Title="ModelPage"
+      Focusable="True"
+      KeyDown="Page_KeyDown">
 
-    <Grid Margin="30">
+    <Grid x:Name="MainLayoutGrid" Margin="30">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Title -->
-        <TextBlock Text="Model Management"
-                   FontSize="28"
-                   FontWeight="Bold"
-                   Margin="0,0,0,20"
-                   Grid.Row="0"/>
-
-        <!-- Model Selection, Load, and Train -->
-        <StackPanel Grid.Row="1"
-                    Orientation="Horizontal"
-                    VerticalAlignment="Top"
-                    Margin="0,0,0,20">
-            <TextBlock Text="Default Model for Running:"
-                       FontSize="16"
-                       VerticalAlignment="Center"/>
-            <TextBlock x:Name="CurrentModelPathText"
-                       Text="(none selected)"
-                       FontSize="16"
-                       FontWeight="Bold"
-                       Margin="10,0"/>
-            <Button Content="Select Model for Running..."
-                    Margin="20,0,0,0"
-                    Padding="16,4"
-                    Click="SelectModelForRunningButton_Click"/>
-            <Button Content="Set as Default"
-                    Margin="10,0,0,0"
-                    Padding="16,4"
-                    Click="SetAsDefaultModelButton_Click"/>
-            <Button Content="Load Pre-trained Model..."
-                    Margin="10,0,0,0"
-                    Padding="16,4"
-                    Click="LoadModelButton_Click"/>
-            <Button Content="Download Dataset..."
-                    Margin="10,0,0,0"
-                    Padding="16,4"
-                    Click="DownloadDatasetButton_Click"/>
-            <Button Content="Train Model..."
-                    Margin="10,0,0,0"
-                    Padding="16,4"
-                    Click="TrainModelButton_Click"/>
-            <Button Content="Test Model with Python.NET"
-                    Margin="10,0,0,0"
-                    Padding="16,4"
-                    Click="TestModelWithPythonNetButton_Click"/>
-        </StackPanel>
-
-        <!-- Fine-tune Options (collapsible) -->
-        <Expander Header="Fine-tune Options" Grid.Row="2" Margin="0,0,0,20" IsExpanded="False">
-            <StackPanel Orientation="Vertical" Margin="10">
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBlock Text="Epochs:" Width="100" VerticalAlignment="Center"/>
-                    <TextBox x:Name="EpochsTextBox" Width="60" Text="50" Margin="10,0,0,0"/>
-                    <TextBlock Text="Batch Size:" Width="100" Margin="20,0,0,0" VerticalAlignment="Center"/>
-                    <TextBox x:Name="BatchSizeTextBox" Width="60" Text="16" Margin="10,0,0,0"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBlock Text="Learning Rate:" Width="100" VerticalAlignment="Center"/>
-                    <TextBox x:Name="LearningRateTextBox" Width="60" Text="0.01" Margin="10,0,0,0"/>
-                    <TextBlock Text="Image Size:" Width="100" Margin="20,0,0,0" VerticalAlignment="Center"/>
-                    <TextBox x:Name="ImageSizeTextBox" Width="60" Text="640" Margin="10,0,0,0"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                    <TextBlock Text="Pretrained Weights:" Width="100" VerticalAlignment="Center"/>
-                    <TextBox x:Name="PretrainedWeightsTextBox" Width="200" Text="yolov8n.pt" Margin="10,0,0,0"/>
-                </StackPanel>
+        <!-- Help/Guide Panel -->
+        <Expander Header="How to Prepare and Annotate Data (Click to expand)" 
+                  IsExpanded="False"
+                  Background="#FFFDE7"
+                  BorderBrush="#FFD54F"
+                  BorderThickness="1"
+                  Margin="0,0,0,20"
+                  Grid.Row="0"
+                  x:Name="HelpExpander">
+            <StackPanel Margin="10">
+                <TextBlock Text="Step 1: Load a Folder" FontWeight="Bold" />
+                <TextBlock Text="Click 'Load Folder' to select a folder of images for annotation." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Step 2: Manage Labels" FontWeight="Bold" />
+                <TextBlock Text="Select or add a label from the dropdown before drawing boxes." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Step 3: Annotate" FontWeight="Bold" />
+                <TextBlock Text="Drag on the image to draw a bounding box. Click 'Add Box' to save the box with the selected label." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Step 4: Edit or Remove" FontWeight="Bold" />
+                <TextBlock Text="Select a box in the list to remove it if needed." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Step 5: Save" FontWeight="Bold" />
+                <TextBlock Text="Click 'Save Annotations' to save your work for the current image." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Step 6: Export" FontWeight="Bold" />
+                <TextBlock Text="When finished, click 'Export YOLO' to export all annotations in Roboflow/YOLO format." TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <TextBlock Text="Tip: Use 'Previous' and 'Next' to navigate images. Progress is shown above the image." FontStyle="Italic" Foreground="Gray" Margin="0,8,0,0"/>
             </StackPanel>
         </Expander>
 
-        <!-- Model Details -->
-        <StackPanel Grid.Row="3" Orientation="Vertical" Margin="0,0,0,20">
-            <TextBlock Text="Model Details:"
-                       FontSize="16"
+        <!-- Title and Navigation -->
+        <StackPanel x:Name="TitlePanel" Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,20">
+            <TextBlock Text="Data Preparation"
+                       FontSize="28"
                        FontWeight="Bold"
-                       Margin="0,0,0,10"/>
-            <TextBlock x:Name="ModelDetailsText"
-                       Text="No model loaded."
-                       FontSize="14"
-                       TextWrapping="Wrap"/>
+                       Margin="0,0,20,0"/>
+            <Button Content="Load Folder" Width="120" Margin="0,0,10,0" Click="LoadFolder_Click"/>
+            <Button Content="Previous" Width="100" Margin="0,0,10,0" Click="PrevImage_Click"/>
+            <Button Content="Next" Width="100" Margin="0,0,10,0" Click="NextImage_Click"/>
+            <TextBlock x:Name="ImageProgressText" Text="No images loaded" FontSize="16" VerticalAlignment="Center" Margin="20,0,0,0"/>
         </StackPanel>
 
-        <!-- Training Status -->
-        <StackPanel Grid.Row="4" Orientation="Vertical">
-            <TextBlock Text="Training Status:"
-                       FontSize="16"
-                       FontWeight="Bold"
-                       Margin="0,0,0,10"/>
-            <TextBlock x:Name="TrainingStatusText"
-                       Text="No training in progress."
-                       FontSize="14"
-                       TextWrapping="Wrap"/>
+        <!-- Model Details -->
+        <StackPanel x:Name="ModelDetailsPanel" Grid.Row="2" Orientation="Vertical" Margin="0,0,0,20">
+            <TextBlock Text="Model Details:" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+            <TextBlock x:Name="ModelDetailsText" Text="No model loaded." FontSize="14" TextWrapping="Wrap"/>
         </StackPanel>
+
+        <!-- Image Labeling Section -->
+        <Border x:Name="ImageAreaContainer" Grid.Row="3" BorderBrush="#90CAF9" BorderThickness="2" CornerRadius="8" Padding="16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*"/>
+                    <ColumnDefinition Width="2*"/>
+                </Grid.ColumnDefinitions>
+                <!-- Image Viewer with Overlay -->
+                <Border Margin="0,0,16,0" BorderBrush="#B0BEC5" BorderThickness="1.5" CornerRadius="8" Background="#FAFAFA">
+                    <Grid>
+                        <!-- Full Screen Toggle Button -->
+                        <Button x:Name="FullScreenToggleButton"
+                                Content="⤢"
+                                Width="36"
+                                Height="36"
+                                ToolTip="Toggle Full Screen"
+                                Click="FullScreenToggleButton_Click"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Top"
+                                Margin="0,8,8,0"
+                                Panel.ZIndex="10"/>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                            <Grid>
+                                <Image x:Name="LabelingImage"
+                                       Stretch="Uniform"
+                                       RenderTransformOrigin="0.5,0.5"/>
+                                <Canvas x:Name="BoundingBoxCanvas"
+                                        Background="Transparent"
+                                        IsHitTestVisible="True"/>
+                            </Grid>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+                <!-- Annotation Controls -->
+                <StackPanel x:Name="AnnotationPanel" Grid.Column="1" Margin="0,0,0,0" VerticalAlignment="Stretch">
+                    <TextBlock Text="Annotations" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <ListView x:Name="AnnotationListView" Height="200" Margin="0,0,0,10">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Label" Width="80" DisplayMemberBinding="{Binding Label}"/>
+                                <GridViewColumn Header="X1" Width="50" DisplayMemberBinding="{Binding X1}"/>
+                                <GridViewColumn Header="Y1" Width="50" DisplayMemberBinding="{Binding Y1}"/>
+                                <GridViewColumn Header="X2" Width="50" DisplayMemberBinding="{Binding X2}"/>
+                                <GridViewColumn Header="Y2" Width="50" DisplayMemberBinding="{Binding Y2}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="Label:" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="LabelComboBox" Width="120" Margin="5,0"/>
+                        <Button Content="Add Box" Margin="10,0" Width="80" Click="AddBox_Click"/>
+                        <Button Content="Remove Selected" Margin="10,0" Width="120" Click="RemoveSelected_Click"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button Content="Save Annotations" Width="140" Margin="0,0,10,0" Click="SaveAnnotations_Click"/>
+                        <Button Content="Export YOLO" Width="120" Margin="0,0,10,0" Click="ExportYolo_Click"/>
+                    </StackPanel>
+                    <TextBlock Text="Tip: Drag to draw a box. Select a label before saving." FontStyle="Italic" Foreground="Gray"/>
+                </StackPanel>
+            </Grid>
+        </Border>
 
         <!-- Progress Overlay -->
         <Grid x:Name="ProgressOverlay"

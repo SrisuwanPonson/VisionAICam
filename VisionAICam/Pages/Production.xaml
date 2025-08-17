@@ -16,9 +16,9 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Image with bounding boxes -->
-        <Border Grid.Column="0" Grid.Row="0" BorderBrush="Gray" BorderThickness="1.54" CornerRadius="12.32" Margin="0,0,15.4,0"
-                MinWidth="616" MinHeight="462">
+        <!-- Image with bounding boxes and loading overlay -->
+        <Border Grid.Column="0" Grid.Row="0" BorderBrush="#B0BEC5" BorderThickness="1.5" CornerRadius="12" Margin="0,0,16,0"
+                MinWidth="616" MinHeight="462" Background="#FAFAFA">
             <Grid>
                 <Image x:Name="ProductionImage"
                        Stretch="Uniform"
@@ -28,46 +28,70 @@
                        AutomationProperties.Name="Production Image"/>
                 <!-- Overlay Canvas for bounding boxes -->
                 <Canvas x:Name="BoundingBoxCanvas" IsHitTestVisible="False"/>
+                <!-- Loading overlay (hidden by default, set Visibility from code-behind) -->
+                <Grid x:Name="LoadingOverlay" Background="#AA263238" Visibility="Collapsed">
+                    <Border Background="#CC263238" Padding="32" CornerRadius="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <StackPanel>
+                            <TextBlock Text="Loading model and running first inference..."
+                                       Foreground="White"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       Margin="0,0,0,16"
+                                       TextAlignment="Center"/>
+                            <ProgressBar IsIndeterminate="True" Width="200" Height="16"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
             </Grid>
         </Border>
 
         <!-- Detection results and controls -->
-        <StackPanel Grid.Column="1" Grid.Row="0" Orientation="Vertical">
-            <TextBlock Text="Detections" FontSize="27.5" FontWeight="Bold" Margin="0,0,0,15.4"/>
-            <ListView x:Name="DetectionListView"
-                      Height="385"
-                      Margin="0,0,0,15.4"
-                      SelectionMode="Single"
-                      AutomationProperties.Name="Detection Results">
-                <ListView.View>
-                    <GridView>
-                        <GridViewColumn Header="Class" Width="123.2" DisplayMemberBinding="{Binding ClassName}"/>
-                        <GridViewColumn Header="Confidence" Width="123.2" DisplayMemberBinding="{Binding Confidence}"/>
-                        <GridViewColumn Header="Box" Width="184.8" DisplayMemberBinding="{Binding Box}"/>
-                    </GridView>
-                </ListView.View>
-            </ListView>
-            <Button x:Name="SnapshotButton"
-                    Content="Snapshot"
-                    Width="123.2"
-                    Height="36.3"
-                    FontSize="12.1"
-                    VerticalAlignment="Center"
-                    Click="SnapshotButton_Click"
-                    ToolTip="Take a snapshot of the current frame"
-                    AutomationProperties.Name="Snapshot Button"/>
-        </StackPanel>
+        <Border Grid.Column="1" Grid.Row="0" Background="#F5F7FA" CornerRadius="12" Padding="24,16" Margin="0,0,0,0">
+            <StackPanel Orientation="Vertical">
+                <TextBlock Text="Detections" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
+                <ListView x:Name="DetectionListView"
+                          Height="385"
+                          Margin="0,0,0,16"
+                          SelectionMode="Single"
+                          AutomationProperties.Name="Detection Results"
+                          BorderBrush="#CFD8DC"
+                          BorderThickness="1"
+                          Background="White">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Class" Width="120" DisplayMemberBinding="{Binding ClassName}"/>
+                            <GridViewColumn Header="Confidence" Width="120" DisplayMemberBinding="{Binding Confidence}"/>
+                            <GridViewColumn Header="Box" Width="180" DisplayMemberBinding="{Binding Box}"/>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <Button x:Name="SnapshotButton"
+                        Content="Snapshot"
+                        Width="140"
+                        Height="38"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        Background="#1976D2"
+                        Foreground="White"
+                        BorderBrush="#1565C0"
+                        BorderThickness="1"
+                        VerticalAlignment="Center"
+                        Click="SnapshotButton_Click"
+                        ToolTip="Take a snapshot of the current frame"
+                        AutomationProperties.Name="Snapshot Button"/>
+            </StackPanel>
+        </Border>
 
         <!-- Status bar -->
-        <StatusBar Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" Margin="0,15.4,0,0" Height="36.3">
+        <StatusBar Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" Margin="0,16,0,0" Height="36">
             <StatusBarItem>
-                <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="12.1"/>
+                <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="13"/>
             </StatusBarItem>
             <StatusBarItem>
-                <TextBlock x:Name="FpsTextBlock" Text="FPS: 0" FontSize="12.1"/>
+                <TextBlock x:Name="FpsTextBlock" Text="FPS: 0" FontSize="13"/>
             </StatusBarItem>
             <StatusBarItem>
-                <TextBlock x:Name="InferenceTimeTextBlock" Text="Inference: 0 ms" FontSize="12.1"/>
+                <TextBlock x:Name="InferenceTimeTextBlock" Text="Inference: 0 ms" FontSize="13"/>
             </StatusBarItem>
         </StatusBar>
     </Grid>

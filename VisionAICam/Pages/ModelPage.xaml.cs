@@ -1,273 +1,215 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Net.Http;
-using System.Threading.Tasks;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Win32;
-using VisionAICam; // For AppSettings and SettingsManager
-using Python.Runtime; // Requires pythonnet NuGet package
+using System.Windows.Input;
+using System.Windows.Media.Imaging;
+using Ookii.Dialogs.Wpf;
+using Python.Runtime;
 
 namespace VisionAICam.Pages
 {
     public partial class ModelPage : Page
     {
-        private readonly string ModelsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models");
-        private readonly string DatasetsFolder = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Datasets");
+        // Store image list and navigation state
+        private List<string> _imagePaths = new();
+        private int _currentImageIndex = -1;
+        private int _currentImageWidth;
+        private int _currentImageHeight;
+        private string? _currentImagePath;
+
+        // Full-screen state
+        private bool _isFullScreen = false;
 
         public ModelPage()
         {
             InitializeComponent();
+            this.Focusable = true;
+            this.Loaded += (s, e) => this.Focus();
         }
 
-        private async void LoadModelButton_Click(object sender, RoutedEventArgs e)
+        // Keyboard navigation: W for next, S for previous (matches XAML KeyDown="Page_KeyDown")
+        private void Page_KeyDown(object sender, KeyEventArgs e)
         {
-            if (!Directory.Exists(ModelsFolder))
-                Directory.CreateDirectory(ModelsFolder);
-
-            string ptPath = null;
-            var result = MessageBox.Show(
-                "Do you want to download a YOLOv8 pre-trained .pt model from a URL?\nClick 'No' to select a local file.",
-                "Load Pre-trained Model", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Yes)
+            if (e.Key == Key.F)
             {
-                var url = PromptForUrl();
-                if (string.IsNullOrWhiteSpace(url)) return;
+                NextImage_Click(sender, e);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.S)
+            {
+                PrevImage_Click(sender, e);
+                e.Handled = true;
+            }
+        }
 
-                var saveDialog = new SaveFileDialog
-                {
-                    Filter = "YOLOv8 Pre-trained Model (*.pt)|*.pt",
-                    FileName = "yolov8n.pt",
-                    InitialDirectory = ModelsFolder
-                };
-                if (saveDialog.ShowDialog() != true) return;
+        // Show a step-by-step help dialog
+        private void ShowHelp()
+        {
+            string helpText =
+@"Step 1: Load a Folder
+- Click 'Load Folder' to select a folder of images for annotation.
 
-                var fileName = Path.GetFileName(saveDialog.FileName);
-                ptPath = Path.Combine(ModelsFolder, fileName);
+Step 2: Manage Labels
+- Select or add a label from the dropdown before drawing boxes.
 
-                ProgressMessage.Text = "Downloading pre-trained model, please wait...";
-                ProgressOverlay.Visibility = Visibility.Visible;
-                try
+Step 3: Annotate
+- Drag on the image to draw a bounding box.
+- Click 'Add Box' to save the box with the selected label.
+
+Step 4: Edit or Remove
+- Select a box in the list to remove it if needed.
+
+Step 5: Save
+- Click 'Save Annotations' to save your work for the current image.
+
+Step 6: Export
+- When finished, click 'Export YOLO' to export all annotations in Roboflow/YOLO format.
+
+Tip: Use 'Previous' and 'Next' to navigate images. Progress is shown above the image.";
+
+            MessageBox.Show(helpText, "How to Prepare and Annotate Data", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        // Load a folder of images using Ookii.Dialogs.Wpf
+        private void LoadFolder_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select a folder of images",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string folderPath = dialog.SelectedPath;
+                _imagePaths = Directory.GetFiles(folderPath, "*.*")
+                    .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(f => f)
+                    .ToList();
+
+                if (_imagePaths.Count == 0)
                 {
-                    await DownloadFileAsync(url, ptPath);
-                    CurrentModelPathText.Text = ptPath;
-                    ModelDetailsText.Text = "Downloaded YOLOv8 pre-trained .pt model.";
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Download failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("No images found in the selected folder.", "No Images", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
-                finally
-                {
-                    ProgressOverlay.Visibility = Visibility.Collapsed;
-                }
+
+                _currentImageIndex = 0;
+                LoadImageAtIndex(_currentImageIndex);
             }
-            else if (result == MessageBoxResult.No)
+        }
+
+        // Full-screen toggle for image area
+        private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_isFullScreen)
             {
-                var openDialog = new OpenFileDialog
-                {
-                    Filter = "YOLOv8 Pre-trained Model (*.pt)|*.pt",
-                    InitialDirectory = ModelsFolder
-                };
-                if (openDialog.ShowDialog() != true) return;
+                // Hide all except image area
+                HelpExpander.Visibility = Visibility.Collapsed;
+                TitlePanel.Visibility = Visibility.Collapsed;
+                ModelDetailsPanel.Visibility = Visibility.Collapsed;
+                AnnotationPanel.Visibility = Visibility.Collapsed;
 
-                var selectedFile = openDialog.FileName;
-                var fileName = Path.GetFileName(selectedFile);
-                ptPath = Path.Combine(ModelsFolder, fileName);
-
-                if (!string.Equals(selectedFile, ptPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    File.Copy(selectedFile, ptPath, true);
-                }
-
-                CurrentModelPathText.Text = ptPath;
-                ModelDetailsText.Text = "Selected YOLOv8 pre-trained .pt model.";
+                // Stretch image area to fill
+                Grid.SetRow(ImageAreaContainer, 0);
+                Grid.SetRowSpan(ImageAreaContainer, 4);
+                _isFullScreen = true;
             }
             else
             {
+                // Restore all UI
+                HelpExpander.Visibility = Visibility.Visible;
+                TitlePanel.Visibility = Visibility.Visible;
+                ModelDetailsPanel.Visibility = Visibility.Visible;
+                AnnotationPanel.Visibility = Visibility.Visible;
+
+                // Restore image area position
+                Grid.SetRow(ImageAreaContainer, 3);
+                Grid.SetRowSpan(ImageAreaContainer, 1);
+                _isFullScreen = false;
+            }
+        }
+
+        // Load image by index and update UI
+        private void LoadImageAtIndex(int index)
+        {
+            if (_imagePaths == null || index < 0 || index >= _imagePaths.Count)
                 return;
-            }
+
+            var imagePath = _imagePaths[index];
+            _currentImagePath = imagePath;
+
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(imagePath);
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+
+            LabelingImage.Source = bitmap;
+            _currentImageWidth = bitmap.PixelWidth;
+            _currentImageHeight = bitmap.PixelHeight;
+
+            // Clear previous annotations
+            AnnotationListView.ItemsSource = null;
+            BoundingBoxCanvas.Children.Clear();
+
+            // Update progress text
+            ImageProgressText.Text = $"Image {index + 1} of {_imagePaths.Count} ({(int)(((index + 1) * 100.0) / _imagePaths.Count)}%)";
+
+            // Optionally update model details or status
+            ModelDetailsText.Text = $"Loaded: {Path.GetFileName(imagePath)} ({_currentImageWidth}x{_currentImageHeight})";
         }
 
-        private void SelectModelForRunningButton_Click(object sender, RoutedEventArgs e)
+        private void PrevImage_Click(object sender, RoutedEventArgs e)
         {
-            if (!Directory.Exists(ModelsFolder))
-                Directory.CreateDirectory(ModelsFolder);
-
-            var openDialog = new OpenFileDialog
+            if (_currentImageIndex > 0)
             {
-                Filter = "YOLOv8 Model (*.pt)|*.pt",
-                InitialDirectory = ModelsFolder,
-                Title = "Select Model for Running"
-            };
-            if (openDialog.ShowDialog() != true) return;
-
-            var selectedFile = openDialog.FileName;
-            var fileName = Path.GetFileName(selectedFile);
-            var modelPath = Path.Combine(ModelsFolder, fileName);
-
-            if (!string.Equals(selectedFile, modelPath, StringComparison.OrdinalIgnoreCase))
-            {
-                File.Copy(selectedFile, modelPath, true);
+                SaveAnnotations_Click(sender, e); // Optionally save before navigating
+                _currentImageIndex--;
+                LoadImageAtIndex(_currentImageIndex);
             }
-
-            CurrentModelPathText.Text = modelPath;
-            ModelDetailsText.Text = "Model selected for running:\n" + modelPath;
         }
 
-        private void SetAsDefaultModelButton_Click(object sender, RoutedEventArgs e)
+        private void NextImage_Click(object sender, RoutedEventArgs e)
         {
-            var modelPath = CurrentModelPathText.Text;
-            if (string.IsNullOrWhiteSpace(modelPath) || modelPath == "(none loaded)" || modelPath == "(none selected)")
+            if (_imagePaths != null && _currentImageIndex < _imagePaths.Count - 1)
             {
-                MessageBox.Show("No model selected to set as default.", "Set Default Model", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
+                SaveAnnotations_Click(sender, e); // Optionally save before navigating
+                _currentImageIndex++;
+                LoadImageAtIndex(_currentImageIndex);
             }
-
-            var settings = SettingsManager.Load();
-            settings.DefaultModelPath = modelPath;
-            SettingsManager.Save(settings);
-
-            MessageBox.Show("Default model updated.", "Set Default Model", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
-        private async void DownloadDatasetButton_Click(object sender, RoutedEventArgs e)
+        private void AddBox_Click(object sender, RoutedEventArgs e)
         {
-            if (!Directory.Exists(DatasetsFolder))
-                Directory.CreateDirectory(DatasetsFolder);
-
-            var url = PromptForDatasetUrl();
-            if (string.IsNullOrWhiteSpace(url)) return;
-
-            var saveDialog = new SaveFileDialog
-            {
-                Filter = "ZIP Archive (*.zip)|*.zip|All Files|*.*",
-                FileName = "dataset.zip",
-                InitialDirectory = DatasetsFolder
-            };
-            if (saveDialog.ShowDialog() != true) return;
-
-            var fileName = Path.GetFileName(saveDialog.FileName);
-            var datasetPath = Path.Combine(DatasetsFolder, fileName);
-
-            ProgressMessage.Text = "Downloading dataset, please wait...";
-            ProgressOverlay.Visibility = Visibility.Visible;
-            try
-            {
-                await DownloadFileAsync(url, datasetPath);
-                TrainingStatusText.Text = $"Downloaded dataset: {datasetPath}";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Dataset download failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                ProgressOverlay.Visibility = Visibility.Collapsed;
-            }
+            // TODO: Implement add bounding box logic
         }
 
-        private async void TrainModelButton_Click(object sender, RoutedEventArgs e)
+        private void RemoveSelected_Click(object sender, RoutedEventArgs e)
         {
-            int epochs = int.TryParse(EpochsTextBox.Text, out var eVal) ? eVal : 50;
-            int batchSize = int.TryParse(BatchSizeTextBox.Text, out var bVal) ? bVal : 16;
-            double learningRate = double.TryParse(LearningRateTextBox.Text, out var lVal) ? lVal : 0.01;
-            int imageSize = int.TryParse(ImageSizeTextBox.Text, out var iVal) ? iVal : 640;
-            string pretrainedWeights = PretrainedWeightsTextBox.Text;
-
-            ProgressMessage.Text = "Training model, please wait...";
-            ProgressOverlay.Visibility = Visibility.Visible;
-            TrainingStatusText.Text = "Training in progress...";
-
-            try
-            {
-                // Placeholder for actual training
-                await Task.Delay(2000);
-                TrainingStatusText.Text = "Training complete!";
-            }
-            catch (Exception ex)
-            {
-                TrainingStatusText.Text = $"Training failed: {ex.Message}";
-            }
-            finally
-            {
-                ProgressOverlay.Visibility = Visibility.Collapsed;
-            }
+            // TODO: Implement remove selected annotation logic
         }
 
-        private async Task DownloadFileAsync(string url, string savePath)
+        private void SaveAnnotations_Click(object sender, RoutedEventArgs e)
         {
-            using var client = new HttpClient();
-            var data = await client.GetByteArrayAsync(url);
-            await File.WriteAllBytesAsync(savePath, data);
+            // TODO: Implement save annotations logic
         }
 
-        private string PromptForUrl()
+        private void ExportYolo_Click(object sender, RoutedEventArgs e)
         {
-            var inputDialog = new Window
-            {
-                Title = "Enter YOLOv8 Pre-trained .pt Model URL",
-                Width = 400,
-                Height = 120,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize,
-                Owner = Application.Current.MainWindow
-            };
-            var stack = new StackPanel { Margin = new Thickness(10) };
-            var textBox = new TextBox
-            {
-                Width = 360,
-                Text = "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt"
-            };
-            var okButton = new Button { Content = "OK", Width = 80, Margin = new Thickness(0, 10, 0, 0), IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right };
-            stack.Children.Add(new TextBlock { Text = "Paste the direct download URL for the YOLOv8 pre-trained .pt model:" });
-            stack.Children.Add(textBox);
-            stack.Children.Add(okButton);
-            inputDialog.Content = stack;
-
-            string url = null;
-            okButton.Click += (s, e) => { url = textBox.Text; inputDialog.DialogResult = true; inputDialog.Close(); };
-            inputDialog.ShowDialog();
-            return url;
+            // TODO: Implement YOLO export logic
         }
 
-        private string PromptForDatasetUrl()
-        {
-            var inputDialog = new Window
-            {
-                Title = "Enter Dataset URL",
-                Width = 400,
-                Height = 120,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                ResizeMode = ResizeMode.NoResize,
-                Owner = Application.Current.MainWindow
-            };
-            var stack = new StackPanel { Margin = new Thickness(10) };
-            var textBox = new TextBox
-            {
-                Width = 360,
-                Text = "https://ultralytics.com/assets/coco128.zip"
-            };
-            var okButton = new Button { Content = "OK", Width = 80, Margin = new Thickness(0, 10, 0, 0), IsDefault = true, HorizontalAlignment = HorizontalAlignment.Right };
-            stack.Children.Add(new TextBlock { Text = "Paste the direct download URL for the dataset:" });
-            stack.Children.Add(textBox);
-            stack.Children.Add(okButton);
-            inputDialog.Content = stack;
-
-            string url = null;
-            okButton.Click += (s, e) => { url = textBox.Text; inputDialog.DialogResult = true; inputDialog.Close(); };
-            inputDialog.ShowDialog();
-            return url;
-        }
-
-        // --- Python.NET Model Test Example ---
-
+        // Python.NET model test (optional, for advanced users)
         private void TestModelWithPythonNetButton_Click(object sender, RoutedEventArgs e)
         {
-            var modelPath = CurrentModelPathText.Text;
-            if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
+            var modelPath = ModelDetailsText.Text?.Trim();
+            if (string.IsNullOrEmpty(modelPath) || !File.Exists(modelPath))
             {
                 MessageBox.Show("No valid model selected.", "Test Model", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -275,7 +217,7 @@ namespace VisionAICam.Pages
 
             try
             {
-                var result = TestModelWithPythonNet(modelPath);
+                var result = RunPythonNetInference(modelPath);
                 MessageBox.Show(result, "Python.NET Test Result", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
@@ -284,31 +226,25 @@ namespace VisionAICam.Pages
             }
         }
 
-        private string TestModelWithPythonNet(string modelPath)
+        private string RunPythonNetInference(string modelPath)
         {
-            string pythonScriptDir = AppDomain.CurrentDomain.BaseDirectory; // Adjust if needed
+            string pythonScriptDir = AppDomain.CurrentDomain.BaseDirectory;
 
             using (Py.GIL())
             {
                 dynamic sys = Py.Import("sys");
-                bool pathExists = false;
-                foreach (dynamic p in sys.path)
-                {
-                    if (pythonScriptDir.Equals((string)p.ToString(), StringComparison.OrdinalIgnoreCase))
-                    {
-                        pathExists = true;
-                        break;
-                    }
-                }
-                if (!pathExists)
+                if (!sys.path.__contains__(pythonScriptDir))
                     sys.path.append(pythonScriptDir);
 
                 dynamic inference = Py.Import("inference");
-                // Use a test image (ensure test.jpg exists in your base directory)
-                byte[] dummyImage = File.ReadAllBytes("test.jpg");
+                var testImagePath = Path.Combine(pythonScriptDir, "test.jpg");
+                if (!File.Exists(testImagePath))
+                    throw new FileNotFoundException("Test image (test.jpg) not found.", testImagePath);
+
+                byte[] dummyImage = File.ReadAllBytes(testImagePath);
                 dynamic results = inference.detect(dummyImage);
 
-                string output = "";
+                var output = "";
                 foreach (dynamic det in results)
                 {
                     output += $"{det["class"]} ({det["confidence"]}): {string.Join(",", det["box"])}\n";

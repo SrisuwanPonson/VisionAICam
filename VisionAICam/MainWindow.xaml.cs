@@ -104,5 +104,14 @@ namespace VisionAICam
                 _productionPage = new Production();
             MainContent.Navigate(_productionPage);
         }
+
+        private void ExitButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_productionPage != null && _productionPage.IsRunning)
+            {
+                _productionPage.StopProduction();
+            }
+            Application.Current.Shutdown();
+        }
     }
 }

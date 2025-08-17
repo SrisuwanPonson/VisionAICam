@@ -43,6 +43,9 @@ namespace VisionAICam.Pages
             _isPaused = false;
             StatusTextBlock.Text = "Production started";
 
+            // Show the loading overlay
+            LoadingOverlay.Visibility = Visibility.Visible;
+
             // Load settings
             _appSettings = SettingsManager.Load();
             int cameraIndex = _appSettings?.CameraIndex ?? 0;
@@ -52,6 +55,7 @@ namespace VisionAICam.Pages
             if (!_capture.IsOpened())
             {
                 StatusTextBlock.Text = "Could not open camera.";
+                LoadingOverlay.Visibility = Visibility.Collapsed;
                 _isRunning = false;
                 return;
             }
@@ -79,6 +83,7 @@ namespace VisionAICam.Pages
             _isRunning = false;
             _isPaused = false;
             StatusTextBlock.Text = "Production stopped";
+            LoadingOverlay.Visibility = Visibility.Collapsed;
             _cameraThread?.Join();
             _capture?.Release();
             _capture?.Dispose();
@@ -116,7 +121,11 @@ namespace VisionAICam.Pages
 
             if (!File.Exists(pythonDllPath))
             {
-                Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Python DLL not found: {pythonDllPath}");
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = $"Python DLL not found: {pythonDllPath}";
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                });
                 return;
             }
 
@@ -127,6 +136,47 @@ namespace VisionAICam.Pages
             try
             {
                 using var mat = new Mat();
+                // Show progress message and clear image
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = "Loading model and running first inference...";
+                    ProductionImage.Source = null;
+                    _detections.Clear();
+                    ClearBoundingBoxes();
+                });
+
+                // Wait for the first valid frame
+                while (_isRunning && _capture != null && _capture.IsOpened())
+                {
+                    if (_isPaused)
+                    {
+                        Thread.Sleep(100);
+                        continue;
+                    }
+
+                    _capture.Read(mat);
+                    if (!mat.Empty())
+                        break;
+                    Thread.Sleep(30);
+                }
+
+                // Run first inference (blocking)
+                var firstDetections = GetDetectionsFromPython(mat);
+
+                Dispatcher.BeginInvoke(() =>
+                {
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    StatusTextBlock.Text = "Production started";
+                    var bitmapSource = mat.ToBitmapSource();
+                    bitmapSource.Freeze();
+                    ProductionImage.Source = bitmapSource;
+                    _detections.Clear();
+                    foreach (var d in firstDetections)
+                        _detections.Add(d);
+                    DrawBoundingBoxes(firstDetections);
+                });
+
+                // Main loop: show image and update detections as usual
                 while (_isRunning && _capture != null && _capture.IsOpened())
                 {
                     if (_isPaused)
