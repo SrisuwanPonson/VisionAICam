@@ -13,66 +13,42 @@ using Python.Runtime;
 
 namespace VisionAICam.Pages
 {
-    public enum AnnotationType
-    {
-        Rectangle,
-        Polygon,
-        FreePen
-    }
-
-    public class AnnotationRecord
-    {
-        public string ImageName { get; set; }
-        public string Label { get; set; }
-        public AnnotationType AnnotationType { get; set; }
-        public List<Point> Points { get; set; } = new();
-
-        public string Coordinates
-        {
-            get
-            {
-                if (AnnotationType == AnnotationType.Rectangle && Points.Count == 2)
-                {
-                    var x = Math.Min(Points[0].X, Points[1].X);
-                    var y = Math.Min(Points[0].Y, Points[1].Y);
-                    var w = Math.Abs(Points[1].X - Points[0].X);
-                    var h = Math.Abs(Points[1].Y - Points[0].Y);
-                    return $"({x:0},{y:0},{w:0},{h:0})";
-                }
-                return string.Join(";", Points.Select(p => $"({p.X:0},{p.Y:0})"));
-            }
-        }
-    }
-
     public partial class ModelPage : Page
     {
+        // Store image list and navigation state
         private List<string> _imagePaths = new();
         private int _currentImageIndex = -1;
         private int _currentImageWidth;
         private int _currentImageHeight;
         private string? _currentImagePath;
 
+        // Full-screen state
         private bool _isFullScreen = false;
 
+        // Drawing mode
         private enum DrawingMode { FreePen, Rectangle, Polygon }
         private DrawingMode _currentDrawingMode = DrawingMode.Rectangle;
 
+        // Polygon drawing state
         private List<Point> _currentPolygonPoints = new();
         private Polyline? _currentPolyline = null;
         private bool _isDrawingPolygon = false;
 
+        // Rectangle drawing state
         private Point _rectStartPoint;
         private Rectangle? _currentRectangle = null;
         private bool _isDrawingRectangle = false;
 
+        // Free pen drawing state
         private Polyline? _currentFreePenLine = null;
         private bool _isDrawingFreePen = false;
 
-        private Stack<List<AnnotationRecord>> _undoStack = new();
-        private Stack<List<AnnotationRecord>> _redoStack = new();
+        // Undo/redo stacks
+        private Stack<List<object>> _undoStack = new();
+        private Stack<List<object>> _redoStack = new();
 
-        // Unified annotation list
-        private List<AnnotationRecord> Annotations = new();
+        // Example annotation list (replace object with your annotation class)
+        private List<object> Annotations = new();
 
         public ModelPage()
         {
@@ -80,7 +56,10 @@ namespace VisionAICam.Pages
             this.Focusable = true;
             this.Loaded += (s, e) => this.Focus();
 
+            // Drawing mode selector
             DrawingModeComboBox.SelectionChanged += DrawingModeComboBox_SelectionChanged;
+
+            // Drawing events
             BoundingBoxCanvas.MouseLeftButtonDown += BoundingBoxCanvas_MouseLeftButtonDown;
             BoundingBoxCanvas.MouseLeftButtonUp += BoundingBoxCanvas_MouseLeftButtonUp;
             BoundingBoxCanvas.MouseMove += BoundingBoxCanvas_MouseMove;
@@ -88,9 +67,10 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
         }
 
+        // Keyboard shortcuts
         private void Page_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
+            if (e.Key == Key.W) { NextImage_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.A) { AddBox_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.D) { RemoveSelected_Click(sender, e); e.Handled = true; }
@@ -100,6 +80,7 @@ namespace VisionAICam.Pages
             else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
         }
 
+        // Drawing mode selector logic
         private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             switch ((DrawingModeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString())
@@ -108,6 +89,7 @@ namespace VisionAICam.Pages
                 case "Rectangle": _currentDrawingMode = DrawingMode.Rectangle; break;
                 case "Polygon": _currentDrawingMode = DrawingMode.Polygon; break;
             }
+            // Reset all drawing states
             _isDrawingPolygon = false;
             _currentPolygonPoints.Clear();
             if (_currentPolyline != null)
@@ -206,36 +188,15 @@ namespace VisionAICam.Pages
             {
                 _isDrawingRectangle = false;
                 BoundingBoxCanvas.ReleaseMouseCapture();
-
-                // Save rectangle annotation
-                var pt1 = _rectStartPoint;
-                var pt2 = new Point(Canvas.GetLeft(_currentRectangle) + _currentRectangle.Width, Canvas.GetTop(_currentRectangle) + _currentRectangle.Height);
-                var label = LabelComboBox.SelectedItem?.ToString() ?? "Unlabeled";
-                Annotations.Add(new AnnotationRecord
-                {
-                    ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
-                    Label = label,
-                    AnnotationType = AnnotationType.Rectangle,
-                    Points = new List<Point> { pt1, pt2 }
-                });
-                SaveStateForUndo();
-                RefreshAnnotations();
+                // TODO: Save rectangle annotation here
+                // Example: Annotations.Add(new RectangleAnnotation(...));
             }
             else if (_isDrawingFreePen && _currentFreePenLine != null)
             {
                 _isDrawingFreePen = false;
                 BoundingBoxCanvas.ReleaseMouseCapture();
-
-                var label = LabelComboBox.SelectedItem?.ToString() ?? "Unlabeled";
-                Annotations.Add(new AnnotationRecord
-                {
-                    ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
-                    Label = label,
-                    AnnotationType = AnnotationType.FreePen,
-                    Points = _currentFreePenLine.Points.ToList()
-                });
-                SaveStateForUndo();
-                RefreshAnnotations();
+                // TODO: Save free pen annotation here
+                // Example: Annotations.Add(new FreePenAnnotation(...));
             }
         }
 
@@ -259,6 +220,7 @@ namespace VisionAICam.Pages
         {
             if (_currentPolygonPoints.Count > 2)
             {
+                // Create a Polygon shape that auto-closes
                 var polygon = new Polygon
                 {
                     Stroke = Brushes.Red,
@@ -268,18 +230,13 @@ namespace VisionAICam.Pages
                 };
                 BoundingBoxCanvas.Children.Add(polygon);
 
-                var label = LabelComboBox.SelectedItem?.ToString() ?? "Unlabeled";
-                Annotations.Add(new AnnotationRecord
-                {
-                    ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
-                    Label = label,
-                    AnnotationType = AnnotationType.Polygon,
-                    Points = _currentPolygonPoints.ToList()
-                });
+                // Store polygon annotation (replace with your annotation class as needed)
+                Annotations.Add(new PolygonAnnotation("Polygon", _currentPolygonPoints.ToList()));
                 SaveStateForUndo();
                 RefreshAnnotations();
             }
 
+            // Remove the temporary polyline
             _isDrawingPolygon = false;
             _currentPolygonPoints.Clear();
             if (_currentPolyline != null)
@@ -289,15 +246,11 @@ namespace VisionAICam.Pages
             }
         }
 
+        // Undo/redo logic
         private void SaveStateForUndo()
         {
-            _undoStack.Push(Annotations.Select(a => new AnnotationRecord
-            {
-                ImageName = a.ImageName,
-                Label = a.Label,
-                AnnotationType = a.AnnotationType,
-                Points = a.Points.ToList()
-            }).ToList());
+            // Deep copy your annotation list if needed
+            _undoStack.Push(Annotations.ToList());
             _redoStack.Clear();
         }
 
@@ -305,13 +258,7 @@ namespace VisionAICam.Pages
         {
             if (_undoStack.Count > 0)
             {
-                _redoStack.Push(Annotations.Select(a => new AnnotationRecord
-                {
-                    ImageName = a.ImageName,
-                    Label = a.Label,
-                    AnnotationType = a.AnnotationType,
-                    Points = a.Points.ToList()
-                }).ToList());
+                _redoStack.Push(Annotations.ToList());
                 Annotations = _undoStack.Pop();
                 RefreshAnnotations();
             }
@@ -321,13 +268,7 @@ namespace VisionAICam.Pages
         {
             if (_redoStack.Count > 0)
             {
-                _undoStack.Push(Annotations.Select(a => new AnnotationRecord
-                {
-                    ImageName = a.ImageName,
-                    Label = a.Label,
-                    AnnotationType = a.AnnotationType,
-                    Points = a.Points.ToList()
-                }).ToList());
+                _undoStack.Push(Annotations.ToList());
                 Annotations = _redoStack.Pop();
                 RefreshAnnotations();
             }
@@ -335,65 +276,39 @@ namespace VisionAICam.Pages
 
         private void RefreshAnnotations()
         {
-            // Filter and show only annotations for the current image
-            var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-            var filtered = Annotations.Where(a => a.ImageName == imageName).ToList();
-            AnnotationListView.ItemsSource = filtered;
-
-            // Redraw all shapes on the canvas
-            BoundingBoxCanvas.Children.Clear();
-            foreach (var ann in filtered)
-            {
-                switch (ann.AnnotationType)
-                {
-                    case AnnotationType.Rectangle:
-                        if (ann.Points.Count == 2)
-                        {
-                            var x = Math.Min(ann.Points[0].X, ann.Points[1].X);
-                            var y = Math.Min(ann.Points[0].Y, ann.Points[1].Y);
-                            var w = Math.Abs(ann.Points[1].X - ann.Points[0].X);
-                            var h = Math.Abs(ann.Points[1].Y - ann.Points[0].Y);
-                            var rect = new Rectangle
-                            {
-                                Stroke = Brushes.Blue,
-                                StrokeThickness = 2,
-                                Width = w,
-                                Height = h
-                            };
-                            Canvas.SetLeft(rect, x);
-                            Canvas.SetTop(rect, y);
-                            BoundingBoxCanvas.Children.Add(rect);
-                        }
-                        break;
-                    case AnnotationType.Polygon:
-                        if (ann.Points.Count > 2)
-                        {
-                            var polygon = new Polygon
-                            {
-                                Stroke = Brushes.Red,
-                                StrokeThickness = 2,
-                                Fill = Brushes.Transparent,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            BoundingBoxCanvas.Children.Add(polygon);
-                        }
-                        break;
-                    case AnnotationType.FreePen:
-                        if (ann.Points.Count > 1)
-                        {
-                            var polyline = new Polyline
-                            {
-                                Stroke = Brushes.Green,
-                                StrokeThickness = 2,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            BoundingBoxCanvas.Children.Add(polyline);
-                        }
-                        break;
-                }
-            }
+            // Redraw all annotations on the canvas and update the list view
+            // TODO: Implement this based on your annotation data structure
         }
 
+        // Show a step-by-step help dialog
+        private void ShowHelp()
+        {
+            string helpText =
+@"Step 1: Load a Folder
+- Click 'Load Folder' to select a folder of images for annotation.
+
+Step 2: Manage Labels
+- Select or add a label from the dropdown before drawing boxes.
+
+Step 3: Annotate
+- Drag on the image to draw a bounding box.
+- Click 'Add Box' to save the box with the selected label.
+
+Step 4: Edit or Remove
+- Select a box in the list to remove it if needed.
+
+Step 5: Save
+- Click 'Save Annotations' to save your work for the current image.
+
+Step 6: Export
+- When finished, click 'Export YOLO' to export all annotations in Roboflow/YOLO format.
+
+Tip: Use 'Previous' and 'Next' to navigate images. Progress is shown above the image.";
+
+            MessageBox.Show(helpText, "How to Prepare and Annotate Data", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        // Load a folder of images using Ookii.Dialogs.Wpf
         private void LoadFolder_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new VistaFolderBrowserDialog
@@ -424,30 +339,38 @@ namespace VisionAICam.Pages
             }
         }
 
+        // Full-screen toggle for image area
         private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
         {
             if (!_isFullScreen)
             {
+                // Hide all except image area
                 HelpExpander.Visibility = Visibility.Collapsed;
                 TitlePanel.Visibility = Visibility.Collapsed;
-               
+                ModelDetailsPanel.Visibility = Visibility.Collapsed;
                 AnnotationPanel.Visibility = Visibility.Collapsed;
+
+                // Stretch image area to fill
                 Grid.SetRow(ImageAreaContainer, 0);
                 Grid.SetRowSpan(ImageAreaContainer, 4);
                 _isFullScreen = true;
             }
             else
             {
+                // Restore all UI
                 HelpExpander.Visibility = Visibility.Visible;
                 TitlePanel.Visibility = Visibility.Visible;
-              
+                ModelDetailsPanel.Visibility = Visibility.Visible;
                 AnnotationPanel.Visibility = Visibility.Visible;
+
+                // Restore image area position
                 Grid.SetRow(ImageAreaContainer, 3);
                 Grid.SetRowSpan(ImageAreaContainer, 1);
                 _isFullScreen = false;
             }
         }
 
+        // Load image by index and update UI
         private void LoadImageAtIndex(int index)
         {
             if (_imagePaths == null || index < 0 || index >= _imagePaths.Count)
@@ -466,20 +389,26 @@ namespace VisionAICam.Pages
             _currentImageWidth = bitmap.PixelWidth;
             _currentImageHeight = bitmap.PixelHeight;
 
+            // Set canvas size to match image
             BoundingBoxCanvas.Width = _currentImageWidth;
             BoundingBoxCanvas.Height = _currentImageHeight;
 
-            RefreshAnnotations();
+            // Clear previous annotations and drawings
+            AnnotationListView.ItemsSource = null;
+            BoundingBoxCanvas.Children.Clear();
 
+            // Update progress text
             ImageProgressText.Text = $"Image {index + 1} of {_imagePaths.Count} ({(int)(((index + 1) * 100.0) / _imagePaths.Count)}%)";
-           
+
+            // Optionally update model details or status
+            ModelDetailsText.Text = $"Loaded: {System.IO.Path.GetFileName(imagePath)} ({_currentImageWidth}x{_currentImageHeight})";
         }
 
         private void PrevImage_Click(object sender, RoutedEventArgs e)
         {
             if (_currentImageIndex > 0)
             {
-                SaveAnnotations_Click(sender, e);
+                SaveAnnotations_Click(sender, e); // Optionally save before navigating
                 _currentImageIndex--;
                 LoadImageAtIndex(_currentImageIndex);
             }
@@ -489,7 +418,7 @@ namespace VisionAICam.Pages
         {
             if (_imagePaths != null && _currentImageIndex < _imagePaths.Count - 1)
             {
-                SaveAnnotations_Click(sender, e);
+                SaveAnnotations_Click(sender, e); // Optionally save before navigating
                 _currentImageIndex++;
                 LoadImageAtIndex(_currentImageIndex);
             }
@@ -497,83 +426,43 @@ namespace VisionAICam.Pages
 
         private void AddBox_Click(object sender, RoutedEventArgs e)
         {
-            // Optionally, implement manual add box logic here
+            // TODO: Implement add bounding box logic
         }
 
         private void RemoveSelected_Click(object sender, RoutedEventArgs e)
         {
-            if (AnnotationListView.SelectedItem is AnnotationRecord selected)
-            {
-                Annotations.Remove(selected);
-                SaveStateForUndo();
-                RefreshAnnotations();
-            }
+            // TODO: Implement remove selected annotation logic
         }
 
         private void SaveAnnotations_Click(object sender, RoutedEventArgs e)
         {
-            // Optionally, implement save-to-file logic here
+            // TODO: Implement save annotations logic
         }
 
         private void ExportYolo_Click(object sender, RoutedEventArgs e)
         {
-            // Optionally, implement YOLO export logic here
+            // TODO: Implement YOLO export logic
         }
 
-        private void AddClassButton_Click(object sender, RoutedEventArgs e)
+        // Python.NET model test (optional, for advanced users)
+        private void TestModelWithPythonNetButton_Click(object sender, RoutedEventArgs e)
         {
-            string newClass = NewClassTextBox.Text.Trim();
-            if (!string.IsNullOrEmpty(newClass))
+            var modelPath = ModelDetailsText.Text?.Trim();
+            if (string.IsNullOrEmpty(modelPath) || !System.IO.File.Exists(modelPath))
             {
-                bool exists = false;
-                foreach (var item in LabelComboBox.Items)
-                {
-                    if (item is ComboBoxItem cbi && cbi.Content?.ToString() == newClass)
-                    {
-                        exists = true;
-                        break;
-                    }
-                    else if (item is string s && s == newClass)
-                    {
-                        exists = true;
-                        break;
-                    }
-                }
-
-                if (!exists)
-                {
-                    LabelComboBox.Items.Add(newClass);
-                    LabelComboBox.SelectedItem = newClass;
-                }
-                NewClassTextBox.Text = "";
+                MessageBox.Show("No valid model selected.", "Test Model", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
             }
-        }
 
-        private void ShowHelp()
-        {
-            string helpText =
-@"Step 1: Load a Folder
-- Click 'Load Folder' to select a folder of images for annotation.
-
-Step 2: Manage Labels
-- Select or add a label from the dropdown before drawing boxes.
-
-Step 3: Annotate
-- Drag on the image to draw a bounding box.
-- Click 'Add Box' to save the box with the selected label.
-
-Step 4: Edit or Remove
-- Select a box in the list to remove it if needed.
-
-Step 5: Save
-- Click 'Save Annotations' to save your work for the current image.
-
-Step 6: Export
-- When finished, click 'Export YOLO' to export all annotations in Roboflow/YOLO format.
-
-Tip: Use 'Previous' and 'Next' to navigate images. Progress is shown above the image.";
-
-            MessageBox.Show(helpText, "How to Prepare and Annotate Data", MessageBoxButton.OK, MessageBoxImage.Information);
+            try
+            {
+                var result = RunPythonNetInference(modelPath);
+                MessageBox.Show(result, "Python.NET Test Result", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Python.NET test failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private string RunPythonNetInference(string modelPath)
@@ -601,6 +490,18 @@ Tip: Use 'Previous' and 'Next' to navigate images. Progress is shown above the i
                 }
                 return output;
             }
+        }
+    }
+
+    // Example polygon annotation class
+    public class PolygonAnnotation
+    {
+        public string Label { get; set; }
+        public List<Point> Points { get; set; }
+        public PolygonAnnotation(string label, List<Point> points)
+        {
+            Label = label;
+            Points = points;
         }
     }
 }
