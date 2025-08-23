@@ -1,7 +1,8 @@
 ﻿<Page x:Class="VisionAICam.Pages.CameraPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Title="CameraPage">
+      Title="CameraPage"
+      Background="#FF2D2D30">
     <Page.Resources>
         <Style x:Key="RoundedButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#FF1976D2"/>
@@ -36,7 +37,7 @@
             <Setter Property="BorderThickness" Value="1"/>
         </Style>
     </Page.Resources>
-    <Grid>
+    <Grid Background="#FF2D2D30">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -88,7 +89,14 @@
         </StackPanel>
 
         <!-- Camera Image Display -->
-        <Border Grid.Row="2" Margin="0,12,0,0" BorderBrush="#90CAF9" BorderThickness="1" CornerRadius="8" Background="#E3F2FD">
+        <Border Grid.Row="2"
+                Margin="0,12,0,0"
+                BorderBrush="#90CAF9"
+                BorderThickness="1"
+                CornerRadius="8"
+                Background="#232323"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch">
             <Image x:Name="CameraImage"
                    Stretch="Uniform"
                    HorizontalAlignment="Stretch"

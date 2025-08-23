@@ -2,61 +2,89 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Title="Production"
-      Width="1232"
-      Height="693"
-      x:Name="ProductionPage">
+      x:Name="ProductionPage"
+      Background="#FF2D2D30">
 
-    <Grid Margin="31">
+    <Grid Background="#FF2D2D30">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="3*"/>
-            <ColumnDefinition Width="2*"/>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Image with bounding boxes and loading overlay -->
-        <Border Grid.Column="0" Grid.Row="0" BorderBrush="#B0BEC5" BorderThickness="1.5" CornerRadius="12" Margin="0,0,16,0"
-                MinWidth="616" MinHeight="462" Background="#FAFAFA">
-            <Grid>
-                <Image x:Name="ProductionImage"
-                       Stretch="Uniform"
-                       MinWidth="616"
-                       MinHeight="462"
-                       HorizontalAlignment="Stretch"
-                       AutomationProperties.Name="Production Image"/>
-                <!-- Overlay Canvas for bounding boxes -->
-                <Canvas x:Name="BoundingBoxCanvas" IsHitTestVisible="False"/>
-                <!-- Loading overlay (hidden by default, set Visibility from code-behind) -->
-                <Grid x:Name="LoadingOverlay" Background="#AA263238" Visibility="Collapsed">
-                    <Border Background="#CC263238" Padding="32" CornerRadius="8" HorizontalAlignment="Center" VerticalAlignment="Center">
-                        <StackPanel>
-                            <TextBlock Text="Loading model and running first inference..."
-                                       Foreground="White"
-                                       FontSize="20"
-                                       FontWeight="Bold"
-                                       Margin="0,0,0,16"
-                                       TextAlignment="Center"/>
-                            <ProgressBar IsIndeterminate="True" Width="200" Height="16"/>
-                        </StackPanel>
-                    </Border>
+        <!-- StackPanel for image box and status bar in column 0 -->
+        <StackPanel Grid.Column="0" Grid.Row="0" Orientation="Vertical">
+            <!-- Text above the image box -->
+            <TextBlock Text="Production Camera"
+               FontSize="20"
+               FontWeight="Bold"
+               Foreground="White"
+               Margin="24,24,0,12"/>
+            <!-- Fixed-size Image with padding and overlays -->
+            <Border BorderBrush="#B0BEC5" BorderThickness="1.5" CornerRadius="12"
+        Margin="40,0,16,0"
+        Width="616" Height="462"
+        Background="#232323"
+        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid>
+                    <Image x:Name="ProductionImage"
+               Stretch="Uniform"
+               HorizontalAlignment="Stretch"
+               VerticalAlignment="Stretch"
+               AutomationProperties.Name="Production Image"/>
+                    <!-- Overlay Canvas for bounding boxes -->
+                    <Canvas x:Name="BoundingBoxCanvas"
+                IsHitTestVisible="False"/>
+                    <!-- Loading overlay (hidden by default, set Visibility from code-behind) -->
+                    <Grid x:Name="LoadingOverlay" Background="#AA263238" Visibility="Collapsed">
+                        <Border Background="#CC263238" Padding="32" CornerRadius="8" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <StackPanel>
+                                <TextBlock Text="Loading model and running first inference..."
+                               Foreground="White"
+                               FontSize="20"
+                               FontWeight="Bold"
+                               Margin="0,0,0,16"
+                               TextAlignment="Center"/>
+                                <ProgressBar IsIndeterminate="True" Width="200" Height="16"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </Grid>
-            </Grid>
-        </Border>
+            </Border>
 
-        <!-- Detection results and controls -->
-        <Border Grid.Column="1" Grid.Row="0" Background="#F5F7FA" CornerRadius="12" Padding="24,16" Margin="0,0,0,0">
+            <!-- Status bar directly below image box -->
+            <StatusBar Margin="0,8,16,0" Height="36"
+               Background="#FF2D2D30" Foreground="White">
+                <StatusBarItem>
+                    <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="13"/>
+                </StatusBarItem>
+                <StatusBarItem>
+                    <TextBlock x:Name="FpsTextBlock" Text="FPS: 0" FontSize="13"/>
+                </StatusBarItem>
+                <StatusBarItem>
+                    <TextBlock x:Name="InferenceTimeTextBlock" Text="Inference: 0 ms" FontSize="13"/>
+                </StatusBarItem>
+            </StatusBar>
+        </StackPanel>
+
+
+        <!-- Detection results and controls in column 1 -->
+        <Border Grid.Column="1" Grid.Row="0" Background="#FF2D2D30" CornerRadius="12" Padding="24,16" Margin="0"
+                VerticalAlignment="Stretch">
             <StackPanel Orientation="Vertical">
-                <TextBlock Text="Detections" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
+                <TextBlock Text="Detections" FontSize="24" FontWeight="Bold" Foreground="White" Margin="0,0,0,16"/>
                 <ListView x:Name="DetectionListView"
-                          Height="385"
+                          Height="460"
                           Margin="0,0,0,16"
                           SelectionMode="Single"
                           AutomationProperties.Name="Detection Results"
                           BorderBrush="#CFD8DC"
                           BorderThickness="1"
-                          Background="White">
+                          Background="#232323"
+                          Foreground="White">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="Class" Width="120" DisplayMemberBinding="{Binding ClassName}"/>
@@ -65,34 +93,7 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
-                <Button x:Name="SnapshotButton"
-                        Content="Snapshot"
-                        Width="140"
-                        Height="38"
-                        FontSize="14"
-                        FontWeight="SemiBold"
-                        Background="#1976D2"
-                        Foreground="White"
-                        BorderBrush="#1565C0"
-                        BorderThickness="1"
-                        VerticalAlignment="Center"
-                        Click="SnapshotButton_Click"
-                        ToolTip="Take a snapshot of the current frame"
-                        AutomationProperties.Name="Snapshot Button"/>
             </StackPanel>
         </Border>
-
-        <!-- Status bar -->
-        <StatusBar Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" Margin="0,16,0,0" Height="36">
-            <StatusBarItem>
-                <TextBlock x:Name="StatusTextBlock" Text="Ready" FontSize="13"/>
-            </StatusBarItem>
-            <StatusBarItem>
-                <TextBlock x:Name="FpsTextBlock" Text="FPS: 0" FontSize="13"/>
-            </StatusBarItem>
-            <StatusBarItem>
-                <TextBlock x:Name="InferenceTimeTextBlock" Text="Inference: 0 ms" FontSize="13"/>
-            </StatusBarItem>
-        </StatusBar>
     </Grid>
 </Page>

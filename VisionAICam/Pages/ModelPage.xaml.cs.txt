@@ -21,8 +21,29 @@ namespace VisionAICam.Pages
         FreePen
     }
 
-    // Extension method for AnnotationRecord
-    
+    public class AnnotationRecord
+    {
+        public string ImageName { get; set; }
+        public string Label { get; set; }
+        public AnnotationType AnnotationType { get; set; }
+        public List<Point> Points { get; set; } = new();
+       
+        public string Coordinates
+        {
+            get
+            {
+                if (AnnotationType == AnnotationType.Rectangle && Points.Count == 2)
+                {
+                    var x = Math.Min(Points[0].X, Points[1].X);
+                    var y = Math.Min(Points[0].Y, Points[1].Y);
+                    var w = Math.Abs(Points[1].X - Points[0].X);
+                    var h = Math.Abs(Points[1].Y - Points[0].Y);
+                    return $"({x:0},{y:0},{w:0},{h:0})";
+                }
+                return string.Join(";", Points.Select(p => $"({p.X:0},{p.Y:0})"));
+            }
+        }
+    }
 
     public partial class ModelPage : Page
     {
@@ -54,44 +75,19 @@ namespace VisionAICam.Pages
         // Unified annotation list
         private List<AnnotationRecord> Annotations = new();
         private double _zoom = 1.0;
-        private const double ZoomStep = 0.1;
-        private const double ZoomMin = 0.1;
-        private const double ZoomMax = 10.0;
-        private AnnotationProject? _currentProject;
+private const double ZoomStep = 0.1;
+private const double ZoomMin = 0.1;
+private const double ZoomMax = 10.0;
 
         public ModelPage()
         {
             InitializeComponent();
             this.Focusable = true;
-            this.Loaded += async (s, e) =>
+            this.Loaded += (s, e) =>
             {
                 this.Focus();
                 SetStatus("Ready");
-
-                if (ProjectSession.CurrentProject != null)
-                {
-                    // Restore state from session
-                    _currentProject = ProjectSession.CurrentProject;
-                    Annotations = ProjectSession.Annotations;
-                    _imagePaths = ProjectSession.ImagePaths;
-                    _currentImageIndex = ProjectSession.CurrentImageIndex;
-                    _currentImagePath = ProjectSession.CurrentImagePath;
-                    LabelComboBox.Items.Clear();
-                    foreach (var label in _currentProject.ClassLabels)
-                        LabelComboBox.Items.Add(label);
-
-                    ShowMainContentPanel();
-                    if (_currentImageIndex >= 0 && _currentImageIndex < _imagePaths.Count)
-                        await LoadImageAtIndex(_currentImageIndex);
-                }
-                else
-                {
-                    // Show "No Project" message and hide main content on first load
-                    NoProjectPanel.Visibility = Visibility.Visible;
-                    MainContentPanel.Visibility = Visibility.Collapsed;
-                }
             };
-
 
             // Ensure canvas is ready for mouse events
             BoundingBoxCanvas.IsEnabled = true;
@@ -106,19 +102,6 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
             BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
         }
-
-        private void ShowNoProjectPanel()
-        {
-            NoProjectPanel.Visibility = Visibility.Visible;
-            MainContentPanel.Visibility = Visibility.Collapsed;
-        }
-
-        private void ShowMainContentPanel()
-        {
-            NoProjectPanel.Visibility = Visibility.Collapsed;
-            MainContentPanel.Visibility = Visibility.Visible;
-        }
-
         private void BoundingBoxCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (e.Delta > 0)
@@ -152,8 +135,6 @@ namespace VisionAICam.Pages
                     Points = new List<Point>(_currentPolygonPoints)
                 };
                 Annotations.Add(annotation);
-                ProjectSession.Annotations = Annotations;
-
                 SaveStateForUndo();
                 RefreshAnnotations();
                 SetStatus("Polygon annotation added.");
@@ -165,25 +146,6 @@ namespace VisionAICam.Pages
                     _currentPolyline = null;
                 }
                 _currentPolygonPoints.Clear();
-            }
-        }
-        private void SaveProject_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null) return;
-            _currentProject.ImagePaths = _imagePaths;
-            _currentProject.Annotations = Annotations;
-            _currentProject.ClassLabels = LabelComboBox.Items.Cast<object>().Select(i => i.ToString() ?? "").ToList();
-            _currentProject.SelectedImageIndex = _currentImageIndex;
-
-            var dialog = new Microsoft.Win32.SaveFileDialog
-            {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
-            };
-            if (dialog.ShowDialog() == true)
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(dialog.FileName, json);
-                SetStatus("Project saved.");
             }
         }
 
@@ -262,12 +224,9 @@ namespace VisionAICam.Pages
             // Polygon is handled on click, not on mouse up
         }
 
+
         private void Page_KeyDown(object sender, KeyEventArgs e)
         {
-            // Prevent shortcut handling when typing in NewClassTextBox
-            if (NewClassTextBox.IsFocused)
-                return;
-
             if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.A) { AddBox_Click(sender, e); e.Handled = true; }
@@ -276,8 +235,10 @@ namespace VisionAICam.Pages
             else if (e.Key == Key.Enter) { SaveAnnotations_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Undo(); e.Handled = true; }
             else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
+            
         }
-
+       
+        
 
         private async void NextImage_Click(object sender, RoutedEventArgs e)
         {
@@ -285,10 +246,6 @@ namespace VisionAICam.Pages
             {
                 SaveAnnotations_Click(sender, e);
                 _currentImageIndex++;
-                // After _currentImageIndex++; and await LoadImageAtIndex(_currentImageIndex);
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-
                 await LoadImageAtIndex(_currentImageIndex);
             }
         }
@@ -315,10 +272,6 @@ namespace VisionAICam.Pages
             {
                 SaveAnnotations_Click(sender, e);
                 _currentImageIndex--;
-                // After _currentImageIndex++; and await LoadImageAtIndex(_currentImageIndex);
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-
                 await LoadImageAtIndex(_currentImageIndex);
             }
         }
@@ -341,79 +294,15 @@ namespace VisionAICam.Pages
 
         private void SaveAnnotations_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentProject != null)
-            {
-                _currentProject.Annotations = Annotations;
-                _currentProject.SelectedImageIndex = _currentImageIndex;
-                ProjectSession.Annotations = Annotations;
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-
-                // Optional: Save to disk automatically
-                // var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                // File.WriteAllText("autosave.json", json);
-
-                SetStatus("Annotations saved.");
-            }
-            else
-            {
-                SetStatus("No project loaded. Cannot save annotations.");
-            }
+            // Optionally, implement save-to-file logic here
+            SetStatus("Annotations saved.");
         }
-
 
         private void ExportYolo_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
-            {
-                SetStatus("No project or images to export.");
-                return;
-            }
-
-            var dialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog
-            {
-                Description = "Select output folder for YOLO export",
-                UseDescriptionForTitle = true
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                string outputFolder = System.IO.Path.Combine(
-                dialog.SelectedPath,
-                $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
-                );
-
-
-
-                // Export with train/val/test split
-                YoloExporter.ExportWithSplit(
-                    _currentProject,
-                    outputFolder,
-                    imageName =>
-                    {
-                        // Find the full path for the imageName (which is just the file name)
-                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new System.Windows.Size(0, 0);
-                        try
-                        {
-                            using var img = System.Drawing.Image.FromFile(path);
-                            return new System.Windows.Size(img.Width, img.Height);
-                        }
-                        catch
-                        {
-                            return new System.Windows.Size(0, 0);
-                        }
-                    }
-                );
-
-                SetStatus("YOLO export complete (train/val/test).");
-            }
-            else
-            {
-                SetStatus("YOLO export canceled.");
-            }
+            // Optionally, implement YOLO export logic here
+            SetStatus("Export YOLO clicked.");
         }
-
         private void ViewHelp_Click(object sender, RoutedEventArgs e)
         {
             MessageBox.Show(
@@ -456,8 +345,6 @@ namespace VisionAICam.Pages
             if (AnnotationListView.SelectedItem is AnnotationRecord selected)
             {
                 Annotations.Remove(selected);
-                ProjectSession.Annotations = Annotations;
-
                 SaveStateForUndo();
                 RefreshAnnotations();
                 SetStatus("Box removed.");
@@ -477,6 +364,7 @@ namespace VisionAICam.Pages
 
         private void AddBox_Click(object sender, RoutedEventArgs e)
         {
+            // Optionally, implement manual add box logic here
             SetStatus("Add Box clicked.");
         }
 
@@ -512,8 +400,10 @@ namespace VisionAICam.Pages
 
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
+            // Always set focus for keyboard shortcuts
             BoundingBoxCanvas.Focus();
 
+            // Get current label (if any)
             var label = LabelComboBox.SelectedItem?.ToString();
             if (string.IsNullOrWhiteSpace(label))
             {
@@ -579,6 +469,7 @@ namespace VisionAICam.Pages
             }
         }
 
+
         private async Task LoadImageAtIndex(int index)
         {
             if (_imagePaths == null || index < 0 || index >= _imagePaths.Count)
@@ -603,11 +494,13 @@ namespace VisionAICam.Pages
             _currentImageWidth = bitmap.PixelWidth;
             _currentImageHeight = bitmap.PixelHeight;
 
+            // Set both Image and Canvas to the same size for 1:1 mapping
             LabelingImage.Width = _currentImageWidth;
             LabelingImage.Height = _currentImageHeight;
             BoundingBoxCanvas.Width = _currentImageWidth;
             BoundingBoxCanvas.Height = _currentImageHeight;
 
+            // Ensure canvas is ready for drawing after image load
             BoundingBoxCanvas.IsEnabled = true;
             BoundingBoxCanvas.IsHitTestVisible = true;
             BoundingBoxCanvas.Focusable = true;
@@ -632,10 +525,12 @@ namespace VisionAICam.Pages
 
         private void RefreshAnnotations()
         {
+            // Filter and show only annotations for the current image
             var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
             var filtered = Annotations.Where(a => a.ImageName == imageName).ToList();
             AnnotationListView.ItemsSource = filtered;
 
+            // Redraw all shapes on the canvas
             BoundingBoxCanvas.Children.Clear();
             foreach (var ann in filtered)
             {
@@ -649,6 +544,7 @@ namespace VisionAICam.Pages
                             var w = Math.Abs(ann.Points[1].X - ann.Points[0].X);
                             var h = Math.Abs(ann.Points[1].Y - ann.Points[0].Y);
 
+                            // Draw rectangle
                             var rect = new Rectangle
                             {
                                 Stroke = Brushes.Blue,
@@ -660,6 +556,7 @@ namespace VisionAICam.Pages
                             Canvas.SetTop(rect, y);
                             BoundingBoxCanvas.Children.Add(rect);
 
+                            // Draw class label at top-left (always inside the box)
                             var label = new TextBlock
                             {
                                 Text = string.IsNullOrWhiteSpace(ann.Label) ? "(No Class)" : ann.Label,
@@ -674,6 +571,7 @@ namespace VisionAICam.Pages
                             BoundingBoxCanvas.Children.Add(label);
                         }
                         break;
+
 
                     case AnnotationType.Polygon:
                         if (ann.Points.Count > 2)
@@ -734,6 +632,7 @@ namespace VisionAICam.Pages
                 return;
             }
 
+            // Check if the class already exists in the ComboBox
             bool exists = false;
             foreach (var item in LabelComboBox.Items)
             {
@@ -757,6 +656,7 @@ namespace VisionAICam.Pages
                 return;
             }
 
+            // Add new class to ComboBox
             LabelComboBox.Items.Add(newClass);
             LabelComboBox.SelectedItem = newClass;
             NewClassTextBox.Text = string.Empty;
@@ -809,7 +709,6 @@ namespace VisionAICam.Pages
             ZoomTransform.ScaleY = _zoom;
             SetStatus($"Zoom: {_zoom * 100:0}%");
         }
-
         private void Undo_Click(object sender, RoutedEventArgs e)
         {
             Undo();
@@ -822,122 +721,24 @@ namespace VisionAICam.Pages
 
         private void CreateProject_Click(object sender, RoutedEventArgs e)
         {
-            // Clear all data
-            _imagePaths = new List<string>();
-            _currentImageIndex = -1;
-            _currentImagePath = null;
-            Annotations = new List<AnnotationRecord>();
-            LabelComboBox.Items.Clear();
-            NewClassTextBox.Text = string.Empty;
-            AnnotationListView.ItemsSource = null;
-            LabelingImage.Source = null;
-            BoundingBoxCanvas.Children.Clear();
-            ImageProgressText.Text = "No images loaded";
-
-            // Create new project object
-            _currentProject = new AnnotationProject
-            {
-                ProjectName = "Untitled Project",
-                ImagePaths = _imagePaths,
-                ClassLabels = new List<string>(),
-                Annotations = Annotations
-            };
-            // After _currentProject = new AnnotationProject { ... };
-            ProjectSession.CurrentProject = _currentProject;
-            ProjectSession.Annotations = Annotations;
-            ProjectSession.ImagePaths = _imagePaths;
-            ProjectSession.CurrentImageIndex = _currentImageIndex;
-            ProjectSession.CurrentImagePath = _currentImagePath;
-
-            SetStatus("New project created. Please load images and add classes.");
-
-            // Show main content, hide "No Project"
-            ShowMainContentPanel();
+            // TODO: Show dialog to create a new project, set up project data, etc.
+            SetStatus("New project created.");
         }
 
         private void OpenProject_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
-            };
-            if (dialog.ShowDialog() == true)
-            {
-                var json = File.ReadAllText(dialog.FileName);
-                _currentProject = System.Text.Json.JsonSerializer.Deserialize<AnnotationProject>(json);
-                if (_currentProject != null)
-                {
-                    _imagePaths = _currentProject.ImagePaths;
-                    Annotations = _currentProject.Annotations;
-                    LabelComboBox.Items.Clear();
-                    foreach (var label in _currentProject.ClassLabels)
-                        LabelComboBox.Items.Add(label);
-
-                    // Restore selected image index, default to 0 if out of range
-                    _currentImageIndex = (_currentProject.SelectedImageIndex >= 0 && _currentProject.SelectedImageIndex < _imagePaths.Count)
-                        ? _currentProject.SelectedImageIndex
-                        : 0;
-
-                    ProjectSession.CurrentProject = _currentProject;
-                    ProjectSession.Annotations = Annotations;
-                    ProjectSession.ImagePaths = _imagePaths;
-                    ProjectSession.CurrentImageIndex = _currentImageIndex;
-                    ProjectSession.CurrentImagePath = _imagePaths.Count > 0 ? _imagePaths[_currentImageIndex] : null;
-
-                    _ = LoadImageAtIndex(_currentImageIndex);
-                    SetStatus("Project opened.");
-
-                    ShowMainContentPanel();
-                }
-            }
+            // TODO: Show file dialog to select and load a project file.
+            SetStatus("Project opened.");
         }
-
-        // Add this method to your ModelPage class
-        private void CloseProject_Click(object sender, RoutedEventArgs e)
+        //Exit_Click"
+        private void FinishProject_Click(object sender, RoutedEventArgs e)
         {
-            var result = MessageBox.Show(
-                "Do you want to save your project before closing?",
-                "Close Project",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Cancel)
-                return;
-
-            if (result == MessageBoxResult.Yes)
-                SaveProject_Click(sender, e);
-
-            // Clear all project data and show "No Project" panel
-            // Clear all project data and show "No Project" panel
-            _currentProject = null;
-            _imagePaths = new List<string>();
-            _currentImageIndex = -1;
-            _currentImagePath = null;
-            Annotations = new List<AnnotationRecord>();
-            LabelComboBox.Items.Clear();
-            NewClassTextBox.Text = string.Empty;
-            AnnotationListView.ItemsSource = null;
-            LabelingImage.Source = null;
-            BoundingBoxCanvas.Children.Clear();
-            ImageProgressText.Text = "No images loaded";
-            ShowNoProjectPanel();
-            SetStatus("Project closed.");
-            // ... existing code ...
-            ProjectSession.CurrentProject = null;
-            ProjectSession.Annotations = new List<AnnotationRecord>();
-            ProjectSession.ImagePaths = new List<string>();
-            ProjectSession.CurrentImageIndex = -1;
-            ProjectSession.CurrentImagePath = null;
-
+            SetStatus("Finish project.");
         }
-
-
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
-            // Optionally, implement project closing logic here
-            // Show "No Project" message and hide main content
-            ShowNoProjectPanel();
-            SetStatus("No project loaded.");
+            // TODO: Show dialog to create a new project, set up project data, etc.
+            //SetStatus("New project created.");
         }
     }
 }

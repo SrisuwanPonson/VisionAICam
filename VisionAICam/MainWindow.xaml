@@ -90,13 +90,7 @@
                     <GradientStop Color="#263238" Offset="1"/>
                 </LinearGradientBrush>
             </StackPanel.Background>
-            <Border BorderBrush="#FFEB3B" BorderThickness="0,0,4,0" Margin="0,0,0,10">
-                <TextBlock Text="Statistics"
-                   Foreground="#FFEB3B"
-                   FontSize="20"
-                   FontWeight="Bold"
-                   Margin="10,20,10,10"/>
-            </Border>
+            
             <!-- Add your statistic controls here -->
         </StackPanel>
 
