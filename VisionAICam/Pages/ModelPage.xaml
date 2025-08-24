@@ -28,7 +28,14 @@
                 <MenuItem Header="Open Project" Click="OpenProject_Click"/>
                 <Separator/>
                 <MenuItem Header="Save Project" Click="SaveProject_Click"/>
-                <MenuItem Header="Export YOLO" Click="ExportYolo_Click"/>
+                <MenuItem Header="Export YOLO">
+                    <MenuItem Header="Export YOLOv5"
+              Click="ExportYoloV5_Click"
+              ToolTip="YOLOv5: ⚙️ Stable and widely used for detection tasks. Great for legacy workflows."/>
+                    <MenuItem Header="Export YOLOv8"
+              Click="ExportYoloV8_Click"
+              ToolTip="YOLOv8: 🚀 Latest version with better speed, accuracy, and support for new features."/>
+                </MenuItem>
                 <MenuItem Header="Close Project" Click="CloseProject_Click"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
@@ -49,6 +56,7 @@
                 <MenuItem Header="About" Click="About_Click"/>
             </MenuItem>
         </Menu>
+
 
         <!-- Status Bar at the very bottom -->
         <StatusBar DockPanel.Dock="Bottom" FontSize="13" Background="#FF2D2D30" Foreground="White">

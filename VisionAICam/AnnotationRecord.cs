@@ -33,7 +33,7 @@ namespace VisionAICam
         /// Returns YOLOv8 format: <class_id> <x_center> <y_center> <width> <height>
         /// All values are normalized (0..1) relative to image size.
         /// </summary>
-        public string ToYoloFormat(Size imageSize, List<string> classLabels)
+        public string ToYoloFormat(Size imageSize, List<string> classLabels, YoloExportFormat format = YoloExportFormat.YoloV8)
         {
             if (AnnotationType != AnnotationType.Rectangle || Points.Count != 2)
                 return string.Empty;
@@ -65,8 +65,10 @@ namespace VisionAICam
             double widthNorm = width / imgW;
             double heightNorm = height / imgH;
 
-            // Format: <class_id> <x_center> <y_center> <width> <height>
+            // For now, YOLOv5 and YOLOv8 are the same for bounding boxes.
+            // If you want to support segmentation or other differences, add logic here.
             return $"{classId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6}";
         }
+
     }
 }

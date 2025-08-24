@@ -6,6 +6,11 @@ using VisionAICam.Pages;
 
 namespace VisionAICam
 {
+    public enum YoloExportFormat
+    {
+        YoloV5,
+        YoloV8
+    }
     public static class YoloExporter
     {
         public static void ExportWithSplit(
@@ -14,7 +19,8 @@ namespace VisionAICam
         Func<string, Size> getImageSize,
         double trainRatio = 0.7,
         double valRatio = 0.2,
-        double testRatio = 0.1)
+        double testRatio = 0.1,
+        YoloExportFormat exportFormat = YoloExportFormat.YoloV8)
         {
             if (project == null || project.ImagePaths.Count == 0)
                 return;
@@ -29,9 +35,9 @@ namespace VisionAICam
 
             var (train, val, test) = DatasetSplitter.Split(project.ImagePaths, trainRatio, valRatio, testRatio);
 
-            ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize);
-            ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize);
-            ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize);
+            ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize, exportFormat);
+            ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
+            ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
 
 
 
@@ -41,16 +47,17 @@ namespace VisionAICam
 
 
         private static void ExportSet(
-           AnnotationProject project,
-           List<string> imagePaths,
-           string setFolder,
-           Func<string, Size> getImageSize)
+    AnnotationProject project,
+    List<string> imagePaths,
+    string setFolder,
+    Func<string, Size> getImageSize,
+    YoloExportFormat exportFormat)
         {
             var imagesFolder = Path.Combine(setFolder, "image");
             var labelsFolder = Path.Combine(setFolder, "labels");
             Directory.CreateDirectory(imagesFolder);
             Directory.CreateDirectory(labelsFolder);
-            //MessageBox.Show($"{project.Annotations.Count}");
+
             var imageFileNames = new HashSet<string>(
                 imagePaths.Select(p => Path.GetFileName(p)),
                 StringComparer.OrdinalIgnoreCase);
@@ -67,7 +74,7 @@ namespace VisionAICam
                     continue;
 
                 var lines = group
-                    .Select(a => a.ToYoloFormat(imageSize, project.ClassLabels))
+                    .Select(a => a.ToYoloFormat(imageSize, project.ClassLabels, exportFormat))
                     .Where(line => !string.IsNullOrEmpty(line))
                     .ToList();
 
@@ -87,6 +94,7 @@ namespace VisionAICam
                 }
             }
         }
+
 
         private static void WriteDataYaml(string outputFolder, List<string> classLabels, string projectName)
         {

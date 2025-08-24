@@ -272,7 +272,7 @@ namespace VisionAICam.Pages
             else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.A) { AddBox_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.D) { RemoveSelected_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.E) { ExportYolo_Click(sender, e); e.Handled = true; }
+            
             else if (e.Key == Key.Enter) { SaveAnnotations_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Undo(); e.Handled = true; }
             else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
@@ -362,7 +362,9 @@ namespace VisionAICam.Pages
         }
 
 
-        private void ExportYolo_Click(object sender, RoutedEventArgs e)
+    
+
+        private void ExportYoloV5_Click(object sender, RoutedEventArgs e)
         {
             if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
             {
@@ -372,26 +374,22 @@ namespace VisionAICam.Pages
 
             var dialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog
             {
-                Description = "Select output folder for YOLO export",
+                Description = "Select output folder for YOLOv5 export",
                 UseDescriptionForTitle = true
             };
 
             if (dialog.ShowDialog() == true)
             {
                 string outputFolder = System.IO.Path.Combine(
-                dialog.SelectedPath,
-                $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+                    dialog.SelectedPath,
+                    $"Yolo5Export_{DateTime.Now:yyyyMMdd_HHmmss}"
                 );
 
-
-
-                // Export with train/val/test split
                 YoloExporter.ExportWithSplit(
                     _currentProject,
                     outputFolder,
                     imageName =>
                     {
-                        // Find the full path for the imageName (which is just the file name)
                         var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
                         if (path == null) return new System.Windows.Size(0, 0);
                         try
@@ -403,14 +401,66 @@ namespace VisionAICam.Pages
                         {
                             return new System.Windows.Size(0, 0);
                         }
-                    }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV5
                 );
 
-                SetStatus("YOLO export complete (train/val/test).");
+                SetStatus("YOLOv5 export complete (train/val/test).");
             }
             else
             {
-                SetStatus("YOLO export canceled.");
+                SetStatus("YOLOv5 export canceled.");
+            }
+        }
+
+        private void ExportYoloV8_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv8 export",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string outputFolder = System.IO.Path.Combine(
+                    dialog.SelectedPath,
+                    $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+                );
+
+                YoloExporter.ExportWithSplit(
+                    _currentProject,
+                    outputFolder,
+                    imageName =>
+                    {
+                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
+                        if (path == null) return new System.Windows.Size(0, 0);
+                        try
+                        {
+                            using var img = System.Drawing.Image.FromFile(path);
+                            return new System.Windows.Size(img.Width, img.Height);
+                        }
+                        catch
+                        {
+                            return new System.Windows.Size(0, 0);
+                        }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV8
+                );
+
+                SetStatus("YOLOv8 export complete (train/val/test).");
+            }
+            else
+            {
+                SetStatus("YOLOv8 export canceled.");
             }
         }
 
