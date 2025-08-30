@@ -12,14 +12,20 @@ using System.IO;
 
 namespace VisionAICam.Pages
 {
-   
+    public class TrainingOption
+    {
+        public string Name { get; set; }
+        public string Value { get; set; }
+    }
+
     public partial class ModelPage : Page
     {
         private UIElement selectedBlock;
         private Point dragStartPoint;
         private List<Line> connectionLines = new();
+        private bool isDragging;
+        private const double DragThreshold = 4; // pixels
 
-        // --- NEW: Track block references ---
         private Border datasetBlock;
         private Border modelBlock;
         private Border trainBlock;
@@ -27,34 +33,23 @@ namespace VisionAICam.Pages
         public ModelPage()
         {
             InitializeComponent();
-            // Do NOT call InitializeTrainingBlocks here!
-            // Blocks will be added step-by-step as user progresses.
             TrainingStatusText.Text = "Please select a dataset to begin.";
         }
 
         #region Block
-        // --- MODIFIED: No blocks at startup ---
 
-        private Border CreateBlock(string label, double left, double top, string tag)
+        private Border CreateBlock(UIElement content, double left, double top, string tag)
         {
             var block = new Border
             {
-                Width = 150,
-                Height = 80,
+                Width = 320,
+                Height = 300,
                 Background = new SolidColorBrush(Color.FromRgb(58, 58, 61)),
                 BorderBrush = Brushes.White,
                 BorderThickness = new Thickness(2),
                 CornerRadius = new CornerRadius(8),
                 Tag = tag,
-                Child = new TextBlock
-                {
-                    Text = label,
-                    Foreground = Brushes.White,
-                    FontWeight = FontWeights.Bold,
-                    FontSize = 16,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                }
+                Child = content
             };
 
             Canvas.SetLeft(block, left);
@@ -63,15 +58,222 @@ namespace VisionAICam.Pages
             block.MouseLeftButtonDown += Block_MouseLeftButtonDown;
             block.MouseMove += Block_MouseMove;
             block.MouseLeftButtonUp += Block_MouseLeftButtonUp;
-            block.MouseLeftButtonUp += Block_Click;
 
             return block;
         }
+
+        private UIElement CreateModelDetailGrid(List<TrainingOption> modelOptions, string blockLabel, string[] architectures)
+        {
+            var modelGrid = new DataGrid
+            {
+                ItemsSource = modelOptions,
+                AutoGenerateColumns = false,
+                CanUserAddRows = false,
+                CanUserDeleteRows = false,
+                HeadersVisibility = DataGridHeadersVisibility.Column,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+
+            var nameColumn = new DataGridTextColumn
+            {
+                Header = "Model Option",
+                Binding = new System.Windows.Data.Binding("Name"),
+                IsReadOnly = true,
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            };
+            var valueColumn = new DataGridTextColumn
+            {
+                Header = "Value",
+                Binding = new System.Windows.Data.Binding("Value"),
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            };
+
+            modelGrid.AutoGeneratingColumn += (s, e) => e.Cancel = true;
+            modelGrid.LoadingRow += (s, e) =>
+            {
+                if (modelGrid.Columns.Count == 0)
+                {
+                    modelGrid.Columns.Add(nameColumn);
+                    modelGrid.Columns.Add(valueColumn);
+                }
+                if (e.Row.Item is TrainingOption opt && opt.Name == "Architecture")
+                {
+                    modelGrid.Columns.Clear();
+                    modelGrid.Columns.Add(new DataGridTextColumn
+                    {
+                        Header = "Model Option",
+                        Binding = new System.Windows.Data.Binding("Name"),
+                        IsReadOnly = true,
+                        Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+                    });
+                    modelGrid.Columns.Add(new DataGridComboBoxColumn
+                    {
+                        Header = "Value",
+                        SelectedValueBinding = new System.Windows.Data.Binding("Value"),
+                        ItemsSource = architectures,
+                        Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+                    });
+                }
+            };
+
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock
+            {
+                Text = blockLabel,
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Bold,
+                FontSize = 16,
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Model Options",
+                Foreground = Brushes.LightGray,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 2),
+                FontSize = 14
+            });
+            panel.Children.Add(modelGrid);
+
+            return panel;
+        }
+
+
+        // DO NOT MODIFY THIS METHOD (per your request)
+        private UIElement CreateDatasetDetailsGrid(string datasetPath)
+        {
+            var datasetOptions = new List<TrainingOption>
+    {
+        new TrainingOption { Name = "Path", Value = datasetPath }
+    };
+
+            // Try to read data.yaml for format, classes, etc.
+            string yamlPath = System.IO.Path.Combine(datasetPath, "data.yaml");
+            if (File.Exists(yamlPath))
+            {
+                datasetOptions.Add(new TrainingOption { Name = "Format", Value = "YOLO" });
+                try
+                {
+                    // Simple YAML parsing for 'names' and 'nc'
+                    var lines = File.ReadAllLines(yamlPath);
+                    var namesLine = lines.FirstOrDefault(l => l.TrimStart().StartsWith("names:"));
+                    var ncLine = lines.FirstOrDefault(l => l.TrimStart().StartsWith("nc:"));
+                    if (ncLine != null)
+                    {
+                        var nc = ncLine.Split(':')[1].Trim();
+                        datasetOptions.Add(new TrainingOption { Name = "Num Classes", Value = nc });
+                    }
+                    if (namesLine != null)
+                    {
+                        var names = namesLine.Substring(namesLine.IndexOf('[')).Trim();
+                        datasetOptions.Add(new TrainingOption { Name = "Class Names", Value = names });
+                    }
+                }
+                catch
+                {
+                    datasetOptions.Add(new TrainingOption { Name = "YAML Parse", Value = "Failed" });
+                }
+            }
+            else
+            {
+                datasetOptions.Add(new TrainingOption { Name = "Format", Value = "Unknown" });
+                datasetOptions.Add(new TrainingOption { Name = "Num Classes", Value = "?" });
+                datasetOptions.Add(new TrainingOption { Name = "Class Names", Value = "?" });
+            }
+
+            // Split statistics
+            var splits = new[] { "train", "valid", "test" };
+            var imageExts = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
+            var datasetDetails = new List<TrainingOption>();
+            foreach (var split in splits)
+            {
+                string imgDir = System.IO.Path.Combine(datasetPath, split, "images");
+                string lblDir = System.IO.Path.Combine(datasetPath, split, "labels");
+
+                int imgCount = Directory.Exists(imgDir)
+                    ? Directory.GetFiles(imgDir).Count(f => imageExts.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
+                    : 0;
+                int lblCount = Directory.Exists(lblDir)
+                    ? Directory.GetFiles(lblDir, "*.txt").Length
+                    : 0;
+
+                datasetDetails.Add(new TrainingOption { Name = $"{split} images", Value = imgCount.ToString() });
+                datasetDetails.Add(new TrainingOption { Name = $"{split} labels", Value = lblCount.ToString() });
+            }
+
+            // Dataset options DataGrid (no style assignment)
+            var optionsGrid = new DataGrid
+            {
+                ItemsSource = datasetOptions,
+                AutoGenerateColumns = false,
+                CanUserAddRows = false,
+                CanUserDeleteRows = false,
+                HeadersVisibility = DataGridHeadersVisibility.Column,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            optionsGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = "Option",
+                Binding = new System.Windows.Data.Binding("Name"),
+                IsReadOnly = true,
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            });
+            optionsGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = "Value",
+                Binding = new System.Windows.Data.Binding("Value"),
+                IsReadOnly = true,
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            });
+
+            // Split statistics DataGrid (no style assignment)
+            var statsGrid = new DataGrid
+            {
+                ItemsSource = datasetDetails,
+                AutoGenerateColumns = false,
+                CanUserAddRows = false,
+                CanUserDeleteRows = false,
+                HeadersVisibility = DataGridHeadersVisibility.Column,
+                Margin = new Thickness(0, 0, 0, 0)
+            };
+            statsGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = "Split/Type",
+                Binding = new System.Windows.Data.Binding("Name"),
+                IsReadOnly = true,
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            });
+            statsGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = "Count",
+                Binding = new System.Windows.Data.Binding("Value"),
+                IsReadOnly = true,
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            });
+
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock
+            {
+                Text = "📂 Dataset Details",
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Bold,
+                FontSize = 16,
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            panel.Children.Add(optionsGrid);
+            panel.Children.Add(statsGrid);
+
+            return panel;
+        }
+
 
         private void Block_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             selectedBlock = sender as UIElement;
             dragStartPoint = e.GetPosition(TrainingCanvas);
+            isDragging = false;
             selectedBlock.CaptureMouse();
         }
 
@@ -83,10 +285,17 @@ namespace VisionAICam.Pages
                 double offsetX = currentPoint.X - dragStartPoint.X;
                 double offsetY = currentPoint.Y - dragStartPoint.Y;
 
-                Canvas.SetLeft(selectedBlock, Canvas.GetLeft(selectedBlock) + offsetX);
-                Canvas.SetTop(selectedBlock, Canvas.GetTop(selectedBlock) + offsetY);
+                if (!isDragging && (Math.Abs(offsetX) > DragThreshold || Math.Abs(offsetY) > DragThreshold))
+                {
+                    isDragging = true;
+                }
 
-                dragStartPoint = currentPoint;
+                if (isDragging)
+                {
+                    Canvas.SetLeft(selectedBlock, Canvas.GetLeft(selectedBlock) + offsetX);
+                    Canvas.SetTop(selectedBlock, Canvas.GetTop(selectedBlock) + offsetY);
+                    dragStartPoint = currentPoint;
+                }
             }
         }
 
@@ -95,9 +304,21 @@ namespace VisionAICam.Pages
             if (selectedBlock != null)
             {
                 selectedBlock.ReleaseMouseCapture();
+
+                if (!isDragging)
+                {
+                    if (sender is Border block && block.Tag is string tag)
+                    {
+                        HandleBlockAction(tag);
+                    }
+                }
+
                 selectedBlock = null;
+                isDragging = false;
             }
         }
+
+        private string selectedModelType = "YOLOv8"; // Default
 
         private void HandleBlockAction(string tag)
         {
@@ -144,16 +365,13 @@ namespace VisionAICam.Pages
 
                                     AddOrSelectDataset(datasetPath);
 
-                                    // --- NEW: Draw dataset block if not already present ---
                                     if (datasetBlock == null)
                                     {
-                                        datasetBlock = CreateBlock("📁 Dataset", 50, 50, "Dataset");
+                                        var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
+                                        datasetBlock = CreateBlock(detailsGrid, 50, 50, "Dataset");
                                         TrainingCanvas.Children.Add(datasetBlock);
                                         TrainingStatusText.Text = "Dataset added. Now select a model.";
                                     }
-
-                                    // Optionally: Remove model/train blocks if user re-selects dataset
-                                    // RemoveModelAndTrainBlocks();
                                 });
                             });
                         }
@@ -161,54 +379,48 @@ namespace VisionAICam.Pages
                     }
 
                 case "Model":
-                    var modelWindow = new Window
                     {
-                        Title = "Select Model Type",
-                        Width = 300,
-                        Height = 150,
-                        WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                        ResizeMode = ResizeMode.NoResize
-                    };
+                        // Model options (structure, not training)
+                        string[] architectures = { "YOLOv5", "YOLOv8", "ONNX", "Custom" };
+                        string selectedModel = architectures[1]; // Default to YOLOv8
+                        string inputSize = "640";
+                        string backbone = "CSPDarknet";
+                        string pretrained = "COCO";
+                        string blockLabel = $"🧠 {selectedModel}";
 
-                    var panel = new StackPanel { Margin = new Thickness(20) };
-                    var comboBox = new ComboBox
-                    {
-                        ItemsSource = new List<string> { "YOLOv8", "ONNX", "Custom" },
-                        SelectedIndex = 0,
-                        Margin = new Thickness(0, 0, 0, 10)
-                    };
-                    var confirmButton = new Button
-                    {
-                        Content = "Confirm",
-                        Width = 100,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    };
-                    confirmButton.Click += (s, e) =>
-                    {
-                        MessageBox.Show($"🧠 Model selected: {comboBox.SelectedItem}");
-                        modelWindow.Close();
+                        var modelOptions = new List<TrainingOption>
+    {
+        new TrainingOption { Name = "Architecture", Value = selectedModel },
+        new TrainingOption { Name = "Input Size", Value = inputSize },
+        new TrainingOption { Name = "Backbone", Value = backbone },
+        new TrainingOption { Name = "Pretrained Weights", Value = pretrained }
+    };
 
-                        // --- NEW: Draw model block if not already present ---
-                        if (modelBlock == null)
+                        // Remove previous model block if it exists
+                        if (modelBlock != null)
                         {
-                            modelBlock = CreateBlock("🧠 Model", 300, 50, "Model");
-                            TrainingCanvas.Children.Add(modelBlock);
-                            TrainingStatusText.Text = "Model added. Ready to train.";
+                            TrainingCanvas.Children.Remove(modelBlock);
+                            modelBlock = null;
                         }
 
-                        // --- NEW: Draw train block if not already present ---
-                        if (trainBlock == null)
-                        {
-                            trainBlock = CreateBlock("🚀 Train", 550, 50, "Train");
-                            TrainingCanvas.Children.Add(trainBlock);
-                        }
-                    };
+                        // Calculate X position for the model block with a gap from the dataset block
+                        double datasetBlockX = 50;
+                        double datasetBlockWidth = 320;
+                        double gap = 30;
+                        double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
+                        double modelBlockY = 50;
 
-                    panel.Children.Add(comboBox);
-                    panel.Children.Add(confirmButton);
-                    modelWindow.Content = panel;
-                    modelWindow.ShowDialog();
-                    break;
+                        // Use the helper to create the model detail grid
+                        var panel = CreateModelDetailGrid(modelOptions, blockLabel, architectures);
+
+                        modelBlock = CreateBlock(panel, modelBlockX, modelBlockY, "Model");
+                        TrainingCanvas.Children.Add(modelBlock);
+
+                        TrainingStatusText.Text = "Model added. Edit model options in the block.";
+
+                        break;
+                    }
+
 
                 case "Train":
                     var result = MessageBox.Show("🚀 Start training now?", "Training", MessageBoxButton.YesNo, MessageBoxImage.Question);
@@ -237,7 +449,6 @@ namespace VisionAICam.Pages
 
         private bool ValidateYoloDatasetStructure(string rootPath)
         {
-            var result = new YoloValidationResult();
             string[] splits = { "train", "valid", "test" };
             string[] imageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
 
@@ -246,19 +457,8 @@ namespace VisionAICam.Pages
                 string imagePath = System.IO.Path.Combine(rootPath, split, "images");
                 string labelPath = System.IO.Path.Combine(rootPath, split, "labels");
 
-                if (!Directory.Exists(imagePath))
-                {
-                    Console.WriteLine($"❌ Missing image folder for '{split}': {imagePath}");
-                    result.Issues.Add($"Missing image folder for '{split}': {imagePath}");
+                if (!Directory.Exists(imagePath) || !Directory.Exists(labelPath))
                     return false;
-                }
-
-                if (!Directory.Exists(labelPath))
-                {
-                    Console.WriteLine($"❌ Missing label folder for '{split}': {labelPath}");
-                    result.Issues.Add($"Missing label folder for '{split}': {labelPath}");
-                    return false;
-                }
 
                 try
                 {
@@ -268,19 +468,8 @@ namespace VisionAICam.Pages
 
                     var labelFiles = Directory.GetFiles(labelPath, "*.txt", SearchOption.TopDirectoryOnly);
 
-                    if (imageFiles.Length == 0)
-                    {
-                        Console.WriteLine($"⚠️ No image files found for '{split}' in: {imagePath}");
-                        result.Issues.Add($"No image files found for '{split}' in: {imagePath}");
+                    if (imageFiles.Length == 0 || labelFiles.Length == 0)
                         return false;
-                    }
-
-                    if (labelFiles.Length == 0)
-                    {
-                        Console.WriteLine($"⚠️ No label files found for '{split}' in: {labelPath}");
-                        result.Issues.Add($"No label files found for '{split}' in: {labelPath}");
-                        return false;
-                    }
 
                     var imageNames = imageFiles
                         .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
@@ -290,38 +479,14 @@ namespace VisionAICam.Pages
                         .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
                         .ToHashSet();
 
-                    var missingLabels = imageNames.Except(labelNames).ToList();
-                    var extraLabels = labelNames.Except(imageNames).ToList();
-
-                    if (missingLabels.Any())
-                    {
-                        Console.WriteLine($"❌ Missing label files for {missingLabels.Count} image(s) in '{split}':");
-                        result.Issues.AddRange(missingLabels.Select(name => $"Missing label for image: {name}"));
-                        missingLabels.ForEach(name => Console.WriteLine($"   - {name}"));
+                    if (imageNames.Except(labelNames).Any() || labelNames.Except(imageNames).Any())
                         return false;
-                    }
-
-                    if (extraLabels.Any())
-                    {
-                        Console.WriteLine($"❌ Extra label files without matching images in '{split}':");
-                        result.Issues.AddRange(extraLabels.Select(name => $"Extra label without image: {name}"));
-                        extraLabels.ForEach(name => Console.WriteLine($"   - {name}"));
-                        return false;
-                    }
 
                     if (imageNames.Count != labelNames.Count)
-                    {
-                        Console.WriteLine($"❌ Mismatch in file count for '{split}': {imageNames.Count} images vs {labelNames.Count} labels");
-                        result.Issues.Add($"Mismatch in file count for '{split}': {imageNames.Count} images vs {labelNames.Count} labels");
                         return false;
-                    }
-
-                    Console.WriteLine($"✅ '{split}' split passed: {imageNames.Count} matched image-label pairs");
                 }
-                catch (Exception ex)
+                catch
                 {
-                    MessageBox.Show($"Error while validating '{split}' split:\n{ex.Message}", "Validation Error");
-                    result.Issues.Add($"Error while validating '{split}' split: {ex.Message}");
                     return false;
                 }
             }
@@ -345,6 +510,7 @@ namespace VisionAICam.Pages
 
             return result;
         }
+
         private void Block_Click(object sender, MouseButtonEventArgs e)
         {
             if (sender is Border block && block.Tag is string tag)
@@ -356,7 +522,6 @@ namespace VisionAICam.Pages
         #endregion
 
         #region Menu event handlers
-        // Menu event handlers
         private void NewModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("New Model action triggered.");
         private void OpenModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Open Model action triggered.");
         private void SaveModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Save Model action triggered.");
@@ -408,10 +573,8 @@ namespace VisionAICam.Pages
                 });
             });
         }
-
         #endregion
 
-        // Add or select dataset in ComboBox
         private void AddOrSelectDataset(string datasetPath)
         {
             if (DatasetComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Content == datasetPath) is ComboBoxItem existing)
@@ -440,7 +603,6 @@ namespace VisionAICam.Pages
                 string datasetPath = folderDialog.SelectedPath;
                 AddOrSelectDataset(datasetPath);
 
-                // Optionally, validate the dataset structure here
                 Task.Run(() =>
                 {
                     bool isValid = ValidateYoloDatasetStructure(datasetPath);
@@ -464,17 +626,63 @@ namespace VisionAICam.Pages
                                 MessageBoxButton.OK,
                                 MessageBoxImage.Information
                             );
-                            // Draw dataset block if not already present
-                            if (datasetBlock == null)
+
+                            // Remove previous dataset block if it exists
+                            if (datasetBlock != null)
                             {
-                                datasetBlock = CreateBlock("📁 Dataset", 50, 50, "Dataset");
-                                TrainingCanvas.Children.Add(datasetBlock);
-                                TrainingStatusText.Text = "Dataset added. Now select a model.";
+                                TrainingCanvas.Children.Remove(datasetBlock);
+                                datasetBlock = null;
                             }
+
+                            var detailsPanel = CreateDatasetDetailsGrid(datasetPath);
+                            datasetBlock = CreateBlock(detailsPanel, 50, 50, "Dataset");
+                            TrainingCanvas.Children.Add(datasetBlock);
                         }
                     });
                 });
             }
         }
+
+        private void AddModel_Click(object sender, RoutedEventArgs e)
+        {
+            // Model options
+            string[] architectures = { "YOLOv5", "YOLOv8", "ONNX", "Custom" };
+            string selectedModel = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
+            string inputSize = "640";
+            string backbone = "CSPDarknet";
+            string pretrained = "COCO";
+            string blockLabel = $"🧠 {selectedModel}";
+
+            var modelOptions = new List<TrainingOption>
+    {
+        new TrainingOption { Name = "Architecture", Value = selectedModel },
+        new TrainingOption { Name = "Input Size", Value = inputSize },
+        new TrainingOption { Name = "Backbone", Value = backbone },
+        new TrainingOption { Name = "Pretrained Weights", Value = pretrained }
+    };
+
+            // Remove previous model block if it exists
+            if (modelBlock != null)
+            {
+                TrainingCanvas.Children.Remove(modelBlock);
+                modelBlock = null;
+            }
+
+            // Calculate X position for the model block with a gap from the dataset block
+            double datasetBlockX = 50;
+            double datasetBlockWidth = 320;
+            double gap = 30;
+            double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
+            double modelBlockY = 50;
+
+            // Use the helper to create the model detail grid
+            var panel = CreateModelDetailGrid(modelOptions, blockLabel, architectures);
+
+            modelBlock = CreateBlock(panel, modelBlockX, modelBlockY, "Model");
+            TrainingCanvas.Children.Add(modelBlock);
+
+            TrainingStatusText.Text = "Model added. Edit model options in the block.";
+        }
+
     }
 }

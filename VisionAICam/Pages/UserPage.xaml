@@ -5,6 +5,18 @@
       Width="800"
       Height="450">
 
+    <Page.Resources>
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
+        </LinearGradientBrush>
+    </Page.Resources>
+
+    <Page.Background>
+        <StaticResource ResourceKey="PageBackgroundBrush"/>
+    </Page.Background>
+
     <Grid Margin="30">
         <TabControl x:Name="UserTabControl">
             <!-- Profile Tab -->

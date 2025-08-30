@@ -42,10 +42,14 @@
         <!-- Bottom horizontal navigator bar -->
         <DockPanel DockPanel.Dock="Bottom" Height="70" LastChildFill="False" FlowDirection="RightToLeft">
             <DockPanel.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                    <GradientStop Color="#263238" Offset="0"/>
-                    <GradientStop Color="#455A64" Offset="1"/>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#1C1C1C" Offset="0"/>
+                    <GradientStop Color="#2E2E2E" Offset="0.5"/>
+                    <GradientStop Color="#1C1C1C" Offset="1"/>
                 </LinearGradientBrush>
+
+
+
             </DockPanel.Background>
 
             <Button Content="User" Width="110" Height="40" Margin="100,15,10,15"

@@ -1,8 +1,7 @@
 ﻿<Page x:Class="VisionAICam.Pages.Production"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Title="Production"
-      Background="#FFFDFDFD">
+      Title="Production">
 
     <Page.Resources>
         <!-- Subtle shadow effect for panels -->
@@ -12,7 +11,17 @@
                           ShadowDepth="4"
                           Opacity="0.1"
                           BlurRadius="6"/>
+        <!-- Page background gradient -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
+        </LinearGradientBrush>
     </Page.Resources>
+
+    <Page.Background>
+        <StaticResource ResourceKey="PageBackgroundBrush"/>
+    </Page.Background>
 
     <Grid Margin="24">
         <Grid.ColumnDefinitions>
@@ -21,7 +30,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- 🎥 Left Panel: Production Camera -->
-        <GroupBox Header="Production Camera"
+        <GroupBox 
                   Grid.Column="0"
                   FontSize="18"
                   FontWeight="Bold"
@@ -101,7 +110,7 @@
         </GroupBox>
 
         <!-- 📋 Right Panel: Detections -->
-        <GroupBox Header="Detections"
+        <GroupBox
                   Grid.Column="1"
                   FontSize="18"
                   FontWeight="Bold"

@@ -6,11 +6,18 @@
       xmlns:local="clr-namespace:VisionAICam.Pages"
       mc:Ignorable="d"
       d:DesignHeight="800" d:DesignWidth="1200"
-      Title="ModelPage"
-      Background="#F0F2F5">
+      Title="ModelPage">
+
+    <!-- 🌫️ Gradient Background -->
+    <Page.Background>
+        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
+        </LinearGradientBrush>
+    </Page.Background>
 
     <Page.Resources>
-        <!-- Optional shadow effect -->
         <DropShadowEffect x:Key="ShadowEffect"
                           Color="Black"
                           Direction="270"
@@ -38,7 +45,6 @@
                     </Style.Triggers>
                 </Style>
             </Menu.Resources>
-
             <MenuItem Header="File">
                 <MenuItem Header="New Model" Click="NewModel_Click"/>
                 <MenuItem Header="Open Model" Click="OpenModel_Click"/>
@@ -49,16 +55,13 @@
                 <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
             </MenuItem>
-
             <MenuItem Header="Edit">
                 <MenuItem Header="Undo" InputGestureText="Ctrl+Z" Click="Undo_Click"/>
                 <MenuItem Header="Redo" InputGestureText="Ctrl+Y" Click="Redo_Click"/>
             </MenuItem>
-
             <MenuItem Header="View">
                 <MenuItem Header="Full Screen" InputGestureText="F11" Click="FullScreenToggleButton_Click"/>
             </MenuItem>
-
             <MenuItem Header="Help">
                 <MenuItem Header="View Help" Click="ViewHelp_Click"/>
                 <MenuItem Header="About" Click="About_Click"/>
@@ -68,24 +71,34 @@
         <!-- 🧠 Main Workspace -->
         <Grid Margin="10">
             <Grid.RowDefinitions>
-                <!-- Add a row for configuration panel -->
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 🔧 Model Training Configuration Panel (NEW) -->
-            <Border Grid.Row="0" Background="#FAFAFA" CornerRadius="8" BorderBrush="#DDD" BorderThickness="1" Padding="18,12" Margin="0,0,0,10" Effect="{StaticResource ShadowEffect}">
+            <!-- 🔧 Model Training Configuration Panel -->
+            <Border Grid.Row="0"
+                    Background="#FAFAFA"
+                    CornerRadius="8"
+                    BorderBrush="#DDD"
+                    BorderThickness="1"
+                    Padding="18,12"
+                    Margin="0,0,0,10"
+                    Effect="{StaticResource ShadowEffect}">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock Text="Dataset:" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <ComboBox x:Name="DatasetComboBox" Width="160" Margin="0,0,12,0"/>
                     <Button Content="Browse..." Width="80" Click="BrowseDataset_Click" Margin="0,0,18,0"/>
+
                     <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <ComboBox x:Name="ModelArchComboBox" Width="120" SelectedIndex="0" Margin="0,0,18,0">
                         <ComboBoxItem Content="YOLOv5"/>
                         <ComboBoxItem Content="YOLOv8"/>
+                        <ComboBoxItem Content="ONNX Runtime"/>
                         <ComboBoxItem Content="Custom"/>
                     </ComboBox>
+                    <Button Content="Add Model" Width="100" Click="AddModel_Click" Margin="0,0,18,0"/>
+
                     <TextBlock Text="Epochs:" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <TextBox x:Name="EpochsTextBox" Width="50" Text="50" Margin="0,0,12,0"/>
                     <TextBlock Text="Batch Size:" VerticalAlignment="Center" Margin="0,0,4,0"/>
@@ -115,7 +128,6 @@
                         HorizontalAlignment="Right"
                         VerticalAlignment="Bottom"
                         Margin="0,20,10,10">
-
                 <TextBlock x:Name="TrainingStatusText"
                            Text="🧠 Drag blocks to build your training pipeline"
                            FontSize="16"

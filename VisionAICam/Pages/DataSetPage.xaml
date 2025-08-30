@@ -11,7 +11,15 @@
       KeyDown="Page_KeyDown"
       Background="Transparent">
 
-    <DockPanel LastChildFill="True" Background="Transparent">
+    <Page.Resources>
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
+        </LinearGradientBrush>
+    </Page.Resources>
+
+    <DockPanel LastChildFill="True" Background="{StaticResource PageBackgroundBrush}">
         <!-- Menu Bar -->
         <Menu DockPanel.Dock="Top" Background="#FFF5F5F5" Foreground="#222">
             <Menu.Resources>
