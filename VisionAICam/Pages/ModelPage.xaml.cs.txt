@@ -1,744 +1,241 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using Ookii.Dialogs.Wpf;
-using Python.Runtime;
+using System.Windows.Media;
+using Microsoft.Win32;
 
 namespace VisionAICam.Pages
 {
-    public enum AnnotationType
-    {
-        Rectangle,
-        Polygon,
-        FreePen
-    }
-
-    public class AnnotationRecord
-    {
-        public string ImageName { get; set; }
-        public string Label { get; set; }
-        public AnnotationType AnnotationType { get; set; }
-        public List<Point> Points { get; set; } = new();
-       
-        public string Coordinates
-        {
-            get
-            {
-                if (AnnotationType == AnnotationType.Rectangle && Points.Count == 2)
-                {
-                    var x = Math.Min(Points[0].X, Points[1].X);
-                    var y = Math.Min(Points[0].Y, Points[1].Y);
-                    var w = Math.Abs(Points[1].X - Points[0].X);
-                    var h = Math.Abs(Points[1].Y - Points[0].Y);
-                    return $"({x:0},{y:0},{w:0},{h:0})";
-                }
-                return string.Join(";", Points.Select(p => $"({p.X:0},{p.Y:0})"));
-            }
-        }
-    }
-
     public partial class ModelPage : Page
     {
-        private List<string> _imagePaths = new();
-        private int _currentImageIndex = -1;
-        private int _currentImageWidth;
-        private int _currentImageHeight;
-        private string? _currentImagePath;
-
-        private bool _isFullScreen = false;
-
-        private enum DrawingMode { FreePen, Rectangle, Polygon }
-        private DrawingMode _currentDrawingMode = DrawingMode.Rectangle;
-
-        private List<Point> _currentPolygonPoints = new();
-        private Polyline? _currentPolyline = null;
-        private bool _isDrawingPolygon = false;
-
-        private Point _rectStartPoint;
-        private Rectangle? _currentRectangle = null;
-        private bool _isDrawingRectangle = false;
-
-        private Polyline? _currentFreePenLine = null;
-        private bool _isDrawingFreePen = false;
-
-        private Stack<List<AnnotationRecord>> _undoStack = new();
-        private Stack<List<AnnotationRecord>> _redoStack = new();
-
-        // Unified annotation list
-        private List<AnnotationRecord> Annotations = new();
-        private double _zoom = 1.0;
-private const double ZoomStep = 0.1;
-private const double ZoomMin = 0.1;
-private const double ZoomMax = 10.0;
+        private UIElement selectedBlock;
+        private Point dragStartPoint;
+        private List<Line> connectionLines = new();
 
         public ModelPage()
         {
             InitializeComponent();
-            this.Focusable = true;
-            this.Loaded += (s, e) =>
+            InitializeTrainingBlocks();
+        }
+
+        #region Block
+        private void InitializeTrainingBlocks()
+        {
+            TrainingCanvas.Children.Add(CreateBlock("📁 Dataset", 50, 50, "Dataset"));
+            TrainingCanvas.Children.Add(CreateBlock("🧠 Model", 300, 50, "Model"));
+            TrainingCanvas.Children.Add(CreateBlock("🚀 Train", 550, 50, "Train"));
+        }
+
+        private Border CreateBlock(string label, double left, double top, string tag)
+        {
+            var block = new Border
             {
-                this.Focus();
-                SetStatus("Ready");
+                Width = 150,
+                Height = 80,
+                Background = new SolidColorBrush(Color.FromRgb(58, 58, 61)),
+                BorderBrush = Brushes.White,
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(8),
+                Tag = tag,
+                Child = new TextBlock
+                {
+                    Text = label,
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Bold,
+                    FontSize = 16,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
             };
 
-            // Ensure canvas is ready for mouse events
-            BoundingBoxCanvas.IsEnabled = true;
-            BoundingBoxCanvas.IsHitTestVisible = true;
-            BoundingBoxCanvas.Background = Brushes.Transparent;
+            Canvas.SetLeft(block, left);
+            Canvas.SetTop(block, top);
 
-            DrawingModeComboBox.SelectionChanged += DrawingModeComboBox_SelectionChanged;
-            BoundingBoxCanvas.MouseLeftButtonDown += BoundingBoxCanvas_MouseLeftButtonDown;
-            BoundingBoxCanvas.MouseLeftButtonUp += BoundingBoxCanvas_MouseLeftButtonUp;
-            BoundingBoxCanvas.MouseMove += BoundingBoxCanvas_MouseMove;
-            BoundingBoxCanvas.MouseRightButtonDown += BoundingBoxCanvas_MouseRightButtonDown;
-            BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
-            BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
-        }
-        private void BoundingBoxCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
-        {
-            if (e.Delta > 0)
-            {
-                ZoomIn_Click(sender, e);
-            }
-            else if (e.Delta < 0)
-            {
-                ZoomOut_Click(sender, e);
-            }
-            e.Handled = true;
+            block.MouseLeftButtonDown += Block_MouseLeftButtonDown;
+            block.MouseMove += Block_MouseMove;
+            block.MouseLeftButtonUp += Block_MouseLeftButtonUp;
+            block.MouseLeftButtonUp += Block_Click;
+
+            return block;
         }
 
-        private void BoundingBoxCanvas_MouseDown(object sender, MouseButtonEventArgs e)
+        private void Block_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            BoundingBoxCanvas.Focus();
+            selectedBlock = sender as UIElement;
+            dragStartPoint = e.GetPosition(TrainingCanvas);
+            selectedBlock.CaptureMouse();
         }
-        private void BoundingBoxCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+
+        private void Block_MouseMove(object sender, MouseEventArgs e)
         {
-            if (_isDrawingPolygon && _currentPolygonPoints.Count > 2)
+            if (selectedBlock != null && selectedBlock.IsMouseCaptured)
             {
-                // Complete the polygon
-                _isDrawingPolygon = false;
+                Point currentPoint = e.GetPosition(TrainingCanvas);
+                double offsetX = currentPoint.X - dragStartPoint.X;
+                double offsetY = currentPoint.Y - dragStartPoint.Y;
 
-                var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-                var annotation = new AnnotationRecord
-                {
-                    ImageName = imageName,
-                    Label = "Polygon", // You may want to prompt for label
-                    AnnotationType = AnnotationType.Polygon,
-                    Points = new List<Point>(_currentPolygonPoints)
-                };
-                Annotations.Add(annotation);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus("Polygon annotation added.");
+                Canvas.SetLeft(selectedBlock, Canvas.GetLeft(selectedBlock) + offsetX);
+                Canvas.SetTop(selectedBlock, Canvas.GetTop(selectedBlock) + offsetY);
 
-                // Remove the temporary polyline
-                if (_currentPolyline != null)
-                {
-                    BoundingBoxCanvas.Children.Remove(_currentPolyline);
-                    _currentPolyline = null;
-                }
-                _currentPolygonPoints.Clear();
+                dragStartPoint = currentPoint;
             }
         }
 
-        private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
+        private void Block_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-
-            if (_isDrawingRectangle && _currentRectangle != null)
+            if (selectedBlock != null)
             {
-                double x = Math.Min(pt.X, _rectStartPoint.X);
-                double y = Math.Min(pt.Y, _rectStartPoint.Y);
-                double w = Math.Abs(pt.X - _rectStartPoint.X);
-                double h = Math.Abs(pt.Y - _rectStartPoint.Y);
-
-                Canvas.SetLeft(_currentRectangle, x);
-                Canvas.SetTop(_currentRectangle, y);
-                _currentRectangle.Width = w;
-                _currentRectangle.Height = h;
+                selectedBlock.ReleaseMouseCapture();
+                selectedBlock = null;
             }
-            else if (_isDrawingFreePen && _currentFreePenLine != null)
-            {
-                _currentFreePenLine.Points.Add(pt);
-            }
-            // Polygon drawing is handled on click, not on move
         }
-
-        private void SetStatus(string message)
-        {
-            if (StatusTextBlock != null)
-                StatusTextBlock.Text = message;
-        }
-        private void BoundingBoxCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-
-            if (_isDrawingRectangle && _currentRectangle != null)
-            {
-                _isDrawingRectangle = false;
-                BoundingBoxCanvas.ReleaseMouseCapture();
-
-                // Add rectangle annotation with selected class label
-                var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-                var selectedLabel = LabelComboBox.SelectedItem?.ToString() ?? "";
-                var annotation = new AnnotationRecord
-                {
-                    ImageName = imageName,
-                    Label = selectedLabel,
-                    AnnotationType = AnnotationType.Rectangle,
-                    Points = new List<Point> { _rectStartPoint, pt }
-                };
-                Annotations.Add(annotation);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus($"Rectangle annotation added with label '{selectedLabel}'.");
-            }
-            else if (_isDrawingFreePen && _currentFreePenLine != null)
-            {
-                _isDrawingFreePen = false;
-                BoundingBoxCanvas.ReleaseMouseCapture();
-
-                // Add free pen annotation with selected class label
-                var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-                var selectedLabel = LabelComboBox.SelectedItem?.ToString() ?? "";
-                var annotation = new AnnotationRecord
-                {
-                    ImageName = imageName,
-                    Label = selectedLabel,
-                    AnnotationType = AnnotationType.FreePen,
-                    Points = _currentFreePenLine.Points.ToList()
-                };
-                Annotations.Add(annotation);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus($"Free pen annotation added with label '{selectedLabel}'.");
-            }
-            // Polygon is handled on click, not on mouse up
-        }
-
-
-        private void Page_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.A) { AddBox_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.D) { RemoveSelected_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.E) { ExportYolo_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.Enter) { SaveAnnotations_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Undo(); e.Handled = true; }
-            else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
-            
-        }
-       
         
-
-        private async void NextImage_Click(object sender, RoutedEventArgs e)
+        private void HandleBlockAction(string tag)
         {
-            if (_imagePaths != null && _currentImageIndex < _imagePaths.Count - 1)
+            switch (tag)
             {
-                SaveAnnotations_Click(sender, e);
-                _currentImageIndex++;
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
-        private void Redo()
-        {
-            if (_redoStack.Count > 0)
-            {
-                _undoStack.Push(Annotations.Select(a => new AnnotationRecord
-                {
-                    ImageName = a.ImageName,
-                    Label = a.Label,
-                    AnnotationType = a.AnnotationType,
-                    Points = a.Points.ToList()
-                }).ToList());
-                Annotations = _redoStack.Pop();
-                RefreshAnnotations();
-                SetStatus("Redo.");
-            }
-        }
-
-        private async void PrevImage_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentImageIndex > 0)
-            {
-                SaveAnnotations_Click(sender, e);
-                _currentImageIndex--;
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
-        private void Undo()
-        {
-            if (_undoStack.Count > 0)
-            {
-                _redoStack.Push(Annotations.Select(a => new AnnotationRecord
-                {
-                    ImageName = a.ImageName,
-                    Label = a.Label,
-                    AnnotationType = a.AnnotationType,
-                    Points = a.Points.ToList()
-                }).ToList());
-                Annotations = _undoStack.Pop();
-                RefreshAnnotations();
-                SetStatus("Undo.");
-            }
-        }
-
-        private void SaveAnnotations_Click(object sender, RoutedEventArgs e)
-        {
-            // Optionally, implement save-to-file logic here
-            SetStatus("Annotations saved.");
-        }
-
-        private void ExportYolo_Click(object sender, RoutedEventArgs e)
-        {
-            // Optionally, implement YOLO export logic here
-            SetStatus("Export YOLO clicked.");
-        }
-        private void ViewHelp_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "How to use:\n\n" +
-                "1. Load a folder of images.\n" +
-                "2. Select or add a label/class.\n" +
-                "3. Draw annotations using the selected mode.\n" +
-                "4. Use the menu to save, export, or finish your project.\n\n" +
-                "Keyboard Shortcuts:\n" +
-                "F: Next image\n" +
-                "S: Previous image\n" +
-                "A: Add box\n" +
-                "D: Remove selected\n" +
-                "E: Export YOLO\n" +
-                "Enter: Save annotations\n" +
-                "Ctrl+Z: Undo\n" +
-                "Ctrl+Y: Redo\n" +
-                "F: Toggle full screen\n",
-                "Help",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information
-            );
-        }
-
-        private void About_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "VisionAICam\n" +
-                "Image Annotation Tool\n\n" +
-                "Version 1.0\n" +
-                "© 2024 Your Company/Team Name",
-                "About",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information
-            );
-        }
-
-        private void RemoveSelected_Click(object sender, RoutedEventArgs e)
-        {
-            if (AnnotationListView.SelectedItem is AnnotationRecord selected)
-            {
-                Annotations.Remove(selected);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus("Box removed.");
-            }
-        }
-        private void SaveStateForUndo()
-        {
-            _undoStack.Push(Annotations.Select(a => new AnnotationRecord
-            {
-                ImageName = a.ImageName,
-                Label = a.Label,
-                AnnotationType = a.AnnotationType,
-                Points = a.Points.ToList()
-            }).ToList());
-            _redoStack.Clear();
-        }
-
-        private void AddBox_Click(object sender, RoutedEventArgs e)
-        {
-            // Optionally, implement manual add box logic here
-            SetStatus("Add Box clicked.");
-        }
-
-        private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            switch ((DrawingModeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString())
-            {
-                case "Free Pen": _currentDrawingMode = DrawingMode.FreePen; break;
-                case "Rectangle": _currentDrawingMode = DrawingMode.Rectangle; break;
-                case "Polygon": _currentDrawingMode = DrawingMode.Polygon; break;
-            }
-            _isDrawingPolygon = false;
-            _currentPolygonPoints.Clear();
-            if (_currentPolyline != null)
-            {
-                BoundingBoxCanvas.Children.Remove(_currentPolyline);
-                _currentPolyline = null;
-            }
-            _isDrawingRectangle = false;
-            if (_currentRectangle != null)
-            {
-                BoundingBoxCanvas.Children.Remove(_currentRectangle);
-                _currentRectangle = null;
-            }
-            _isDrawingFreePen = false;
-            if (_currentFreePenLine != null)
-            {
-                BoundingBoxCanvas.Children.Remove(_currentFreePenLine);
-                _currentFreePenLine = null;
-            }
-            SetStatus($"Drawing mode: {_currentDrawingMode}");
-        }
-
-        private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            // Always set focus for keyboard shortcuts
-            BoundingBoxCanvas.Focus();
-
-            // Get current label (if any)
-            var label = LabelComboBox.SelectedItem?.ToString();
-            if (string.IsNullOrWhiteSpace(label))
-            {
-                SetStatus("Please select a label before drawing.");
-                return;
-            }
-
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-
-            switch (_currentDrawingMode)
-            {
-                case DrawingMode.Polygon:
-                    if (!_isDrawingPolygon)
+                case "Dataset":
+                    var folderDialog = new System.Windows.Forms.FolderBrowserDialog
                     {
-                        _currentPolygonPoints.Clear();
-                        _currentPolyline = new Polyline
-                        {
-                            Stroke = Brushes.Red,
-                            StrokeThickness = 2
-                        };
-                        BoundingBoxCanvas.Children.Add(_currentPolyline);
-                        _isDrawingPolygon = true;
-                    }
-                    _currentPolygonPoints.Add(pt);
-                    _currentPolyline.Points.Add(pt);
-                    SetStatus("Polygon point added.");
-                    break;
-
-                case DrawingMode.Rectangle:
-                    _rectStartPoint = pt;
-                    _currentRectangle = new Rectangle
-                    {
-                        Stroke = Brushes.Blue,
-                        StrokeThickness = 2
+                        Description = "Select your dataset folder"
                     };
-                    Canvas.SetLeft(_currentRectangle, _rectStartPoint.X);
-                    Canvas.SetTop(_currentRectangle, _rectStartPoint.Y);
-                    BoundingBoxCanvas.Children.Add(_currentRectangle);
-                    _isDrawingRectangle = true;
-                    if (!BoundingBoxCanvas.IsMouseCaptured)
+                    if (folderDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
                     {
-                        BoundingBoxCanvas.CaptureMouse();
-                        SetStatus($"Started rectangle at ({_rectStartPoint.X:0},{_rectStartPoint.Y:0}), mouse captured.");
-                    }
-                    else
-                    {
-                        SetStatus("Warning: Mouse already captured by canvas.");
+                        MessageBox.Show($"📁 Dataset selected:\n{folderDialog.SelectedPath}");
+                        // TODO: Load dataset preview or annotation files
                     }
                     break;
 
-                case DrawingMode.FreePen:
-                    _currentFreePenLine = new Polyline
+                case "Model":
+                    var modelWindow = new Window
                     {
-                        Stroke = Brushes.Green,
-                        StrokeThickness = 2
+                        Title = "Select Model Type",
+                        Width = 300,
+                        Height = 150,
+                        WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                        ResizeMode = ResizeMode.NoResize
                     };
-                    _currentFreePenLine.Points.Add(pt);
-                    BoundingBoxCanvas.Children.Add(_currentFreePenLine);
-                    _isDrawingFreePen = true;
-                    BoundingBoxCanvas.CaptureMouse();
-                    SetStatus("Drawing free pen...");
+
+                    var panel = new StackPanel { Margin = new Thickness(20) };
+                    var comboBox = new ComboBox
+                    {
+                        ItemsSource = new List<string> { "YOLOv8", "ONNX", "Custom" },
+                        SelectedIndex = 0,
+                        Margin = new Thickness(0, 0, 0, 10)
+                    };
+                    var confirmButton = new Button
+                    {
+                        Content = "Confirm",
+                        Width = 100,
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    };
+                    confirmButton.Click += (s, e) =>
+                    {
+                        MessageBox.Show($"🧠 Model selected: {comboBox.SelectedItem}");
+                        modelWindow.Close();
+                        // TODO: Save model selection or load config
+                    };
+
+                    panel.Children.Add(comboBox);
+                    panel.Children.Add(confirmButton);
+                    modelWindow.Content = panel;
+                    modelWindow.ShowDialog();
+                    break;
+
+                case "Train":
+                    var result = MessageBox.Show("🚀 Start training now?", "Training", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        TrainingStatusText.Text = "Training started...";
+                        TrainModelButton.IsEnabled = false;
+
+                        Task.Run(() =>
+                        {
+                            System.Threading.Thread.Sleep(2000);
+                            Dispatcher.Invoke(() =>
+                            {
+                                TrainingStatusText.Text = "Training complete!";
+                                TrainModelButton.IsEnabled = true;
+                            });
+                        });
+                    }
+                    break;
+
+                default:
+                    MessageBox.Show($"❓ Unknown block type: {tag}");
                     break;
             }
         }
 
-
-        private async Task LoadImageAtIndex(int index)
+        private void Block_Click(object sender, MouseButtonEventArgs e)
         {
-            if (_imagePaths == null || index < 0 || index >= _imagePaths.Count)
-                return;
-
-            var imagePath = _imagePaths[index];
-            _currentImagePath = imagePath;
-
-            BitmapImage bitmap = null;
-            await Task.Run(() =>
+            if (sender is Border block && block.Tag is string tag)
             {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource = new Uri(imagePath);
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.EndInit();
-                bmp.Freeze();
-                bitmap = bmp;
-            });
-
-            LabelingImage.Source = bitmap;
-            _currentImageWidth = bitmap.PixelWidth;
-            _currentImageHeight = bitmap.PixelHeight;
-
-            // Set both Image and Canvas to the same size for 1:1 mapping
-            LabelingImage.Width = _currentImageWidth;
-            LabelingImage.Height = _currentImageHeight;
-            BoundingBoxCanvas.Width = _currentImageWidth;
-            BoundingBoxCanvas.Height = _currentImageHeight;
-
-            // Ensure canvas is ready for drawing after image load
-            BoundingBoxCanvas.IsEnabled = true;
-            BoundingBoxCanvas.IsHitTestVisible = true;
-            BoundingBoxCanvas.Focusable = true;
-            BoundingBoxCanvas.Background = Brushes.Transparent;
-            BoundingBoxCanvas.Focus();
-
-            RefreshAnnotations();
-
-            ImageProgressText.Text = $"Image {index + 1} of {_imagePaths.Count} ({(int)(((index + 1) * 100.0) / _imagePaths.Count)}%)";
-
-            _isDrawingRectangle = false;
-            _isDrawingPolygon = false;
-            _isDrawingFreePen = false;
-            _currentRectangle = null;
-            _currentPolyline = null;
-            _currentFreePenLine = null;
-            _currentPolygonPoints.Clear();
-            BoundingBoxCanvas.ReleaseMouseCapture();
-
-            SetStatus($"Loaded image {index + 1} of {_imagePaths.Count}. Ready to draw.");
-        }
-
-        private void RefreshAnnotations()
-        {
-            // Filter and show only annotations for the current image
-            var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-            var filtered = Annotations.Where(a => a.ImageName == imageName).ToList();
-            AnnotationListView.ItemsSource = filtered;
-
-            // Redraw all shapes on the canvas
-            BoundingBoxCanvas.Children.Clear();
-            foreach (var ann in filtered)
-            {
-                switch (ann.AnnotationType)
-                {
-                    case AnnotationType.Rectangle:
-                        if (ann.Points.Count == 2)
-                        {
-                            var x = Math.Min(ann.Points[0].X, ann.Points[1].X);
-                            var y = Math.Min(ann.Points[0].Y, ann.Points[1].Y);
-                            var w = Math.Abs(ann.Points[1].X - ann.Points[0].X);
-                            var h = Math.Abs(ann.Points[1].Y - ann.Points[0].Y);
-
-                            // Draw rectangle
-                            var rect = new Rectangle
-                            {
-                                Stroke = Brushes.Blue,
-                                StrokeThickness = 2,
-                                Width = w,
-                                Height = h
-                            };
-                            Canvas.SetLeft(rect, x);
-                            Canvas.SetTop(rect, y);
-                            BoundingBoxCanvas.Children.Add(rect);
-
-                            // Draw class label at top-left (always inside the box)
-                            var label = new TextBlock
-                            {
-                                Text = string.IsNullOrWhiteSpace(ann.Label) ? "(No Class)" : ann.Label,
-                                Foreground = Brushes.Blue,
-                                Background = Brushes.White,
-                                FontWeight = FontWeights.Bold,
-                                FontSize = 14,
-                                Padding = new Thickness(2, 0, 2, 0)
-                            };
-                            Canvas.SetLeft(label, x + 1);
-                            Canvas.SetTop(label, y + 1);
-                            BoundingBoxCanvas.Children.Add(label);
-                        }
-                        break;
-
-
-                    case AnnotationType.Polygon:
-                        if (ann.Points.Count > 2)
-                        {
-                            var polygon = new Polygon
-                            {
-                                Stroke = Brushes.Red,
-                                StrokeThickness = 2,
-                                Fill = Brushes.Transparent,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            BoundingBoxCanvas.Children.Add(polygon);
-                        }
-                        break;
-                    case AnnotationType.FreePen:
-                        if (ann.Points.Count > 1)
-                        {
-                            var polyline = new Polyline
-                            {
-                                Stroke = Brushes.Green,
-                                StrokeThickness = 2,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            BoundingBoxCanvas.Children.Add(polyline);
-                        }
-                        break;
-                }
+                HandleBlockAction(tag);
             }
         }
+
+        #endregion
+
+        #region Menu event handlers
+        // Menu event handlers
+        private void NewModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("New Model action triggered.");
+        private void OpenModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Open Model action triggered.");
+        private void SaveModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Save Model action triggered.");
+        private void ExportModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Export Model action triggered.");
+        private void CloseModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Close Model action triggered.");
+        private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
+        private void Undo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Undo action triggered.");
+        private void Redo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Redo action triggered.");
         private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
         {
             var window = Window.GetWindow(this);
-            if (window == null) return;
-
-            if (!_isFullScreen)
+            if (window != null)
             {
-                window.WindowStyle = WindowStyle.None;
-                window.WindowState = WindowState.Maximized;
-                window.ResizeMode = ResizeMode.NoResize;
-                _isFullScreen = true;
-                SetStatus("Entered full screen mode.");
-            }
-            else
-            {
-                window.WindowStyle = WindowStyle.SingleBorderWindow;
-                window.WindowState = WindowState.Normal;
-                window.ResizeMode = ResizeMode.CanResize;
-                _isFullScreen = false;
-                SetStatus("Exited full screen mode.");
-            }
-        }
-        private void AddClassButton_Click(object sender, RoutedEventArgs e)
-        {
-            var newClass = NewClassTextBox.Text.Trim();
-            if (string.IsNullOrEmpty(newClass))
-            {
-                SetStatus("Class name cannot be empty.");
-                return;
-            }
-
-            // Check if the class already exists in the ComboBox
-            bool exists = false;
-            foreach (var item in LabelComboBox.Items)
-            {
-                if (item is ComboBoxItem comboItem &&
-                    string.Equals(comboItem.Content?.ToString(), newClass, StringComparison.OrdinalIgnoreCase))
+                if (window.WindowState == WindowState.Maximized && window.WindowStyle == WindowStyle.None)
                 {
-                    exists = true;
-                    break;
+                    window.WindowStyle = WindowStyle.SingleBorderWindow;
+                    window.WindowState = WindowState.Normal;
                 }
-                else if (item is string str &&
-                    string.Equals(str, newClass, StringComparison.OrdinalIgnoreCase))
+                else
                 {
-                    exists = true;
-                    break;
+                    window.WindowStyle = WindowStyle.None;
+                    window.WindowState = WindowState.Maximized;
                 }
             }
-
-            if (exists)
-            {
-                SetStatus("Class already exists.");
-                return;
-            }
-
-            // Add new class to ComboBox
-            LabelComboBox.Items.Add(newClass);
-            LabelComboBox.SelectedItem = newClass;
-            NewClassTextBox.Text = string.Empty;
-            SetStatus($"Class '{newClass}' added.");
         }
-
-        public async void LoadFolder_Click(object sender, RoutedEventArgs e)
+        private void ViewHelp_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new VistaFolderBrowserDialog
-            {
-                Description = "Select a folder of images",
-                UseDescriptionForTitle = true
-            };
+            MessageBox.Show("Help content goes here.", "Help", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        private void About_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("VisionAICam\nModel Training Module\n© 2025", "About", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        #endregion
 
-            if (dialog.ShowDialog() == true)
-            {
-                string folderPath = dialog.SelectedPath;
-                _imagePaths = Directory.GetFiles(folderPath, "*.*")
-                    .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(f => f)
-                    .ToList();
+        #region Button event handlers
+        private void TrainModelButton_Click(object sender, RoutedEventArgs e)
+        {
+            TrainingStatusText.Text = "Training started...";
+            TrainModelButton.IsEnabled = false;
 
-                if (_imagePaths.Count == 0)
+            Task.Run(() =>
+            {
+                System.Threading.Thread.Sleep(2000);
+                Dispatcher.Invoke(() =>
                 {
-                    MessageBox.Show("No images found in the selected folder.", "No Images", MessageBoxButton.OK, MessageBoxImage.Information);
-                    SetStatus("No images found.");
-                    return;
-                }
+                    TrainingStatusText.Text = "Training complete!";
+                    TrainModelButton.IsEnabled = true;
+                });
+            });
+        }
+        #endregion
 
-                _currentImageIndex = 0;
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
 
-        private void ZoomIn_Click(object sender, RoutedEventArgs e)
-        {
-            _zoom = Math.Min(_zoom + ZoomStep, ZoomMax);
-            ZoomTransform.ScaleX = _zoom;
-            ZoomTransform.ScaleY = _zoom;
-            SetStatus($"Zoom: {_zoom * 100:0}%");
-        }
-
-        private void ZoomOut_Click(object sender, RoutedEventArgs e)
-        {
-            _zoom = Math.Max(_zoom - ZoomStep, ZoomMin);
-            ZoomTransform.ScaleX = _zoom;
-            ZoomTransform.ScaleY = _zoom;
-            SetStatus($"Zoom: {_zoom * 100:0}%");
-        }
-        private void Undo_Click(object sender, RoutedEventArgs e)
-        {
-            Undo();
-        }
-
-        private void Redo_Click(object sender, RoutedEventArgs e)
-        {
-            Redo();
-        }
-
-        private void CreateProject_Click(object sender, RoutedEventArgs e)
-        {
-            // TODO: Show dialog to create a new project, set up project data, etc.
-            SetStatus("New project created.");
-        }
-
-        private void OpenProject_Click(object sender, RoutedEventArgs e)
-        {
-            // TODO: Show file dialog to select and load a project file.
-            SetStatus("Project opened.");
-        }
-        //Exit_Click"
-        private void FinishProject_Click(object sender, RoutedEventArgs e)
-        {
-            SetStatus("Finish project.");
-        }
-        private void Exit_Click(object sender, RoutedEventArgs e)
-        {
-            // TODO: Show dialog to create a new project, set up project data, etc.
-            //SetStatus("New project created.");
-        }
     }
 }

@@ -93,10 +93,10 @@ namespace VisionAICam
             MainContent.Navigate(new CameraPage());
         }
 
-        private void ModelButton_Click(object sender, RoutedEventArgs e)
-        {
-            MainContent.Navigate(new ModelPage());
-        }
+        //private void ModelButton_Click(object sender, RoutedEventArgs e)
+        //{
+        //    MainContent.Navigate(new ModelPage());
+        //}
 
         private void ProductionButton_Click(object sender, RoutedEventArgs e)
         {
@@ -112,6 +112,16 @@ namespace VisionAICam
                 _productionPage.StopProduction();
             }
             Application.Current.Shutdown();
+        }
+
+        private void DataSetButton_Click(object sender, RoutedEventArgs e)
+        {
+            MainContent.Navigate(new DataSetPage());
+        }
+
+        private void ModelButton_Click(object sender, RoutedEventArgs e)
+        {
+            MainContent.Navigate(new ModelPage());
         }
     }
 }

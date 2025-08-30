@@ -53,7 +53,7 @@ namespace VisionAICam
     Func<string, Size> getImageSize,
     YoloExportFormat exportFormat)
         {
-            var imagesFolder = Path.Combine(setFolder, "image");
+            var imagesFolder = Path.Combine(setFolder, "images");
             var labelsFolder = Path.Combine(setFolder, "labels");
             Directory.CreateDirectory(imagesFolder);
             Directory.CreateDirectory(labelsFolder);

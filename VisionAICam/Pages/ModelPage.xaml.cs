@@ -1,993 +1,480 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using Ookii.Dialogs.Wpf;
-using Python.Runtime;
+using System.Windows.Media;
+using Microsoft.Win32;
+using System.IO;
 
 namespace VisionAICam.Pages
 {
-    public enum AnnotationType
-    {
-        Rectangle,
-        Polygon,
-        FreePen
-    }
-
-    // Extension method for AnnotationRecord
-    
-
+   
     public partial class ModelPage : Page
     {
-        private List<string> _imagePaths = new();
-        private int _currentImageIndex = -1;
-        private int _currentImageWidth;
-        private int _currentImageHeight;
-        private string? _currentImagePath;
+        private UIElement selectedBlock;
+        private Point dragStartPoint;
+        private List<Line> connectionLines = new();
 
-        private bool _isFullScreen = false;
-
-        private enum DrawingMode { FreePen, Rectangle, Polygon }
-        private DrawingMode _currentDrawingMode = DrawingMode.Rectangle;
-
-        private List<Point> _currentPolygonPoints = new();
-        private Polyline? _currentPolyline = null;
-        private bool _isDrawingPolygon = false;
-
-        private Point _rectStartPoint;
-        private Rectangle? _currentRectangle = null;
-        private bool _isDrawingRectangle = false;
-
-        private Polyline? _currentFreePenLine = null;
-        private bool _isDrawingFreePen = false;
-
-        private Stack<List<AnnotationRecord>> _undoStack = new();
-        private Stack<List<AnnotationRecord>> _redoStack = new();
-
-        // Unified annotation list
-        private List<AnnotationRecord> Annotations = new();
-        private double _zoom = 1.0;
-        private const double ZoomStep = 0.1;
-        private const double ZoomMin = 0.1;
-        private const double ZoomMax = 10.0;
-        private AnnotationProject? _currentProject;
+        // --- NEW: Track block references ---
+        private Border datasetBlock;
+        private Border modelBlock;
+        private Border trainBlock;
 
         public ModelPage()
         {
             InitializeComponent();
-            this.Focusable = true;
-            this.Loaded += async (s, e) =>
+            // Do NOT call InitializeTrainingBlocks here!
+            // Blocks will be added step-by-step as user progresses.
+            TrainingStatusText.Text = "Please select a dataset to begin.";
+        }
+
+        #region Block
+        // --- MODIFIED: No blocks at startup ---
+
+        private Border CreateBlock(string label, double left, double top, string tag)
+        {
+            var block = new Border
             {
-                this.Focus();
-                SetStatus("Ready");
-
-                if (ProjectSession.CurrentProject != null)
+                Width = 150,
+                Height = 80,
+                Background = new SolidColorBrush(Color.FromRgb(58, 58, 61)),
+                BorderBrush = Brushes.White,
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(8),
+                Tag = tag,
+                Child = new TextBlock
                 {
-                    // Restore state from session
-                    _currentProject = ProjectSession.CurrentProject;
-                    Annotations = ProjectSession.Annotations;
-                    _imagePaths = ProjectSession.ImagePaths;
-                    _currentImageIndex = ProjectSession.CurrentImageIndex;
-                    _currentImagePath = ProjectSession.CurrentImagePath;
-                    LabelComboBox.Items.Clear();
-                    foreach (var label in _currentProject.ClassLabels)
-                        LabelComboBox.Items.Add(label);
-
-                    ShowMainContentPanel();
-                    if (_currentImageIndex >= 0 && _currentImageIndex < _imagePaths.Count)
-                        await LoadImageAtIndex(_currentImageIndex);
+                    Text = label,
+                    Foreground = Brushes.White,
+                    FontWeight = FontWeights.Bold,
+                    FontSize = 16,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
                 }
-                else
-                {
-                    // Show "No Project" message and hide main content on first load
-                    NoProjectPanel.Visibility = Visibility.Visible;
-                    MainContentPanel.Visibility = Visibility.Collapsed;
-                }
             };
 
+            Canvas.SetLeft(block, left);
+            Canvas.SetTop(block, top);
 
-            // Ensure canvas is ready for mouse events
-            BoundingBoxCanvas.IsEnabled = true;
-            BoundingBoxCanvas.IsHitTestVisible = true;
-            BoundingBoxCanvas.Background = Brushes.Transparent;
+            block.MouseLeftButtonDown += Block_MouseLeftButtonDown;
+            block.MouseMove += Block_MouseMove;
+            block.MouseLeftButtonUp += Block_MouseLeftButtonUp;
+            block.MouseLeftButtonUp += Block_Click;
 
-            DrawingModeComboBox.SelectionChanged += DrawingModeComboBox_SelectionChanged;
-            BoundingBoxCanvas.MouseLeftButtonDown += BoundingBoxCanvas_MouseLeftButtonDown;
-            BoundingBoxCanvas.MouseLeftButtonUp += BoundingBoxCanvas_MouseLeftButtonUp;
-            BoundingBoxCanvas.MouseMove += BoundingBoxCanvas_MouseMove;
-            BoundingBoxCanvas.MouseRightButtonDown += BoundingBoxCanvas_MouseRightButtonDown;
-            BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
-            BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
+            return block;
         }
 
-        private void ShowNoProjectPanel()
+        private void Block_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            NoProjectPanel.Visibility = Visibility.Visible;
-            MainContentPanel.Visibility = Visibility.Collapsed;
+            selectedBlock = sender as UIElement;
+            dragStartPoint = e.GetPosition(TrainingCanvas);
+            selectedBlock.CaptureMouse();
         }
 
-        private void ShowMainContentPanel()
+        private void Block_MouseMove(object sender, MouseEventArgs e)
         {
-            NoProjectPanel.Visibility = Visibility.Collapsed;
-            MainContentPanel.Visibility = Visibility.Visible;
-        }
-
-        private void BoundingBoxCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
-        {
-            if (e.Delta > 0)
+            if (selectedBlock != null && selectedBlock.IsMouseCaptured)
             {
-                ZoomIn_Click(sender, e);
-            }
-            else if (e.Delta < 0)
-            {
-                ZoomOut_Click(sender, e);
-            }
-            e.Handled = true;
-        }
+                Point currentPoint = e.GetPosition(TrainingCanvas);
+                double offsetX = currentPoint.X - dragStartPoint.X;
+                double offsetY = currentPoint.Y - dragStartPoint.Y;
 
-        private void BoundingBoxCanvas_MouseDown(object sender, MouseButtonEventArgs e)
-        {
-            BoundingBoxCanvas.Focus();
-        }
-        private void BoundingBoxCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (_isDrawingPolygon && _currentPolygonPoints.Count > 2)
-            {
-                // Complete the polygon
-                _isDrawingPolygon = false;
+                Canvas.SetLeft(selectedBlock, Canvas.GetLeft(selectedBlock) + offsetX);
+                Canvas.SetTop(selectedBlock, Canvas.GetTop(selectedBlock) + offsetY);
 
-                var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-                var annotation = new AnnotationRecord
-                {
-                    ImageName = imageName,
-                    Label = "Polygon", // You may want to prompt for label
-                    AnnotationType = AnnotationType.Polygon,
-                    Points = new List<Point>(_currentPolygonPoints)
-                };
-                Annotations.Add(annotation);
-                ProjectSession.Annotations = Annotations;
-
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus("Polygon annotation added.");
-
-                // Remove the temporary polyline
-                if (_currentPolyline != null)
-                {
-                    BoundingBoxCanvas.Children.Remove(_currentPolyline);
-                    _currentPolyline = null;
-                }
-                _currentPolygonPoints.Clear();
-            }
-        }
-        private void SaveProject_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null) return;
-            _currentProject.ImagePaths = _imagePaths;
-            _currentProject.Annotations = Annotations;
-            _currentProject.ClassLabels = LabelComboBox.Items.Cast<object>().Select(i => i.ToString() ?? "").ToList();
-            _currentProject.SelectedImageIndex = _currentImageIndex;
-
-            var dialog = new Microsoft.Win32.SaveFileDialog
-            {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
-            };
-            if (dialog.ShowDialog() == true)
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(dialog.FileName, json);
-                SetStatus("Project saved.");
+                dragStartPoint = currentPoint;
             }
         }
 
-        private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
+        private void Block_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-
-            if (_isDrawingRectangle && _currentRectangle != null)
+            if (selectedBlock != null)
             {
-                double x = Math.Min(pt.X, _rectStartPoint.X);
-                double y = Math.Min(pt.Y, _rectStartPoint.Y);
-                double w = Math.Abs(pt.X - _rectStartPoint.X);
-                double h = Math.Abs(pt.Y - _rectStartPoint.Y);
-
-                Canvas.SetLeft(_currentRectangle, x);
-                Canvas.SetTop(_currentRectangle, y);
-                _currentRectangle.Width = w;
-                _currentRectangle.Height = h;
-            }
-            else if (_isDrawingFreePen && _currentFreePenLine != null)
-            {
-                _currentFreePenLine.Points.Add(pt);
-            }
-            // Polygon drawing is handled on click, not on move
-        }
-
-        private void SetStatus(string message)
-        {
-            if (StatusTextBlock != null)
-                StatusTextBlock.Text = message;
-        }
-        private void BoundingBoxCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-        {
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-
-            if (_isDrawingRectangle && _currentRectangle != null)
-            {
-                _isDrawingRectangle = false;
-                BoundingBoxCanvas.ReleaseMouseCapture();
-
-                // Add rectangle annotation with selected class label
-                var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-                var selectedLabel = LabelComboBox.SelectedItem?.ToString() ?? "";
-                var annotation = new AnnotationRecord
-                {
-                    ImageName = imageName,
-                    Label = selectedLabel,
-                    AnnotationType = AnnotationType.Rectangle,
-                    Points = new List<Point> { _rectStartPoint, pt }
-                };
-                Annotations.Add(annotation);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus($"Rectangle annotation added with label '{selectedLabel}'.");
-            }
-            else if (_isDrawingFreePen && _currentFreePenLine != null)
-            {
-                _isDrawingFreePen = false;
-                BoundingBoxCanvas.ReleaseMouseCapture();
-
-                // Add free pen annotation with selected class label
-                var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-                var selectedLabel = LabelComboBox.SelectedItem?.ToString() ?? "";
-                var annotation = new AnnotationRecord
-                {
-                    ImageName = imageName,
-                    Label = selectedLabel,
-                    AnnotationType = AnnotationType.FreePen,
-                    Points = _currentFreePenLine.Points.ToList()
-                };
-                Annotations.Add(annotation);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus($"Free pen annotation added with label '{selectedLabel}'.");
-            }
-            // Polygon is handled on click, not on mouse up
-        }
-
-        private void Page_KeyDown(object sender, KeyEventArgs e)
-        {
-            // Prevent shortcut handling when typing in NewClassTextBox
-            if (NewClassTextBox.IsFocused)
-                return;
-
-            if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.A) { AddBox_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.D) { RemoveSelected_Click(sender, e); e.Handled = true; }
-            
-            else if (e.Key == Key.Enter) { SaveAnnotations_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Undo(); e.Handled = true; }
-            else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
-        }
-
-
-        private async void NextImage_Click(object sender, RoutedEventArgs e)
-        {
-            if (_imagePaths != null && _currentImageIndex < _imagePaths.Count - 1)
-            {
-                SaveAnnotations_Click(sender, e);
-                _currentImageIndex++;
-                // After _currentImageIndex++; and await LoadImageAtIndex(_currentImageIndex);
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
-        private void Redo()
-        {
-            if (_redoStack.Count > 0)
-            {
-                _undoStack.Push(Annotations.Select(a => new AnnotationRecord
-                {
-                    ImageName = a.ImageName,
-                    Label = a.Label,
-                    AnnotationType = a.AnnotationType,
-                    Points = a.Points.ToList()
-                }).ToList());
-                Annotations = _redoStack.Pop();
-                RefreshAnnotations();
-                SetStatus("Redo.");
+                selectedBlock.ReleaseMouseCapture();
+                selectedBlock = null;
             }
         }
 
-        private async void PrevImage_Click(object sender, RoutedEventArgs e)
+        private void HandleBlockAction(string tag)
         {
-            if (_currentImageIndex > 0)
+            switch (tag)
             {
-                SaveAnnotations_Click(sender, e);
-                _currentImageIndex--;
-                // After _currentImageIndex++; and await LoadImageAtIndex(_currentImageIndex);
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
-        private void Undo()
-        {
-            if (_undoStack.Count > 0)
-            {
-                _redoStack.Push(Annotations.Select(a => new AnnotationRecord
-                {
-                    ImageName = a.ImageName,
-                    Label = a.Label,
-                    AnnotationType = a.AnnotationType,
-                    Points = a.Points.ToList()
-                }).ToList());
-                Annotations = _undoStack.Pop();
-                RefreshAnnotations();
-                SetStatus("Undo.");
-            }
-        }
-
-        private void SaveAnnotations_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject != null)
-            {
-                _currentProject.Annotations = Annotations;
-                _currentProject.SelectedImageIndex = _currentImageIndex;
-                ProjectSession.Annotations = Annotations;
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-
-                // Optional: Save to disk automatically
-                // var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                // File.WriteAllText("autosave.json", json);
-
-                SetStatus("Annotations saved.");
-            }
-            else
-            {
-                SetStatus("No project loaded. Cannot save annotations.");
-            }
-        }
-
-
-    
-
-        private void ExportYoloV5_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
-            {
-                SetStatus("No project or images to export.");
-                return;
-            }
-
-            var dialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog
-            {
-                Description = "Select output folder for YOLOv5 export",
-                UseDescriptionForTitle = true
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                string outputFolder = System.IO.Path.Combine(
-                    dialog.SelectedPath,
-                    $"Yolo5Export_{DateTime.Now:yyyyMMdd_HHmmss}"
-                );
-
-                YoloExporter.ExportWithSplit(
-                    _currentProject,
-                    outputFolder,
-                    imageName =>
+                case "Dataset":
                     {
-                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new System.Windows.Size(0, 0);
-                        try
+                        var folderDialog = new System.Windows.Forms.FolderBrowserDialog
                         {
-                            using var img = System.Drawing.Image.FromFile(path);
-                            return new System.Windows.Size(img.Width, img.Height);
-                        }
-                        catch
-                        {
-                            return new System.Windows.Size(0, 0);
-                        }
-                    },
-                    trainRatio: 0.7, 0.2, 0.1,
-                    exportFormat: YoloExportFormat.YoloV5
-                );
-
-                SetStatus("YOLOv5 export complete (train/val/test).");
-            }
-            else
-            {
-                SetStatus("YOLOv5 export canceled.");
-            }
-        }
-
-        private void ExportYoloV8_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
-            {
-                SetStatus("No project or images to export.");
-                return;
-            }
-
-            var dialog = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog
-            {
-                Description = "Select output folder for YOLOv8 export",
-                UseDescriptionForTitle = true
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                string outputFolder = System.IO.Path.Combine(
-                    dialog.SelectedPath,
-                    $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
-                );
-
-                YoloExporter.ExportWithSplit(
-                    _currentProject,
-                    outputFolder,
-                    imageName =>
-                    {
-                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new System.Windows.Size(0, 0);
-                        try
-                        {
-                            using var img = System.Drawing.Image.FromFile(path);
-                            return new System.Windows.Size(img.Width, img.Height);
-                        }
-                        catch
-                        {
-                            return new System.Windows.Size(0, 0);
-                        }
-                    },
-                    trainRatio: 0.7, 0.2, 0.1,
-                    exportFormat: YoloExportFormat.YoloV8
-                );
-
-                SetStatus("YOLOv8 export complete (train/val/test).");
-            }
-            else
-            {
-                SetStatus("YOLOv8 export canceled.");
-            }
-        }
-
-        private void ViewHelp_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "How to use:\n\n" +
-                "1. Load a folder of images.\n" +
-                "2. Select or add a label/class.\n" +
-                "3. Draw annotations using the selected mode.\n" +
-                "4. Use the menu to save, export, or finish your project.\n\n" +
-                "Keyboard Shortcuts:\n" +
-                "F: Next image\n" +
-                "S: Previous image\n" +
-                "A: Add box\n" +
-                "D: Remove selected\n" +
-                "E: Export YOLO\n" +
-                "Enter: Save annotations\n" +
-                "Ctrl+Z: Undo\n" +
-                "Ctrl+Y: Redo\n" +
-                "F: Toggle full screen\n",
-                "Help",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information
-            );
-        }
-
-        private void About_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "VisionAICam\n" +
-                "Image Annotation Tool\n\n" +
-                "Version 1.0\n" +
-                "© 2024 Your Company/Team Name",
-                "About",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information
-            );
-        }
-
-        private void RemoveSelected_Click(object sender, RoutedEventArgs e)
-        {
-            if (AnnotationListView.SelectedItem is AnnotationRecord selected)
-            {
-                Annotations.Remove(selected);
-                ProjectSession.Annotations = Annotations;
-
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus("Box removed.");
-            }
-        }
-        private void SaveStateForUndo()
-        {
-            _undoStack.Push(Annotations.Select(a => new AnnotationRecord
-            {
-                ImageName = a.ImageName,
-                Label = a.Label,
-                AnnotationType = a.AnnotationType,
-                Points = a.Points.ToList()
-            }).ToList());
-            _redoStack.Clear();
-        }
-
-        private void AddBox_Click(object sender, RoutedEventArgs e)
-        {
-            SetStatus("Add Box clicked.");
-        }
-
-        private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            switch ((DrawingModeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString())
-            {
-                case "Free Pen": _currentDrawingMode = DrawingMode.FreePen; break;
-                case "Rectangle": _currentDrawingMode = DrawingMode.Rectangle; break;
-                case "Polygon": _currentDrawingMode = DrawingMode.Polygon; break;
-            }
-            _isDrawingPolygon = false;
-            _currentPolygonPoints.Clear();
-            if (_currentPolyline != null)
-            {
-                BoundingBoxCanvas.Children.Remove(_currentPolyline);
-                _currentPolyline = null;
-            }
-            _isDrawingRectangle = false;
-            if (_currentRectangle != null)
-            {
-                BoundingBoxCanvas.Children.Remove(_currentRectangle);
-                _currentRectangle = null;
-            }
-            _isDrawingFreePen = false;
-            if (_currentFreePenLine != null)
-            {
-                BoundingBoxCanvas.Children.Remove(_currentFreePenLine);
-                _currentFreePenLine = null;
-            }
-            SetStatus($"Drawing mode: {_currentDrawingMode}");
-        }
-
-        private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            BoundingBoxCanvas.Focus();
-
-            var label = LabelComboBox.SelectedItem?.ToString();
-            if (string.IsNullOrWhiteSpace(label))
-            {
-                SetStatus("Please select a label before drawing.");
-                return;
-            }
-
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-
-            switch (_currentDrawingMode)
-            {
-                case DrawingMode.Polygon:
-                    if (!_isDrawingPolygon)
-                    {
-                        _currentPolygonPoints.Clear();
-                        _currentPolyline = new Polyline
-                        {
-                            Stroke = Brushes.Red,
-                            StrokeThickness = 2
+                            Description = "📂 Select your YOLOv8 dataset folder",
+                            UseDescriptionForTitle = true,
+                            ShowNewFolderButton = false
                         };
-                        BoundingBoxCanvas.Children.Add(_currentPolyline);
-                        _isDrawingPolygon = true;
+
+                        if (folderDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                        {
+                            string datasetPath = folderDialog.SelectedPath;
+
+                            Task.Run(() =>
+                            {
+                                bool isValid = ValidateYoloDatasetStructure(datasetPath);
+                                var imageToLabelMap = isValid ? SyncYoloAnnotations(datasetPath) : null;
+
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (!isValid)
+                                    {
+                                        MessageBox.Show(
+                                            "⚠️ Invalid dataset structure.\nExpected folders: train/valid/test with images/labels subfolders and a data.yaml file.",
+                                            "Validation Failed",
+                                            MessageBoxButton.OK,
+                                            MessageBoxImage.Warning
+                                        );
+                                        TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
+                                        return;
+                                    }
+
+                                    MessageBox.Show(
+                                        $"✅ Dataset loaded successfully:\n{datasetPath}",
+                                        "Dataset Validated",
+                                        MessageBoxButton.OK,
+                                        MessageBoxImage.Information
+                                    );
+
+                                    AddOrSelectDataset(datasetPath);
+
+                                    // --- NEW: Draw dataset block if not already present ---
+                                    if (datasetBlock == null)
+                                    {
+                                        datasetBlock = CreateBlock("📁 Dataset", 50, 50, "Dataset");
+                                        TrainingCanvas.Children.Add(datasetBlock);
+                                        TrainingStatusText.Text = "Dataset added. Now select a model.";
+                                    }
+
+                                    // Optionally: Remove model/train blocks if user re-selects dataset
+                                    // RemoveModelAndTrainBlocks();
+                                });
+                            });
+                        }
+                        break;
                     }
-                    _currentPolygonPoints.Add(pt);
-                    _currentPolyline.Points.Add(pt);
-                    SetStatus("Polygon point added.");
+
+                case "Model":
+                    var modelWindow = new Window
+                    {
+                        Title = "Select Model Type",
+                        Width = 300,
+                        Height = 150,
+                        WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                        ResizeMode = ResizeMode.NoResize
+                    };
+
+                    var panel = new StackPanel { Margin = new Thickness(20) };
+                    var comboBox = new ComboBox
+                    {
+                        ItemsSource = new List<string> { "YOLOv8", "ONNX", "Custom" },
+                        SelectedIndex = 0,
+                        Margin = new Thickness(0, 0, 0, 10)
+                    };
+                    var confirmButton = new Button
+                    {
+                        Content = "Confirm",
+                        Width = 100,
+                        HorizontalAlignment = HorizontalAlignment.Center
+                    };
+                    confirmButton.Click += (s, e) =>
+                    {
+                        MessageBox.Show($"🧠 Model selected: {comboBox.SelectedItem}");
+                        modelWindow.Close();
+
+                        // --- NEW: Draw model block if not already present ---
+                        if (modelBlock == null)
+                        {
+                            modelBlock = CreateBlock("🧠 Model", 300, 50, "Model");
+                            TrainingCanvas.Children.Add(modelBlock);
+                            TrainingStatusText.Text = "Model added. Ready to train.";
+                        }
+
+                        // --- NEW: Draw train block if not already present ---
+                        if (trainBlock == null)
+                        {
+                            trainBlock = CreateBlock("🚀 Train", 550, 50, "Train");
+                            TrainingCanvas.Children.Add(trainBlock);
+                        }
+                    };
+
+                    panel.Children.Add(comboBox);
+                    panel.Children.Add(confirmButton);
+                    modelWindow.Content = panel;
+                    modelWindow.ShowDialog();
                     break;
 
-                case DrawingMode.Rectangle:
-                    _rectStartPoint = pt;
-                    _currentRectangle = new Rectangle
+                case "Train":
+                    var result = MessageBox.Show("🚀 Start training now?", "Training", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (result == MessageBoxResult.Yes)
                     {
-                        Stroke = Brushes.Blue,
-                        StrokeThickness = 2
-                    };
-                    Canvas.SetLeft(_currentRectangle, _rectStartPoint.X);
-                    Canvas.SetTop(_currentRectangle, _rectStartPoint.Y);
-                    BoundingBoxCanvas.Children.Add(_currentRectangle);
-                    _isDrawingRectangle = true;
-                    if (!BoundingBoxCanvas.IsMouseCaptured)
-                    {
-                        BoundingBoxCanvas.CaptureMouse();
-                        SetStatus($"Started rectangle at ({_rectStartPoint.X:0},{_rectStartPoint.Y:0}), mouse captured.");
-                    }
-                    else
-                    {
-                        SetStatus("Warning: Mouse already captured by canvas.");
+                        TrainingStatusText.Text = "Training started...";
+                        TrainModelButton.IsEnabled = false;
+
+                        Task.Run(() =>
+                        {
+                            System.Threading.Thread.Sleep(2000);
+                            Dispatcher.Invoke(() =>
+                            {
+                                TrainingStatusText.Text = "Training complete!";
+                                TrainModelButton.IsEnabled = true;
+                            });
+                        });
                     }
                     break;
 
-                case DrawingMode.FreePen:
-                    _currentFreePenLine = new Polyline
-                    {
-                        Stroke = Brushes.Green,
-                        StrokeThickness = 2
-                    };
-                    _currentFreePenLine.Points.Add(pt);
-                    BoundingBoxCanvas.Children.Add(_currentFreePenLine);
-                    _isDrawingFreePen = true;
-                    BoundingBoxCanvas.CaptureMouse();
-                    SetStatus("Drawing free pen...");
+                default:
+                    MessageBox.Show($"❓ Unknown block type: {tag}");
                     break;
             }
         }
 
-        private async Task LoadImageAtIndex(int index)
+        private bool ValidateYoloDatasetStructure(string rootPath)
         {
-            if (_imagePaths == null || index < 0 || index >= _imagePaths.Count)
-                return;
+            var result = new YoloValidationResult();
+            string[] splits = { "train", "valid", "test" };
+            string[] imageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
 
-            var imagePath = _imagePaths[index];
-            _currentImagePath = imagePath;
-
-            BitmapImage bitmap = null;
-            await Task.Run(() =>
+            foreach (string split in splits)
             {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource = new Uri(imagePath);
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.EndInit();
-                bmp.Freeze();
-                bitmap = bmp;
-            });
+                string imagePath = System.IO.Path.Combine(rootPath, split, "images");
+                string labelPath = System.IO.Path.Combine(rootPath, split, "labels");
 
-            LabelingImage.Source = bitmap;
-            _currentImageWidth = bitmap.PixelWidth;
-            _currentImageHeight = bitmap.PixelHeight;
-
-            LabelingImage.Width = _currentImageWidth;
-            LabelingImage.Height = _currentImageHeight;
-            BoundingBoxCanvas.Width = _currentImageWidth;
-            BoundingBoxCanvas.Height = _currentImageHeight;
-
-            BoundingBoxCanvas.IsEnabled = true;
-            BoundingBoxCanvas.IsHitTestVisible = true;
-            BoundingBoxCanvas.Focusable = true;
-            BoundingBoxCanvas.Background = Brushes.Transparent;
-            BoundingBoxCanvas.Focus();
-
-            RefreshAnnotations();
-
-            ImageProgressText.Text = $"Image {index + 1} of {_imagePaths.Count} ({(int)(((index + 1) * 100.0) / _imagePaths.Count)}%)";
-
-            _isDrawingRectangle = false;
-            _isDrawingPolygon = false;
-            _isDrawingFreePen = false;
-            _currentRectangle = null;
-            _currentPolyline = null;
-            _currentFreePenLine = null;
-            _currentPolygonPoints.Clear();
-            BoundingBoxCanvas.ReleaseMouseCapture();
-
-            SetStatus($"Loaded image {index + 1} of {_imagePaths.Count}. Ready to draw.");
-        }
-
-        private void RefreshAnnotations()
-        {
-            var imageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
-            var filtered = Annotations.Where(a => a.ImageName == imageName).ToList();
-            AnnotationListView.ItemsSource = filtered;
-
-            BoundingBoxCanvas.Children.Clear();
-            foreach (var ann in filtered)
-            {
-                switch (ann.AnnotationType)
+                if (!Directory.Exists(imagePath))
                 {
-                    case AnnotationType.Rectangle:
-                        if (ann.Points.Count == 2)
-                        {
-                            var x = Math.Min(ann.Points[0].X, ann.Points[1].X);
-                            var y = Math.Min(ann.Points[0].Y, ann.Points[1].Y);
-                            var w = Math.Abs(ann.Points[1].X - ann.Points[0].X);
-                            var h = Math.Abs(ann.Points[1].Y - ann.Points[0].Y);
+                    Console.WriteLine($"❌ Missing image folder for '{split}': {imagePath}");
+                    result.Issues.Add($"Missing image folder for '{split}': {imagePath}");
+                    return false;
+                }
 
-                            var rect = new Rectangle
-                            {
-                                Stroke = Brushes.Blue,
-                                StrokeThickness = 2,
-                                Width = w,
-                                Height = h
-                            };
-                            Canvas.SetLeft(rect, x);
-                            Canvas.SetTop(rect, y);
-                            BoundingBoxCanvas.Children.Add(rect);
+                if (!Directory.Exists(labelPath))
+                {
+                    Console.WriteLine($"❌ Missing label folder for '{split}': {labelPath}");
+                    result.Issues.Add($"Missing label folder for '{split}': {labelPath}");
+                    return false;
+                }
 
-                            var label = new TextBlock
-                            {
-                                Text = string.IsNullOrWhiteSpace(ann.Label) ? "(No Class)" : ann.Label,
-                                Foreground = Brushes.Blue,
-                                Background = Brushes.White,
-                                FontWeight = FontWeights.Bold,
-                                FontSize = 14,
-                                Padding = new Thickness(2, 0, 2, 0)
-                            };
-                            Canvas.SetLeft(label, x + 1);
-                            Canvas.SetTop(label, y + 1);
-                            BoundingBoxCanvas.Children.Add(label);
-                        }
-                        break;
+                try
+                {
+                    var imageFiles = Directory.GetFiles(imagePath, "*.*", SearchOption.TopDirectoryOnly)
+                        .Where(f => imageExtensions.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()))
+                        .ToArray();
 
-                    case AnnotationType.Polygon:
-                        if (ann.Points.Count > 2)
-                        {
-                            var polygon = new Polygon
-                            {
-                                Stroke = Brushes.Red,
-                                StrokeThickness = 2,
-                                Fill = Brushes.Transparent,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            BoundingBoxCanvas.Children.Add(polygon);
-                        }
-                        break;
-                    case AnnotationType.FreePen:
-                        if (ann.Points.Count > 1)
-                        {
-                            var polyline = new Polyline
-                            {
-                                Stroke = Brushes.Green,
-                                StrokeThickness = 2,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            BoundingBoxCanvas.Children.Add(polyline);
-                        }
-                        break;
+                    var labelFiles = Directory.GetFiles(labelPath, "*.txt", SearchOption.TopDirectoryOnly);
+
+                    if (imageFiles.Length == 0)
+                    {
+                        Console.WriteLine($"⚠️ No image files found for '{split}' in: {imagePath}");
+                        result.Issues.Add($"No image files found for '{split}' in: {imagePath}");
+                        return false;
+                    }
+
+                    if (labelFiles.Length == 0)
+                    {
+                        Console.WriteLine($"⚠️ No label files found for '{split}' in: {labelPath}");
+                        result.Issues.Add($"No label files found for '{split}' in: {labelPath}");
+                        return false;
+                    }
+
+                    var imageNames = imageFiles
+                        .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
+                        .ToHashSet();
+
+                    var labelNames = labelFiles
+                        .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
+                        .ToHashSet();
+
+                    var missingLabels = imageNames.Except(labelNames).ToList();
+                    var extraLabels = labelNames.Except(imageNames).ToList();
+
+                    if (missingLabels.Any())
+                    {
+                        Console.WriteLine($"❌ Missing label files for {missingLabels.Count} image(s) in '{split}':");
+                        result.Issues.AddRange(missingLabels.Select(name => $"Missing label for image: {name}"));
+                        missingLabels.ForEach(name => Console.WriteLine($"   - {name}"));
+                        return false;
+                    }
+
+                    if (extraLabels.Any())
+                    {
+                        Console.WriteLine($"❌ Extra label files without matching images in '{split}':");
+                        result.Issues.AddRange(extraLabels.Select(name => $"Extra label without image: {name}"));
+                        extraLabels.ForEach(name => Console.WriteLine($"   - {name}"));
+                        return false;
+                    }
+
+                    if (imageNames.Count != labelNames.Count)
+                    {
+                        Console.WriteLine($"❌ Mismatch in file count for '{split}': {imageNames.Count} images vs {labelNames.Count} labels");
+                        result.Issues.Add($"Mismatch in file count for '{split}': {imageNames.Count} images vs {labelNames.Count} labels");
+                        return false;
+                    }
+
+                    Console.WriteLine($"✅ '{split}' split passed: {imageNames.Count} matched image-label pairs");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error while validating '{split}' split:\n{ex.Message}", "Validation Error");
+                    result.Issues.Add($"Error while validating '{split}' split: {ex.Message}");
+                    return false;
                 }
             }
+
+            return true;
         }
+
+        private List<(string ImagePath, string LabelPath, bool LabelExists)> SyncYoloAnnotations(string rootPath)
+        {
+            string imageDir = System.IO.Path.Combine(rootPath, "train", "images");
+            string labelDir = System.IO.Path.Combine(rootPath, "train", "labels");
+
+            var imageFiles = System.IO.Directory.GetFiles(imageDir, "*.jpg");
+            var result = new List<(string, string, bool)>();
+
+            foreach (var img in imageFiles)
+            {
+                string labelPath = System.IO.Path.Combine(labelDir, System.IO.Path.GetFileNameWithoutExtension(img) + ".txt");
+                result.Add((img, labelPath, System.IO.File.Exists(labelPath)));
+            }
+
+            return result;
+        }
+        private void Block_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is Border block && block.Tag is string tag)
+            {
+                HandleBlockAction(tag);
+            }
+        }
+
+        #endregion
+
+        #region Menu event handlers
+        // Menu event handlers
+        private void NewModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("New Model action triggered.");
+        private void OpenModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Open Model action triggered.");
+        private void SaveModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Save Model action triggered.");
+        private void ExportModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Export Model action triggered.");
+        private void CloseModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Close Model action triggered.");
+        private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
+        private void Undo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Undo action triggered.");
+        private void Redo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Redo action triggered.");
         private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
         {
             var window = Window.GetWindow(this);
-            if (window == null) return;
-
-            if (!_isFullScreen)
+            if (window != null)
             {
-                window.WindowStyle = WindowStyle.None;
-                window.WindowState = WindowState.Maximized;
-                window.ResizeMode = ResizeMode.NoResize;
-                _isFullScreen = true;
-                SetStatus("Entered full screen mode.");
+                if (window.WindowState == WindowState.Maximized && window.WindowStyle == WindowStyle.None)
+                {
+                    window.WindowStyle = WindowStyle.SingleBorderWindow;
+                    window.WindowState = WindowState.Normal;
+                }
+                else
+                {
+                    window.WindowStyle = WindowStyle.None;
+                    window.WindowState = WindowState.Maximized;
+                }
+            }
+        }
+        private void ViewHelp_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("Help content goes here.", "Help", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        private void About_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show("VisionAICam\nModel Training Module\n© 2025", "About", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        #endregion
+
+        #region Button event handlers
+        private void TrainModelButton_Click(object sender, RoutedEventArgs e)
+        {
+            TrainingStatusText.Text = "Training started...";
+            TrainModelButton.IsEnabled = false;
+
+            Task.Run(() =>
+            {
+                System.Threading.Thread.Sleep(2000);
+                Dispatcher.Invoke(() =>
+                {
+                    TrainingStatusText.Text = "Training complete!";
+                    TrainModelButton.IsEnabled = true;
+                });
+            });
+        }
+
+        #endregion
+
+        // Add or select dataset in ComboBox
+        private void AddOrSelectDataset(string datasetPath)
+        {
+            if (DatasetComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Content == datasetPath) is ComboBoxItem existing)
+            {
+                DatasetComboBox.SelectedItem = existing;
             }
             else
             {
-                window.WindowStyle = WindowStyle.SingleBorderWindow;
-                window.WindowState = WindowState.Normal;
-                window.ResizeMode = ResizeMode.CanResize;
-                _isFullScreen = false;
-                SetStatus("Exited full screen mode.");
+                var item = new ComboBoxItem { Content = datasetPath };
+                DatasetComboBox.Items.Add(item);
+                DatasetComboBox.SelectedItem = item;
             }
         }
-        private void AddClassButton_Click(object sender, RoutedEventArgs e)
+
+        private void BrowseDataset_Click(object sender, RoutedEventArgs e)
         {
-            var newClass = NewClassTextBox.Text.Trim();
-            if (string.IsNullOrEmpty(newClass))
+            var folderDialog = new System.Windows.Forms.FolderBrowserDialog
             {
-                SetStatus("Class name cannot be empty.");
-                return;
-            }
-
-            bool exists = false;
-            foreach (var item in LabelComboBox.Items)
-            {
-                if (item is ComboBoxItem comboItem &&
-                    string.Equals(comboItem.Content?.ToString(), newClass, StringComparison.OrdinalIgnoreCase))
-                {
-                    exists = true;
-                    break;
-                }
-                else if (item is string str &&
-                    string.Equals(str, newClass, StringComparison.OrdinalIgnoreCase))
-                {
-                    exists = true;
-                    break;
-                }
-            }
-
-            if (exists)
-            {
-                SetStatus("Class already exists.");
-                return;
-            }
-
-            LabelComboBox.Items.Add(newClass);
-            LabelComboBox.SelectedItem = newClass;
-            NewClassTextBox.Text = string.Empty;
-            SetStatus($"Class '{newClass}' added.");
-        }
-
-        public async void LoadFolder_Click(object sender, RoutedEventArgs e)
-        {
-            var dialog = new VistaFolderBrowserDialog
-            {
-                Description = "Select a folder of images",
-                UseDescriptionForTitle = true
+                Description = "Select your YOLOv8 dataset folder",
+                UseDescriptionForTitle = true,
+                ShowNewFolderButton = false
             };
 
-            if (dialog.ShowDialog() == true)
+            if (folderDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
             {
-                string folderPath = dialog.SelectedPath;
-                _imagePaths = Directory.GetFiles(folderPath, "*.*")
-                    .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                                f.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase))
-                    .OrderBy(f => f)
-                    .ToList();
+                string datasetPath = folderDialog.SelectedPath;
+                AddOrSelectDataset(datasetPath);
 
-                if (_imagePaths.Count == 0)
+                // Optionally, validate the dataset structure here
+                Task.Run(() =>
                 {
-                    MessageBox.Show("No images found in the selected folder.", "No Images", MessageBoxButton.OK, MessageBoxImage.Information);
-                    SetStatus("No images found.");
-                    return;
-                }
-
-                _currentImageIndex = 0;
-                await LoadImageAtIndex(_currentImageIndex);
+                    bool isValid = ValidateYoloDatasetStructure(datasetPath);
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (!isValid)
+                        {
+                            MessageBox.Show(
+                                "⚠️ Invalid dataset structure.\nExpected folders: train/valid/test with images/labels subfolders and a data.yaml file.",
+                                "Validation Failed",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Warning
+                            );
+                            TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                $"✅ Dataset loaded successfully:\n{datasetPath}",
+                                "Dataset Validated",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information
+                            );
+                            // Draw dataset block if not already present
+                            if (datasetBlock == null)
+                            {
+                                datasetBlock = CreateBlock("📁 Dataset", 50, 50, "Dataset");
+                                TrainingCanvas.Children.Add(datasetBlock);
+                                TrainingStatusText.Text = "Dataset added. Now select a model.";
+                            }
+                        }
+                    });
+                });
             }
-        }
-
-        private void ZoomIn_Click(object sender, RoutedEventArgs e)
-        {
-            _zoom = Math.Min(_zoom + ZoomStep, ZoomMax);
-            ZoomTransform.ScaleX = _zoom;
-            ZoomTransform.ScaleY = _zoom;
-            SetStatus($"Zoom: {_zoom * 100:0}%");
-        }
-
-        private void ZoomOut_Click(object sender, RoutedEventArgs e)
-        {
-            _zoom = Math.Max(_zoom - ZoomStep, ZoomMin);
-            ZoomTransform.ScaleX = _zoom;
-            ZoomTransform.ScaleY = _zoom;
-            SetStatus($"Zoom: {_zoom * 100:0}%");
-        }
-
-        private void Undo_Click(object sender, RoutedEventArgs e)
-        {
-            Undo();
-        }
-
-        private void Redo_Click(object sender, RoutedEventArgs e)
-        {
-            Redo();
-        }
-
-        private void CreateProject_Click(object sender, RoutedEventArgs e)
-        {
-            // Clear all data
-            _imagePaths = new List<string>();
-            _currentImageIndex = -1;
-            _currentImagePath = null;
-            Annotations = new List<AnnotationRecord>();
-            LabelComboBox.Items.Clear();
-            NewClassTextBox.Text = string.Empty;
-            AnnotationListView.ItemsSource = null;
-            LabelingImage.Source = null;
-            BoundingBoxCanvas.Children.Clear();
-            ImageProgressText.Text = "No images loaded";
-
-            // Create new project object
-            _currentProject = new AnnotationProject
-            {
-                ProjectName = "Untitled Project",
-                ImagePaths = _imagePaths,
-                ClassLabels = new List<string>(),
-                Annotations = Annotations
-            };
-            // After _currentProject = new AnnotationProject { ... };
-            ProjectSession.CurrentProject = _currentProject;
-            ProjectSession.Annotations = Annotations;
-            ProjectSession.ImagePaths = _imagePaths;
-            ProjectSession.CurrentImageIndex = _currentImageIndex;
-            ProjectSession.CurrentImagePath = _currentImagePath;
-
-            SetStatus("New project created. Please load images and add classes.");
-
-            // Show main content, hide "No Project"
-            ShowMainContentPanel();
-        }
-
-        private void OpenProject_Click(object sender, RoutedEventArgs e)
-        {
-            var dialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
-            };
-            if (dialog.ShowDialog() == true)
-            {
-                var json = File.ReadAllText(dialog.FileName);
-                _currentProject = System.Text.Json.JsonSerializer.Deserialize<AnnotationProject>(json);
-                if (_currentProject != null)
-                {
-                    _imagePaths = _currentProject.ImagePaths;
-                    Annotations = _currentProject.Annotations;
-                    LabelComboBox.Items.Clear();
-                    foreach (var label in _currentProject.ClassLabels)
-                        LabelComboBox.Items.Add(label);
-
-                    // Restore selected image index, default to 0 if out of range
-                    _currentImageIndex = (_currentProject.SelectedImageIndex >= 0 && _currentProject.SelectedImageIndex < _imagePaths.Count)
-                        ? _currentProject.SelectedImageIndex
-                        : 0;
-
-                    ProjectSession.CurrentProject = _currentProject;
-                    ProjectSession.Annotations = Annotations;
-                    ProjectSession.ImagePaths = _imagePaths;
-                    ProjectSession.CurrentImageIndex = _currentImageIndex;
-                    ProjectSession.CurrentImagePath = _imagePaths.Count > 0 ? _imagePaths[_currentImageIndex] : null;
-
-                    _ = LoadImageAtIndex(_currentImageIndex);
-                    SetStatus("Project opened.");
-
-                    ShowMainContentPanel();
-                }
-            }
-        }
-
-        // Add this method to your ModelPage class
-        private void CloseProject_Click(object sender, RoutedEventArgs e)
-        {
-            var result = MessageBox.Show(
-                "Do you want to save your project before closing?",
-                "Close Project",
-                MessageBoxButton.YesNoCancel,
-                MessageBoxImage.Question);
-
-            if (result == MessageBoxResult.Cancel)
-                return;
-
-            if (result == MessageBoxResult.Yes)
-                SaveProject_Click(sender, e);
-
-            // Clear all project data and show "No Project" panel
-            // Clear all project data and show "No Project" panel
-            _currentProject = null;
-            _imagePaths = new List<string>();
-            _currentImageIndex = -1;
-            _currentImagePath = null;
-            Annotations = new List<AnnotationRecord>();
-            LabelComboBox.Items.Clear();
-            NewClassTextBox.Text = string.Empty;
-            AnnotationListView.ItemsSource = null;
-            LabelingImage.Source = null;
-            BoundingBoxCanvas.Children.Clear();
-            ImageProgressText.Text = "No images loaded";
-            ShowNoProjectPanel();
-            SetStatus("Project closed.");
-            // ... existing code ...
-            ProjectSession.CurrentProject = null;
-            ProjectSession.Annotations = new List<AnnotationRecord>();
-            ProjectSession.ImagePaths = new List<string>();
-            ProjectSession.CurrentImageIndex = -1;
-            ProjectSession.CurrentImagePath = null;
-
-        }
-
-
-        private void Exit_Click(object sender, RoutedEventArgs e)
-        {
-            // Optionally, implement project closing logic here
-            // Show "No Project" message and hide main content
-            ShowNoProjectPanel();
-            SetStatus("No project loaded.");
         }
     }
 }

@@ -64,10 +64,15 @@
                  Background="#FFB300" BorderBrush="#FFA000" BorderThickness="2"
                  Foreground="#263238" FontWeight="Bold" FontSize="16" 
                  Style="{x:Null}" Click="SettingsButton_Click"/>
+            <!-- Model button inserted here -->
             <Button Content="Model" Width="110" Height="40" Margin="10,15"
-                 Background="#009688" BorderBrush="#00695C" BorderThickness="2"
+                 Background="#00BFAE" BorderBrush="#00897B" BorderThickness="2"
                  Foreground="White" FontWeight="Bold" FontSize="16"
                  Style="{x:Null}" Click="ModelButton_Click"/>
+            <Button Content="DataSet" Width="110" Height="40" Margin="10,15"
+                 Background="#009688" BorderBrush="#00695C" BorderThickness="2"
+                 Foreground="White" FontWeight="Bold" FontSize="16"
+                 Style="{x:Null}" Click="DataSetButton_Click"/>
             <Button Content="Camera" Width="110" Height="40" Margin="10,15"
                  Background="#8E24AA" BorderBrush="#6A1B9A" BorderThickness="2"
                  Foreground="White" FontWeight="Bold" FontSize="16"
@@ -78,55 +83,55 @@
                 Style="{x:Null}" Click="ProductionButton_Click"/>
         </DockPanel>
 
-        <!-- Left statistics panel -->
-        <StackPanel DockPanel.Dock="Left"
-            Width="140"
-            HorizontalAlignment="Left"
-            VerticalAlignment="Stretch"
-            Margin="0">
-            <StackPanel.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#607D8B" Offset="0"/>
-                    <GradientStop Color="#263238" Offset="1"/>
-                </LinearGradientBrush>
-            </StackPanel.Background>
-            
-            <!-- Add your statistic controls here -->
-        </StackPanel>
+        <!-- Left statistics panel with image background -->
+        <Grid DockPanel.Dock="Left"
+      Width="140"
+      HorizontalAlignment="Left"
+      VerticalAlignment="Stretch"
+      Margin="0">
+            <Image Source="pack://application:,,,/Assets/vertical_panel.png"
+           Stretch="UniformToFill"
+           Opacity="1"/>
+            <StackPanel>
+                <!-- No background for testing -->
+                <!-- Add your statistic controls here -->
+            </StackPanel>
+        </Grid>
 
         <!-- Right-side vertical navigator bar -->
         <StackPanel DockPanel.Dock="Right" 
-            Orientation="Vertical" 
-            Width="100"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Stretch"
-            Margin="0">
+    Orientation="Vertical" 
+    Width="100"
+    HorizontalAlignment="Right"
+    VerticalAlignment="Stretch"
+    Margin="0">
             <StackPanel.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                     <GradientStop Color="#212121" Offset="0"/>
+                    <GradientStop Color="#1976D2" Offset="0.5"/>
+                    <!-- Blue accent -->
                     <GradientStop Color="#424242" Offset="1"/>
                 </LinearGradientBrush>
             </StackPanel.Background>
             <Button x:Name="StartStopButton" 
-            Content="&#xE768;" 
-            Margin="0,30,0,0" 
-            Style="{StaticResource CircleButtonStyle}" 
-            Click="StartStopButton_Click"
-            ToolTip="Start/Stop Production"/>
+        Content="&#xE768;" 
+        Margin="0,30,0,0" 
+        Style="{StaticResource CircleButtonStyle}" 
+        Click="StartStopButton_Click"
+        ToolTip="Start/Stop Production"/>
             <Button x:Name="PauseButton" 
-            Content="&#xE769;" 
-            Margin="10" 
-            Style="{StaticResource CircleButtonStyle}" 
-            Click="PauseButton_Click"
-            ToolTip="Pause/Resume Production"/>
+        Content="&#xE769;" 
+        Margin="10" 
+        Style="{StaticResource CircleButtonStyle}" 
+        Click="PauseButton_Click"
+        ToolTip="Pause/Resume Production"/>
             <Button x:Name="ExitButton"
-            Content="&#xE8BB;"
-            Margin="10"
-            Style="{StaticResource CircleButtonStyle}"
-            Click="ExitButton_Click"
-            ToolTip="Exit Application"/>
+        Content="&#xE8BB;"
+        Margin="10"
+        Style="{StaticResource CircleButtonStyle}"
+        Click="ExitButton_Click"
+        ToolTip="Exit Application"/>
         </StackPanel>
-
 
         <!-- Main content area for pages -->
         <Frame x:Name="MainContent" NavigationUIVisibility="Hidden" />
