@@ -91,20 +91,20 @@
                     <Button Content="Browse..." Width="80" Click="BrowseDataset_Click" Margin="0,0,18,0"/>
 
                     <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <ComboBox x:Name="ModelArchComboBox" Width="120" SelectedIndex="0" Margin="0,0,18,0">
+                    <!-- Architecture ComboBox -->
+                    <ComboBox x:Name="ModelArchComboBox" Width="120" SelectedIndex="1" Margin="0,0,12,0">
                         <ComboBoxItem Content="YOLOv5"/>
                         <ComboBoxItem Content="YOLOv8"/>
-                        <ComboBoxItem Content="ONNX Runtime"/>
+                        <ComboBoxItem Content="ONNX"/>
                         <ComboBoxItem Content="Custom"/>
                     </ComboBox>
-                    <Button Content="Add Model" Width="100" Click="AddModel_Click" Margin="0,0,18,0"/>
 
-                    <TextBlock Text="Epochs:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox x:Name="EpochsTextBox" Width="50" Text="50" Margin="0,0,12,0"/>
-                    <TextBlock Text="Batch Size:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox x:Name="BatchSizeTextBox" Width="50" Text="16" Margin="0,0,12,0"/>
-                    <TextBlock Text="LR:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <TextBox x:Name="LearningRateTextBox" Width="60" Text="0.001"/>
+                   
+
+                    <Button Content="Add Model" Width="100" Click="AddModel_Click" Margin="0,0,18,0"/>
+                    <Button Content="Add Training Option" Width="140" Click="AddTrainingOption_Click" Margin="0,0,18,0"/>
+
+
                 </StackPanel>
             </Border>
 

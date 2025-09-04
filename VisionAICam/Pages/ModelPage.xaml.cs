@@ -9,9 +9,39 @@ using System.Windows.Shapes;
 using System.Windows.Media;
 using Microsoft.Win32;
 using System.IO;
+using System.Windows.Data;
 
 namespace VisionAICam.Pages
 {
+    public class ModelOptionTemplateSelector : DataTemplateSelector
+    {
+        private readonly Dictionary<string, string[]> _optionSources;
+
+        public ModelOptionTemplateSelector(Dictionary<string, string[]> optionSources)
+        {
+            _optionSources = optionSources;
+        }
+
+        public override DataTemplate SelectTemplate(object item, DependencyObject container)
+        {
+            var option = item as TrainingOption;
+            if (option != null && _optionSources.TryGetValue(option.Name, out var choices))
+            {
+                var comboTemplate = new DataTemplate();
+                var factory = new FrameworkElementFactory(typeof(ComboBox));
+                factory.SetBinding(ComboBox.SelectedItemProperty, new Binding("Value"));
+                factory.SetValue(ComboBox.ItemsSourceProperty, choices);
+                comboTemplate.VisualTree = factory;
+                return comboTemplate;
+            }
+
+            var textTemplate = new DataTemplate();
+            var textFactory = new FrameworkElementFactory(typeof(TextBlock));
+            textFactory.SetBinding(TextBlock.TextProperty, new Binding("Value"));
+            textTemplate.VisualTree = textFactory;
+            return textTemplate;
+        }
+    }
     public class TrainingOption
     {
         public string Name { get; set; }
@@ -35,6 +65,8 @@ namespace VisionAICam.Pages
             InitializeComponent();
             TrainingStatusText.Text = "Please select a dataset to begin.";
         }
+
+
 
         #region Block
 
@@ -62,7 +94,7 @@ namespace VisionAICam.Pages
             return block;
         }
 
-        private UIElement CreateModelDetailGrid(List<TrainingOption> modelOptions, string blockLabel, string[] architectures)
+        private UIElement CreateModelDetailGrid(List<TrainingOption> modelOptions, string blockLabel, Dictionary<string, string[]> optionSources)
         {
             var modelGrid = new DataGrid
             {
@@ -71,51 +103,28 @@ namespace VisionAICam.Pages
                 CanUserAddRows = false,
                 CanUserDeleteRows = false,
                 HeadersVisibility = DataGridHeadersVisibility.Column,
-                Margin = new Thickness(0, 0, 0, 8)
+                Margin = new Thickness(0, 0, 0, 8),
+                RowHeight = 28
             };
 
-            var nameColumn = new DataGridTextColumn
+            // Static column for option name
+            modelGrid.Columns.Add(new DataGridTextColumn
             {
                 Header = "Model Option",
-                Binding = new System.Windows.Data.Binding("Name"),
+                Binding = new Binding("Name"),
                 IsReadOnly = true,
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star)
-            };
-            var valueColumn = new DataGridTextColumn
+            });
+
+            // Dynamic column for value (ComboBox or TextBlock)
+            modelGrid.Columns.Add(new DataGridTemplateColumn
             {
                 Header = "Value",
-                Binding = new System.Windows.Data.Binding("Value"),
-                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
-            };
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star),
+                CellTemplateSelector = new ModelOptionTemplateSelector(optionSources)
+            });
 
-            modelGrid.AutoGeneratingColumn += (s, e) => e.Cancel = true;
-            modelGrid.LoadingRow += (s, e) =>
-            {
-                if (modelGrid.Columns.Count == 0)
-                {
-                    modelGrid.Columns.Add(nameColumn);
-                    modelGrid.Columns.Add(valueColumn);
-                }
-                if (e.Row.Item is TrainingOption opt && opt.Name == "Architecture")
-                {
-                    modelGrid.Columns.Clear();
-                    modelGrid.Columns.Add(new DataGridTextColumn
-                    {
-                        Header = "Model Option",
-                        Binding = new System.Windows.Data.Binding("Name"),
-                        IsReadOnly = true,
-                        Width = new DataGridLength(1, DataGridLengthUnitType.Star)
-                    });
-                    modelGrid.Columns.Add(new DataGridComboBoxColumn
-                    {
-                        Header = "Value",
-                        SelectedValueBinding = new System.Windows.Data.Binding("Value"),
-                        ItemsSource = architectures,
-                        Width = new DataGridLength(1, DataGridLengthUnitType.Star)
-                    });
-                }
-            };
-
+            // Layout panel
             var panel = new StackPanel();
             panel.Children.Add(new TextBlock
             {
@@ -380,44 +389,47 @@ namespace VisionAICam.Pages
 
                 case "Model":
                     {
-                        // Model options (structure, not training)
-                        string[] architectures = { "YOLOv5", "YOLOv8", "ONNX", "Custom" };
-                        string selectedModel = architectures[1]; // Default to YOLOv8
-                        string inputSize = "640";
-                        string backbone = "CSPDarknet";
-                        string pretrained = "COCO";
+                        // Define selectable options for each model parameter
+                        var optionSources = new Dictionary<string, string[]>
+    {
+        { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
+        { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+        { "Backbone", new[] { "CSPDarknet", "ResNet", "MobileNet", "EfficientNet" } },
+        { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
+    };
+
+                        // Default selections
+                        string selectedModel = optionSources["Architecture"][1]; // YOLOv8
                         string blockLabel = $"🧠 {selectedModel}";
 
                         var modelOptions = new List<TrainingOption>
     {
         new TrainingOption { Name = "Architecture", Value = selectedModel },
-        new TrainingOption { Name = "Input Size", Value = inputSize },
-        new TrainingOption { Name = "Backbone", Value = backbone },
-        new TrainingOption { Name = "Pretrained Weights", Value = pretrained }
+        new TrainingOption { Name = "Input Size", Value = "640" },
+        new TrainingOption { Name = "Backbone", Value = "CSPDarknet" },
+        new TrainingOption { Name = "Pretrained Weights", Value = "COCO" }
     };
 
-                        // Remove previous model block if it exists
+                        // Remove previous model block if present
                         if (modelBlock != null)
                         {
                             TrainingCanvas.Children.Remove(modelBlock);
                             modelBlock = null;
                         }
 
-                        // Calculate X position for the model block with a gap from the dataset block
+                        // Positioning logic
                         double datasetBlockX = 50;
                         double datasetBlockWidth = 320;
                         double gap = 30;
                         double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
                         double modelBlockY = 50;
 
-                        // Use the helper to create the model detail grid
-                        var panel = CreateModelDetailGrid(modelOptions, blockLabel, architectures);
-
+                        // Create and add the model block
+                        var panel = CreateModelDetailGrid(modelOptions, blockLabel, optionSources);
                         modelBlock = CreateBlock(panel, modelBlockX, modelBlockY, "Model");
                         TrainingCanvas.Children.Add(modelBlock);
 
                         TrainingStatusText.Text = "Model added. Edit model options in the block.";
-
                         break;
                     }
 
@@ -645,44 +657,89 @@ namespace VisionAICam.Pages
 
         private void AddModel_Click(object sender, RoutedEventArgs e)
         {
-            // Model options
-            string[] architectures = { "YOLOv5", "YOLOv8", "ONNX", "Custom" };
+            // Define selectable options for each model parameter
+            var optionSources = new Dictionary<string, string[]>
+    {
+        { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
+        { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+        { "Backbone", new[] { "CSPDarknet", "ResNet", "MobileNet", "EfficientNet" } },
+        { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
+    };
+
+            // Default selections
             string selectedModel = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
-            string inputSize = "640";
-            string backbone = "CSPDarknet";
-            string pretrained = "COCO";
             string blockLabel = $"🧠 {selectedModel}";
 
             var modelOptions = new List<TrainingOption>
     {
         new TrainingOption { Name = "Architecture", Value = selectedModel },
-        new TrainingOption { Name = "Input Size", Value = inputSize },
-        new TrainingOption { Name = "Backbone", Value = backbone },
-        new TrainingOption { Name = "Pretrained Weights", Value = pretrained }
+        new TrainingOption { Name = "Input Size", Value = "640" },
+        new TrainingOption { Name = "Backbone", Value = "CSPDarknet" },
+        new TrainingOption { Name = "Pretrained Weights", Value = "COCO" }
     };
 
-            // Remove previous model block if it exists
+            // Remove previous model block if present
             if (modelBlock != null)
             {
                 TrainingCanvas.Children.Remove(modelBlock);
                 modelBlock = null;
             }
 
-            // Calculate X position for the model block with a gap from the dataset block
+            // Positioning logic
             double datasetBlockX = 50;
             double datasetBlockWidth = 320;
             double gap = 30;
             double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
             double modelBlockY = 50;
 
-            // Use the helper to create the model detail grid
-            var panel = CreateModelDetailGrid(modelOptions, blockLabel, architectures);
-
+            // Create and add the model block
+            var panel = CreateModelDetailGrid(modelOptions, blockLabel, optionSources);
             modelBlock = CreateBlock(panel, modelBlockX, modelBlockY, "Model");
             TrainingCanvas.Children.Add(modelBlock);
 
             TrainingStatusText.Text = "Model added. Edit model options in the block.";
         }
+
+        private void AddTrainingOption_Click(object sender, RoutedEventArgs e)
+        {
+            // Define selectable options for each training parameter
+            var trainingOptionSources = new Dictionary<string, string[]>
+    {
+        { "Epochs", new[] { "10", "20", "50", "100", "200" } },
+        { "Batch Size", new[] { "8", "16", "32", "64" } },
+        { "Learning Rate", new[] { "0.001", "0.005", "0.01", "0.05" } },
+        { "Optimizer", new[] { "Adam", "SGD", "RMSprop" } },
+        { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing" } }
+    };
+
+            // Initialize with default values (first value in each array)
+            var trainingOptions = new List<TrainingOption>
+    {
+        new TrainingOption { Name = "Epochs", Value = trainingOptionSources["Epochs"][0] },
+        new TrainingOption { Name = "Batch Size", Value = trainingOptionSources["Batch Size"][0] },
+        new TrainingOption { Name = "Learning Rate", Value = trainingOptionSources["Learning Rate"][0] },
+        new TrainingOption { Name = "Optimizer", Value = trainingOptionSources["Optimizer"][0] },
+        new TrainingOption { Name = "Scheduler", Value = trainingOptionSources["Scheduler"][0] }
+    };
+
+            // Remove previous training block if present
+            if (trainBlock != null)
+            {
+                TrainingCanvas.Children.Remove(trainBlock);
+                trainBlock = null;
+            }
+
+            // Positioning logic (below model block)
+            double trainBlockX = 50;
+            double trainBlockY = 400;
+
+            var panel = CreateModelDetailGrid(trainingOptions, "🚀 Training Options", trainingOptionSources);
+            trainBlock = CreateBlock(panel, trainBlockX, trainBlockY, "Train");
+            TrainingCanvas.Children.Add(trainBlock);
+
+            TrainingStatusText.Text = "Training options added. Edit training options in the block.";
+        }
+
 
     }
 }
