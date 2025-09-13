@@ -10,43 +10,13 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using System.IO;
 using System.Windows.Data;
+using System.Diagnostics;
+using VisionAICam.Utilities;
 
 namespace VisionAICam.Pages
 {
-    public class ModelOptionTemplateSelector : DataTemplateSelector
-    {
-        private readonly Dictionary<string, string[]> _optionSources;
-
-        public ModelOptionTemplateSelector(Dictionary<string, string[]> optionSources)
-        {
-            _optionSources = optionSources;
-        }
-
-        public override DataTemplate SelectTemplate(object item, DependencyObject container)
-        {
-            var option = item as TrainingOption;
-            if (option != null && _optionSources.TryGetValue(option.Name, out var choices))
-            {
-                var comboTemplate = new DataTemplate();
-                var factory = new FrameworkElementFactory(typeof(ComboBox));
-                factory.SetBinding(ComboBox.SelectedItemProperty, new Binding("Value"));
-                factory.SetValue(ComboBox.ItemsSourceProperty, choices);
-                comboTemplate.VisualTree = factory;
-                return comboTemplate;
-            }
-
-            var textTemplate = new DataTemplate();
-            var textFactory = new FrameworkElementFactory(typeof(TextBlock));
-            textFactory.SetBinding(TextBlock.TextProperty, new Binding("Value"));
-            textTemplate.VisualTree = textFactory;
-            return textTemplate;
-        }
-    }
-    public class TrainingOption
-    {
-        public string Name { get; set; }
-        public string Value { get; set; }
-    }
+    
+    
 
     public partial class ModelPage : Page
     {
@@ -59,12 +29,103 @@ namespace VisionAICam.Pages
         private Border datasetBlock;
         private Border modelBlock;
         private Border trainBlock;
-
+        private string pretrainFolderPath;
+        public string PretrainFolderPath
+        {
+            get
+            {
+                return pretrainFolderPath;
+            }
+            set
+            {
+                pretrainFolderPath = value;
+            }
+        }
+        // Call this method in the constructor or initialization logic  
         public ModelPage()
         {
             InitializeComponent();
-            TrainingStatusText.Text = "Please select a dataset to begin.";
+            Loaded += OnModelPageLoaded;
+           
+            InitializeTrainingStatus();
+            EnsurePretrainEnvironment();
         }
+
+        private void OnModelPageLoaded(object sender, RoutedEventArgs e)
+        {
+            InitializeTrainingStatus("Welcome! Please select a dataset to begin.");
+            EnsurePretrainEnvironment();
+            Console.WriteLine("ModelPage loaded successfully.");
+            
+        }
+
+        private void InitializeTrainingStatus(string message = "Please select a dataset to begin.")
+        {
+            TrainingStatusText.Text = message;
+        }
+
+        private void EnsurePretrainEnvironment()
+        {
+            CreatePretrainFolder();
+            EnsurePretrainedModelsExist();
+        }
+
+        private void CreatePretrainFolder()
+        {
+            pretrainFolderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pretrain");
+            if (!Directory.Exists(pretrainFolderPath))
+            {
+                Directory.CreateDirectory(pretrainFolderPath);
+            }
+        }
+        private void EnsurePretrainedModelsExist()
+        {
+            string pretrainFolderPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "pretrain");
+            if (!Directory.Exists(pretrainFolderPath))
+            {
+                Directory.CreateDirectory(pretrainFolderPath);
+            }
+
+            // Actual URLs for pretrained YOLO models
+            string[] pretrainedModelUrls =
+            {
+                // YOLOv5
+                "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5n.pt",
+                "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s.pt",
+                "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5m.pt",
+                "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5l.pt",
+                "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5x.pt",
+
+                // YOLOv8
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt",
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8s.pt",
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8m.pt",
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8l.pt",
+                "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8x.pt"
+            };
+
+            foreach (var url in pretrainedModelUrls)
+            {
+                string fileName = System.IO.Path.GetFileName(url); // Extracts "yolov5s.pt" etc.
+                string modelPath = System.IO.Path.Combine(pretrainFolderPath, fileName);
+
+                if (!File.Exists(modelPath))
+                {
+                    try
+                    {
+                        using (var client = new System.Net.WebClient())
+                        {
+                            client.DownloadFile(url, modelPath);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to download {fileName}: {ex.Message}", "Download Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                }
+            }
+        }
+
 
 
 
@@ -273,7 +334,7 @@ namespace VisionAICam.Pages
             });
             panel.Children.Add(optionsGrid);
             panel.Children.Add(statsGrid);
-
+            ModelArchComboBox.Text = "";
             return panel;
         }
 
@@ -284,6 +345,190 @@ namespace VisionAICam.Pages
             dragStartPoint = e.GetPosition(TrainingCanvas);
             isDragging = false;
             selectedBlock.CaptureMouse();
+        }
+        private void ModelArchComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (TrainingCanvas == null) return;
+
+            // Remove previous blocks
+            if (modelBlock != null)
+            {
+                TrainingCanvas.Children.Remove(modelBlock);
+                modelBlock = null;
+            }
+            if (trainBlock != null)
+            {
+                TrainingCanvas.Children.Remove(trainBlock);
+                trainBlock = null;
+            }
+
+            // Get selected architecture
+            string selectedArch = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
+            string blockLabel = $"🧠 {selectedArch}";
+
+            // Define model options
+            var modelOptionSources = new Dictionary<string, string[]>();
+            var modelOptions = new List<TrainingOption>();
+            var trainingOptionSources = new Dictionary<string, string[]>();
+
+            switch (selectedArch)
+            {
+                case "YOLOv5":
+                    // 🎯 Define model configuration options for YOLOv5
+                    modelOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Architecture", new[] { "YOLOv5" } },
+                        { "Input Size", new[] { "320", "416", "512", "640" } },
+                        { "Backbone", new[] { "CSPDarknet", "Custom-ResNet" } }, // ResNet requires manual integration
+                        { "Pretrained Weights", new[] { "yolov5n", "yolov5s", "yolov5m", "yolov5l", "yolov5x", "None" } }
+                    };
+
+                                    // ✅ Default selections for YOLOv5
+                                    modelOptions = new List<TrainingOption>
+                    {
+                        new TrainingOption { Name = "Architecture", Value = "YOLOv5" },
+                        new TrainingOption { Name = "Input Size", Value = "640" },
+                        new TrainingOption { Name = "Backbone", Value = "CSPDarknet" },
+                        new TrainingOption { Name = "Pretrained Weights", Value = "yolov5n" }
+                    };
+
+                                    // 🚀 Training hyperparameters for YOLOv5
+                                    trainingOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Epochs", new[] { "10", "20", "50", "100", "200" } },
+                        { "Batch Size", new[] { "8", "16", "32", "64" } },
+                        { "Learning Rate", new[] { "0.001", "0.005", "0.01", "0.05" } },
+                        { "Optimizer", new[] { "SGD", "Adam", "RMSprop" } },
+                        { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing", "ReduceLROnPlateau" } }
+                    };
+
+
+                    break;
+
+
+                case "YOLOv8":
+                    // 🎯 Define model configuration options for YOLOv8 (no backbone selection)
+                                    modelOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Architecture", new[] { "YOLOv8" } },
+                        { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                        { "Backbone", new[] { "None" } }, // Explicitly disabled or not applicable
+                        { "Pretrained Weights", new[] { "yolov8n", "yolov8s", "yolov8m", "yolov8l", "yolov8x", "None" } }
+                    };
+
+                                    // ✅ Default selections for YOLOv8
+                                    modelOptions = new List<TrainingOption>
+                    {
+                        new TrainingOption { Name = "Architecture", Value = "YOLOv8" },
+                        new TrainingOption { Name = "Input Size", Value = "640" },
+                        new TrainingOption { Name = "Backbone", Value = "None" },
+                        new TrainingOption { Name = "Pretrained Weights", Value = "yolov8n" }
+                    };
+
+                                    // 🚀 Training hyperparameters optimized for YOLOv8
+                                    trainingOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Epochs", new[] { "10", "20", "50", "100", "200", "300" } },
+                        { "Batch Size", new[] { "8", "16", "32", "64", "128" } },
+                        { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } },
+                        { "Optimizer", new[] { "Adam", "SGD", "AdamW" } },
+                        { "Scheduler", new[] { "None", "Cosine", "Linear", "StepLR" } }
+                    };
+                    break;
+
+
+
+                case "ONNX":
+                    // Define valid ONNX export options
+                    modelOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Architecture", new[] { "ONNX" } },
+                        { "Input Size", new[] { "320", "416", "512", "640" } },
+                        { "Opset", new[] { "11", "12", "13" } } // Opset 13 recommended for latest compatibility
+                    };
+
+                                    // Set default ONNX export configuration
+                                    modelOptions = new List<TrainingOption>
+                    {
+                        new TrainingOption { Name = "Architecture", Value = "ONNX" },
+                        new TrainingOption { Name = "Input Size", Value = "640" },
+                        new TrainingOption { Name = "Opset", Value = "13" }
+                    };
+                    // Training hyperparameters for ONNX-compatible models
+                    trainingOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Epochs", new[] { "10", "20", "50", "100", "200" } },         // Standard training durations
+                        { "Batch Size", new[] { "8", "16", "32", "64" } },              // GPU-dependent; ONNX prefers consistent input shapes
+                        { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } }, // Conservative range for stable export
+                        { "Optimizer", new[] { "SGD", "Adam", "AdamW" } },              // AdamW often yields smoother ONNX graphs
+                        { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing" } }, // Compatible with most ONNX export pipelines
+                        { "Opset", new[] { "11", "12", "13" } }                         // Critical for ONNX export compatibility
+                    };
+                    // Optional: Add validation to ensure selected opset matches target runtime (e.g., Jetson, Colab, etc.)
+                    break;
+
+                case "Custom":
+                    // Allow full flexibility for user-defined models
+                    modelOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Architecture", new[] { "Custom" } },
+                        { "Input Size", new[] { "320", "416", "512", "640", "768", "1280" } },
+                        { "Backbone", new[] { "UserDefined" } } // Could be expanded later to support dropdowns or text input
+                    };
+
+                                    // Default selections for Custom model setup
+                                    modelOptions = new List<TrainingOption>
+                    {
+                        new TrainingOption { Name = "Architecture", Value = "Custom" },
+                        new TrainingOption { Name = "Input Size", Value = "640" },
+                        new TrainingOption { Name = "Backbone", Value = "UserDefined" }
+                    };
+
+                    // Training hyperparameters for Custom models
+                    trainingOptionSources = new Dictionary<string, string[]>
+                    {
+                        { "Epochs", new[] { "10", "20", "50", "100", "200", "300" } },       // Flexible range for experimentation
+                        { "Batch Size", new[] { "4", "8", "16", "32", "64", "128" } },       // Includes smaller sizes for edge devices
+                        { "Learning Rate", new[] { "0.0001", "0.0005", "0.001", "0.005", "0.01" } }, // Wider range for tuning unknown models
+                        { "Optimizer", new[] { "SGD", "Adam", "AdamW", "RMSprop" } },        // Broad support for various training styles
+                        { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing", "ReduceLROnPlateau", "Linear" } } // Covers classic and modern schedulers
+                    };
+                    // Optional: Add validation to ensure input size matches model requirements
+                    break;
+            }
+
+        
+
+            var trainingOptions = new List<TrainingOption>
+            {
+                new TrainingOption { Name = "Epochs", Value = trainingOptionSources["Epochs"][0] },
+                new TrainingOption { Name = "Batch Size", Value = trainingOptionSources["Batch Size"][0] },
+                new TrainingOption { Name = "Learning Rate", Value = trainingOptionSources["Learning Rate"][0] },
+                new TrainingOption { Name = "Optimizer", Value = trainingOptionSources["Optimizer"][0] },
+                new TrainingOption { Name = "Scheduler", Value = trainingOptionSources["Scheduler"][0] }
+            };
+
+            // Positioning logic
+            double datasetBlockX = 50;
+            double datasetBlockWidth = 320;
+            double gap = 30;
+            double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
+            double modelBlockY = 50;
+
+            double modelBlockWidth = 320; // or use modelBlock.DesiredSize.Width after layout
+            double trainBlockX = modelBlockX + modelBlockWidth + gap;
+            double trainBlockY = modelBlockY;
+
+            // Create and add blocks
+            var modelPanel = CreateModelDetailGrid(modelOptions, blockLabel, modelOptionSources);
+            modelBlock = CreateBlock(modelPanel, modelBlockX, modelBlockY, "Model");
+            TrainingCanvas.Children.Add(modelBlock);
+
+            var trainPanel = CreateModelDetailGrid(trainingOptions, "🚀 Training Options", trainingOptionSources);
+            trainBlock = CreateBlock(trainPanel, trainBlockX, trainBlockY, "Train");
+            TrainingCanvas.Children.Add(trainBlock);
+
+            TrainingStatusText.Text = $"Model and training options updated for {selectedArch}.";
         }
 
         private void Block_MouseMove(object sender, MouseEventArgs e)
@@ -391,12 +636,12 @@ namespace VisionAICam.Pages
                     {
                         // Define selectable options for each model parameter
                         var optionSources = new Dictionary<string, string[]>
-    {
-        { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
-        { "Input Size", new[] { "320", "416", "512", "640", "768" } },
-        { "Backbone", new[] { "CSPDarknet", "ResNet", "MobileNet", "EfficientNet" } },
-        { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
-    };
+                        {
+                            { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
+                            { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                            { "Backbone", new[] { "None" } },
+                            { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
+                        };
 
                         // Default selections
                         string selectedModel = optionSources["Architecture"][1]; // YOLOv8
@@ -406,8 +651,8 @@ namespace VisionAICam.Pages
     {
         new TrainingOption { Name = "Architecture", Value = selectedModel },
         new TrainingOption { Name = "Input Size", Value = "640" },
-        new TrainingOption { Name = "Backbone", Value = "CSPDarknet" },
-        new TrainingOption { Name = "Pretrained Weights", Value = "COCO" }
+        new TrainingOption { Name = "Backbone", Value = "None" },
+        new TrainingOption { Name = "Pretrained Weights", Value = "None" }
     };
 
                         // Remove previous model block if present
@@ -569,23 +814,211 @@ namespace VisionAICam.Pages
         }
         #endregion
 
-        #region Button event handlers
+        //#region Train Button event handlers
         private void TrainModelButton_Click(object sender, RoutedEventArgs e)
         {
-            TrainingStatusText.Text = "Training started...";
+            TrainingStatusText.Text = "🚀 Training started...";
             TrainModelButton.IsEnabled = false;
+
+            // Extract selected options from UI blocks
+            var datasetOptions = ExtractOptionsFromBlock(datasetBlock);
+            var modelOptions = ExtractOptionsFromBlock(modelBlock);
+            var trainingOptions = ExtractOptionsFromBlock(trainBlock);
+            string pythonPath;
+            try
+            {
+                pythonPath = ResolvePythonPath();
+            }
+            catch (FileNotFoundException ex)
+            {
+                Dispatcher.Invoke(() => TrainingStatusText.Text = ex.Message);
+                return;
+            }
+            // Basic validation
+            if (datasetOptions.Count == 0 || modelOptions.Count == 0)
+            {
+                MessageBox.Show("❌ Missing dataset or model configuration.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TrainingStatusText.Text = "Training aborted due to missing configuration.";
+                TrainModelButton.IsEnabled = true;
+                return;
+            }
+
+            // Determine architecture
+            string architecture = modelOptions.FirstOrDefault(opt => opt.Name == "Architecture")?.Value ?? "YOLOv8";
 
             Task.Run(() =>
             {
-                System.Threading.Thread.Sleep(2000);
-                Dispatcher.Invoke(() =>
+                try
                 {
-                    TrainingStatusText.Text = "Training complete!";
-                    TrainModelButton.IsEnabled = true;
-                });
+                    if (architecture == "YOLOv8")
+                    {
+                        // Replace the direct call to LaunchYOLOv8Training with a call to the TrainingHelper class.
+                        //TrainingHelper helper = new TrainingHelper();
+                        TrainingHelper.LaunchYOLOv8Training(datasetOptions, modelOptions, trainingOptions);
+                       
+
+                    }
+                    else
+                    {
+                        string trainingCommand = BuildTrainingCommand(architecture, modelOptions, trainingOptions);
+                        Console.WriteLine($"Executing: {trainingCommand}");
+                        // TODO: Replace with actual training logic for other architectures
+                    }
+
+                    Dispatcher.Invoke(() =>
+                    {
+                        TrainingStatusText.Text = $"✅ Training complete for {architecture}!";
+                        TrainModelButton.IsEnabled = true;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        MessageBox.Show($"❌ Training failed:\n{ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        TrainingStatusText.Text = "Training failed. Check logs or configuration.";
+                        TrainModelButton.IsEnabled = true;
+                    });
+                }
             });
         }
-        #endregion
+        private string BuildTrainingCommand(string arch, List<TrainingOption> modelOpts, List<TrainingOption> trainOpts)
+        {
+            var args = modelOpts.Concat(trainOpts)
+                .Select(opt => $"{opt.Name.Replace(" ", "").ToLower()}={opt.Value}");
+            return $"train_model --arch={arch} " + string.Join(" ", args);
+        }
+
+        private List<TrainingOption> ExtractOptionsFromBlock(UIElement block)
+        {
+            var options = new List<TrainingOption>();
+
+            if (block is Border border)
+            {
+                var content = border.Child;
+
+                // Case 1: Model block with Grid layout
+                if (content is Grid grid)
+                {
+                    foreach (var child in grid.Children)
+                    {
+                        if (child is StackPanel panel && panel.Tag is string optionName)
+                        {
+                            var comboBox = panel.Children.OfType<ComboBox>().FirstOrDefault();
+                            var selected = comboBox?.SelectedItem as ComboBoxItem;
+                            string value = selected?.Content?.ToString() ?? "";
+                            options.Add(new TrainingOption { Name = optionName, Value = value });
+                        }
+                    }
+                }
+
+                // Case 2: Dataset block with StackPanel layout
+                else if (content is StackPanel stackPanel)
+                {
+                    foreach (var child in stackPanel.Children)
+                    {
+                        if (child is DataGrid dg)
+                        {
+                            if (dg.ItemsSource is IEnumerable<TrainingOption> gridOptions)
+                            {
+                                options.AddRange(gridOptions);
+                            }
+                            else
+                            {
+                                Console.WriteLine("⚠️ DataGrid ItemsSource is not TrainingOption.");
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("⚠️ Block content is not Grid or StackPanel.");
+                }
+            }
+            else
+            {
+                Console.WriteLine("⚠️ UIElement is not a Border.");
+            }
+
+            return options;
+        }
+
+        private void ValidatePythonPath(string pythonPath)
+        {
+            if (!File.Exists(pythonPath))
+            {
+                ShowError("❌ Python executable not found.", $"Expected at:\n{pythonPath}");
+                throw new FileNotFoundException($"Python executable not found at {pythonPath}");
+            }
+        }
+
+        private string ResolvePythonPath()
+        {
+            string pythonPath = Environment.GetEnvironmentVariable("PYTHON_PATH") ??
+                                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Python313", "python.exe");
+
+            ValidatePythonPath(pythonPath);
+            return pythonPath;
+        }
+        public void RunPythonScript(string pythonExePath, string scriptPath, string arguments, Action<string> logCallback, Action<int> exitCallback)
+        {
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = pythonExePath,
+                    Arguments = $"\"{scriptPath}\" {arguments}",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    WorkingDirectory = System.IO.Path.GetDirectoryName(scriptPath)
+                };
+
+                var process = new Process { StartInfo = psi };
+
+                process.OutputDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Data))
+                        logCallback?.Invoke($"🟢 {e.Data}");
+                };
+
+                process.ErrorDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Data))
+                        logCallback?.Invoke($"🔴 {e.Data}");
+                };
+
+                logCallback?.Invoke($"🚀 Launching: {psi.FileName} {psi.Arguments}");
+
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                process.WaitForExit();
+                int exitCode = process.ExitCode;
+
+                exitCallback?.Invoke(exitCode);
+            }
+            catch (Exception ex)
+            {
+                logCallback?.Invoke($"❌ Failed to run Python: {ex.Message}");
+                exitCallback?.Invoke(-1);
+            }
+        }
+       
+
+        // ✅ Utility: Show error with UI feedback
+        private void ShowError(string messageBoxText, string statusText)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                MessageBox.Show(messageBoxText, "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TrainingStatusText.Text = statusText;
+            });
+        }
+   
+        
 
         private void AddOrSelectDataset(string datasetPath)
         {
@@ -662,8 +1095,8 @@ namespace VisionAICam.Pages
     {
         { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
         { "Input Size", new[] { "320", "416", "512", "640", "768" } },
-        { "Backbone", new[] { "CSPDarknet", "ResNet", "MobileNet", "EfficientNet" } },
-        { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
+        { "Backbone", new[] { "None" } },
+        { "Pretrained Weights", new[] { "None" } }
     };
 
             // Default selections
@@ -674,8 +1107,8 @@ namespace VisionAICam.Pages
     {
         new TrainingOption { Name = "Architecture", Value = selectedModel },
         new TrainingOption { Name = "Input Size", Value = "640" },
-        new TrainingOption { Name = "Backbone", Value = "CSPDarknet" },
-        new TrainingOption { Name = "Pretrained Weights", Value = "COCO" }
+        new TrainingOption { Name = "Backbone", Value = "None" },
+        new TrainingOption { Name = "Pretrained Weights", Value = "None" }
     };
 
             // Remove previous model block if present
@@ -712,7 +1145,7 @@ namespace VisionAICam.Pages
         { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing" } }
     };
 
-            // Initialize with default values (first value in each array)
+            // Initialize with default values
             var trainingOptions = new List<TrainingOption>
     {
         new TrainingOption { Name = "Epochs", Value = trainingOptionSources["Epochs"][0] },
@@ -729,9 +1162,12 @@ namespace VisionAICam.Pages
                 trainBlock = null;
             }
 
-            // Positioning logic (below model block)
-            double trainBlockX = 50;
-            double trainBlockY = 400;
+            // Positioning logic: to the right of model block
+            double modelBlockX = Canvas.GetLeft(modelBlock);
+            double modelBlockWidth = modelBlock.RenderSize.Width;
+            double gap = 30;
+            double trainBlockX = modelBlockX + modelBlockWidth + gap;
+            double trainBlockY = Canvas.GetTop(modelBlock); // align vertically
 
             var panel = CreateModelDetailGrid(trainingOptions, "🚀 Training Options", trainingOptionSources);
             trainBlock = CreateBlock(panel, trainBlockX, trainBlockY, "Train");
