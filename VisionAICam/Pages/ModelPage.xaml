@@ -92,15 +92,27 @@
 
                     <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <!-- Architecture ComboBox -->
-                    <ComboBox x:Name="ModelArchComboBox"
-          Width="120"
-          SelectedIndex="1"
-          Margin="0,0,12,0"
-          SelectionChanged="ModelArchComboBox_SelectionChanged">
-                        <ComboBoxItem Content="YOLOv5"/>
-                        <ComboBoxItem Content="YOLOv8"/>
-                        <ComboBoxItem Content="ONNX"/>
-                        <ComboBoxItem Content="Custom"/>
+                    <ComboBox x:Name="ModelArchComboBox" Width="200" Height="30" SelectionChanged="ModelArchComboBox_SelectionChanged">
+                        <ComboBoxItem Content="YOLOv5n"/>
+                        <ComboBoxItem Content="YOLOv5s"/>
+                        <ComboBoxItem Content="YOLOv5m"/>
+                        <ComboBoxItem Content="YOLOv5l"/>
+                        <ComboBoxItem Content="YOLOv5x"/>
+                        <ComboBoxItem Content="YOLOv8n"/>
+                        <ComboBoxItem Content="YOLOv8s"/>
+                        <ComboBoxItem Content="YOLOv8m"/>
+                        <ComboBoxItem Content="YOLOv8l"/>
+                        <ComboBoxItem Content="YOLOv8x"/>
+                        <ComboBoxItem Content="Faster R-CNN"/>
+                        <ComboBoxItem Content="SSD"/>
+                        <ComboBoxItem Content="RetinaNet"/>
+                        <ComboBoxItem Content="EfficientDet"/>
+                        <ComboBoxItem Content="CenterNet"/>
+                        <ComboBoxItem Content="YOLOv4"/>
+                        <ComboBoxItem Content="YOLOv3"/>
+                        <ComboBoxItem Content="YOLOv7"/>
+                        <ComboBoxItem Content="DETR"/>
+                        <ComboBoxItem Content="Cascade R-CNN"/>
                     </ComboBox>
 
 
