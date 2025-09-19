@@ -849,7 +849,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         {
             return new()
     {
-        { "Epochs", new[] { "10", "20", "50", "100", "200", "300" } },
+        { "Epochs", new[] { "1","10", "20", "50", "100", "200", "300" } },
         { "Batch Size", new[] { "8", "16", "32", "64", "128" } },
         { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } },
         { "Optimizer", new[] { "Adam", "SGD", "AdamW" } },
@@ -1099,12 +1099,12 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                                         return;
                                     }
 
-                                    MessageBox.Show(
-                                        $"✅ Dataset loaded successfully:\n{datasetPath}",
-                                        "Dataset Validated",
-                                        MessageBoxButton.OK,
-                                        MessageBoxImage.Information
-                                    );
+                                    //MessageBox.Show(
+                                    //    $"✅ Dataset loaded successfully:\n{datasetPath}",
+                                    //    "Dataset Validated",
+                                    //    MessageBoxButton.OK,
+                                    //    MessageBoxImage.Information
+                                    //);
 
                                     AddOrSelectDataset(datasetPath);
 
@@ -1316,10 +1316,11 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
             // ✅ Resolve training mode directly from modelOptions grid
             string selectedMode = modelOptions.FirstOrDefault(opt => opt.Name == "Training mode")?.Value?.ToLower() ?? "scratch";
-
+            
             // ✅ Inject training mode into trainingOptions
             trainingOptions.RemoveAll(opt => opt.Name == "Training Mode");
             trainingOptions.Add(new TrainingOption { Name = "Training Mode", Value = selectedMode });
+            
 
             // ✅ Resolve Python path
             string pythonPath;
@@ -1561,12 +1562,12 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                         }
                         else
                         {
-                            MessageBox.Show(
-                                $"✅ Dataset loaded successfully:\n{datasetPath}",
-                                "Dataset Validated",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Information
-                            );
+                            //MessageBox.Show(
+                            //    $"✅ Dataset loaded successfully:\n{datasetPath}",
+                            //    "Dataset Validated",
+                            //    MessageBoxButton.OK,
+                            //    MessageBoxImage.Information
+                            //);
 
                             // Remove previous dataset block if it exists
                             if (datasetBlock != null)
