@@ -8,8 +8,8 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
-using VisionAICam; // For AppSettings and SettingsManager
-using Python.Runtime; // Requires pythonnet NuGet package
+using VisionAICam;
+using Python.Runtime;
 
 namespace VisionAICam.Pages
 {
@@ -27,12 +27,10 @@ namespace VisionAICam.Pages
         private Thread? _cameraThread;
         private VideoCapture? _capture;
         private AppSettings? _appSettings;
-        private readonly ObservableCollection<DetectionResult> _detections = new();
 
         public Production()
         {
             InitializeComponent();
-            DetectionListView.ItemsSource = _detections;
         }
 
         public void StartProduction()
@@ -42,15 +40,11 @@ namespace VisionAICam.Pages
             _isRunning = true;
             _isPaused = false;
             StatusTextBlock.Text = "Production started";
-
-            // Show the loading overlay
             LoadingOverlay.Visibility = Visibility.Visible;
 
-            // Load settings
             _appSettings = SettingsManager.Load();
             int cameraIndex = _appSettings?.CameraIndex ?? 0;
 
-            // Open camera
             _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.DSHOW);
             if (!_capture.IsOpened())
             {
@@ -60,7 +54,6 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            // Optionally set camera properties from settings
             if (_appSettings != null)
             {
                 _capture.Set(VideoCaptureProperties.Brightness, _appSettings.Brightness);
@@ -68,11 +61,7 @@ namespace VisionAICam.Pages
                 _capture.Set(VideoCaptureProperties.Exposure, _appSettings.Exposure);
             }
 
-            // Start camera/model thread
-            _cameraThread = new Thread(CameraLoop)
-            {
-                IsBackground = true
-            };
+            _cameraThread = new Thread(CameraLoop) { IsBackground = true };
             _cameraThread.Start();
         }
 
@@ -90,7 +79,6 @@ namespace VisionAICam.Pages
             _capture = null;
             _cameraThread = null;
             ProductionImage.Source = null;
-            _detections.Clear();
             ClearBoundingBoxes();
         }
 
@@ -136,16 +124,14 @@ namespace VisionAICam.Pages
             try
             {
                 using var mat = new Mat();
-                // Show progress message and clear image
+
                 Dispatcher.BeginInvoke(() =>
                 {
                     StatusTextBlock.Text = "Loading model and running first inference...";
                     ProductionImage.Source = null;
-                    _detections.Clear();
                     ClearBoundingBoxes();
                 });
 
-                // Wait for the first valid frame
                 while (_isRunning && _capture != null && _capture.IsOpened())
                 {
                     if (_isPaused)
@@ -155,12 +141,10 @@ namespace VisionAICam.Pages
                     }
 
                     _capture.Read(mat);
-                    if (!mat.Empty())
-                        break;
+                    if (!mat.Empty()) break;
                     Thread.Sleep(30);
                 }
 
-                // Run first inference (blocking)
                 var firstDetections = GetDetectionsFromPython(mat);
 
                 Dispatcher.BeginInvoke(() =>
@@ -170,13 +154,9 @@ namespace VisionAICam.Pages
                     var bitmapSource = mat.ToBitmapSource();
                     bitmapSource.Freeze();
                     ProductionImage.Source = bitmapSource;
-                    _detections.Clear();
-                    foreach (var d in firstDetections)
-                        _detections.Add(d);
                     DrawBoundingBoxes(firstDetections);
                 });
 
-                // Main loop: show image and update detections as usual
                 while (_isRunning && _capture != null && _capture.IsOpened())
                 {
                     if (_isPaused)
@@ -191,29 +171,22 @@ namespace VisionAICam.Pages
                         var bitmapSource = mat.ToBitmapSource();
                         bitmapSource.Freeze();
 
-                        // All Python.NET code runs on this thread
                         var detections = GetDetectionsFromPython(mat);
 
-                        // UI update on dispatcher
                         Dispatcher.BeginInvoke(() =>
                         {
                             ProductionImage.Source = bitmapSource;
-                            _detections.Clear();
-                            foreach (var d in detections)
-                                _detections.Add(d);
-
                             DrawBoundingBoxes(detections);
-
                             FpsTextBlock.Text = "FPS: 30";
                             InferenceTimeTextBlock.Text = "Inference: ~";
                         });
                     }
-                    Thread.Sleep(30); // ~30 FPS
+                    Thread.Sleep(30);
                 }
             }
             finally
             {
-                PythonEngine.Shutdown(); // <-- Shutdown Python.NET on this thread
+                PythonEngine.Shutdown();
             }
         }
 
@@ -221,7 +194,6 @@ namespace VisionAICam.Pages
         {
             try
             {
-                // Encode Mat to JPEG bytes
                 Cv2.ImEncode(".jpg", mat, out var buf);
 
                 using (Py.GIL())
@@ -237,15 +209,10 @@ namespace VisionAICam.Pages
                             break;
                         }
                     }
-                    if (!pathExists)
-                        sys.path.append(pythonScriptDir);
+                    if (!pathExists) sys.path.append(pythonScriptDir);
 
                     dynamic inference = Py.Import("inference");
-
-                    // Get model path from settings, fallback to "model.pt"
                     string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-
-                    // Pass both image bytes and model path to detect
                     dynamic results = inference.detect(buf, modelPath);
 
                     var detections = new Collection<DetectionResult>();
@@ -267,11 +234,8 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                // Write full error details to a log file for easy copy/paste
                 string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error.log");
                 File.WriteAllText(logPath, ex.ToString());
-
-                // Show a short message in the UI
                 string errorMsg = $"Detection error: {ex.Message} (see python_error.log)";
                 Dispatcher.BeginInvoke(() => StatusTextBlock.Text = errorMsg);
             }
@@ -296,7 +260,8 @@ namespace VisionAICam.Pages
                         Stroke = Brushes.Red,
                         StrokeThickness = 2,
                         Width = Math.Abs(x2 - x1),
-                        Height = Math.Abs(y2 - y1)
+                        Height = Math.Abs(y2 - y1),
+                        Fill = Brushes.Transparent
                     };
                     Canvas.SetLeft(rect, x1);
                     Canvas.SetTop(rect, y1);
@@ -304,12 +269,13 @@ namespace VisionAICam.Pages
 
                     var label = new TextBlock
                     {
-                        Text = $"{det.ClassName} ({det.Confidence:P0})",
+                        Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
                         Foreground = Brushes.Yellow,
                         Background = Brushes.Black,
-                        FontSize = 12
+                        FontSize = 12,
+                        Padding = new Thickness(2, 0, 2, 0)
                     };
-                    Canvas.SetLeft(label, x1);
+                    Canvas.SetLeft(label, x1 + 2);
                     Canvas.SetTop(label, y1 - 18);
                     BoundingBoxCanvas.Children.Add(label);
                 }

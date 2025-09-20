@@ -12,47 +12,12 @@ using System.IO;
 using System.Windows.Data;
 using System.Diagnostics;
 using VisionAICam.Utilities;
-using System.Windows.Media.Animation;
 
 namespace VisionAICam.Pages
 {
+    
+    
 
-    public class BlockState
-    {
-        public string BlockType { get; set; } = ""; // e.g., "Dataset", "Model", "Train"
-        public double X { get; set; }
-        public double Y { get; set; }
-        public List<TrainingOption> Options { get; set; } = new();
-    }
-    public static class ModelProjectSession
-    {
-        public class Project
-        {
-            // Add properties as needed  
-            public string Name { get; set; }
-            public string Description { get; set; }
-            public DateTime CreatedDate { get; set; }
-            public DateTime ModifiedDate { get; set; }
-            public string DatasetPath { get; set; }
-            public string ModelArchitecture { get; set; }
-            public string TrainingMode { get; set; }
-            public Dictionary<string, string> AdditionalOptions { get; set; }
-            public List<BlockState> Blocks { get; set; } = new();
-           
-            public Project()
-            {
-                Name = string.Empty;
-                Description = string.Empty;
-                CreatedDate = DateTime.Now;
-                ModifiedDate = DateTime.Now;
-                DatasetPath = string.Empty;
-                ModelArchitecture = string.Empty;
-                TrainingMode = string.Empty;
-                AdditionalOptions = new Dictionary<string, string>();
-            }
-        }
-        public static Project? CurrentProject { get; set; }
-    }
     public partial class ModelPage : Page
     {
         private UIElement? selectedBlock;
@@ -91,87 +56,6 @@ namespace VisionAICam.Pages
             set { architectures = value; }
         }
 
-        private void SaveBlockStates()
-        {
-            var blocks = new List<BlockState>();
-            foreach (UIElement child in TrainingCanvas.Children)
-            {
-                if (child is Border border && border.Tag is string tag)
-                {
-                    var options = ExtractOptionsFromBlock(border);
-                    blocks.Add(new BlockState
-                    {
-                        BlockType = tag,
-                        X = Canvas.GetLeft(border),
-                        Y = Canvas.GetTop(border),
-                        Options = options
-                    });
-                }
-            }
-            if (ModelProjectSession.CurrentProject != null)
-                ModelProjectSession.CurrentProject.Blocks = blocks;
-        }
-        private void RestoreBlockStates()
-        {
-            var project = ModelProjectSession.CurrentProject;
-            if (project?.Blocks == null)
-                return;
-
-            // Clear current blocks from the canvas
-            TrainingCanvas.Children.Clear();
-            modelBlock = null;
-            trainBlock = null;
-            datasetBlock = null;
-
-            foreach (var blockState in project.Blocks)
-            {
-                UIElement? panel = null;
-
-                if (blockState.BlockType == "Dataset")
-                {
-                    var path = blockState.Options?.FirstOrDefault(opt => opt.Name == "Path")?.Value ?? string.Empty;
-                    panel = CreateDatasetDetailsGrid(path);
-                }
-                else if (blockState.BlockType == "Model")
-                {
-                    var arch = blockState.Options?.FirstOrDefault(opt => opt.Name == "Architecture")?.Value ?? "YOLOv8";
-                    panel = CreateModelDetailGrid(
-                        blockState.Options ?? new List<TrainingOption>(),
-                        "🧠 " + arch,
-                        BuildModelOptions(arch).sources
-                    );
-                }
-                else if (blockState.BlockType == "Train")
-                {
-                    panel = CreateTrainDetailGrid(
-                        blockState.Options ?? new List<TrainingOption>(),
-                        "🚀 Training Options",
-                        BuildTrainingSources()
-                    );
-                }
-
-                if (panel == null)
-                    continue;
-
-                var border = CreateBlock(panel, blockState.X, blockState.Y, blockState.BlockType);
-
-                switch (blockState.BlockType)
-                {
-                    case "Dataset":
-                        datasetBlock = border;
-                        break;
-                    case "Model":
-                        modelBlock = border;
-                        break;
-                    case "Train":
-                        trainBlock = border;
-                        break;
-                }
-
-                TrainingCanvas.Children.Add(border);
-            }
-        }
-
 
         public ModelPage()
         {
@@ -194,13 +78,9 @@ namespace VisionAICam.Pages
 
             GlobalSignals.TrainingModeChanged.Subscribe(OnTrainingModeChanged);
 
-            // Hide config panel if no project is loaded
-            ConfigPanelGrid.Visibility = ProjectSession.CurrentProject == null
-                ? Visibility.Collapsed
-                : Visibility.Visible;
-            // Restore block states on load
-    RestoreBlockStates();
-
+            // Binding ModelArchComboBox with predefined architectures
+           
+           
         }
 
 
@@ -275,12 +155,204 @@ namespace VisionAICam.Pages
 
 
         #region Block
-        
+        //private void ModelArchComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        //{
+        //    if (TrainingCanvas == null) return;
+
+        //    // Remove previous blocks
+        //    if (modelBlock != null)
+        //    {
+        //        TrainingCanvas.Children.Remove(modelBlock);
+        //        modelBlock = null;
+        //    }
+        //    if (trainBlock != null)
+        //    {
+        //        TrainingCanvas.Children.Remove(trainBlock);
+        //        trainBlock = null;
+        //    }
+
+        //    // Get selected architecture
+        //    string selectedArch = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
+        //    string blockLabel = $"🧠 {selectedArch}";
+
+        //    // Define model options
+        //    var modelOptionSources = new Dictionary<string, string[]>();
+        //    var modelOptions = new List<TrainingOption>();
+        //    var trainingOptionSources = new Dictionary<string, string[]>();
+
+        //    switch (selectedArch)
+        //    {
+        //        case "YOLOv5":
+        //            // 🎯 Define model configuration options for YOLOv5
+        //            modelOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Architecture", new[] { "YOLOv5" } },
+        //                { "Input Size", new[] { "320", "416", "512", "640" } },
+        //                { "Backbone", new[] { "CSPDarknet", "Custom-ResNet" } }, // ResNet requires manual integration
+        //                { "Pretrained Weights", new[] { "yolov5n", "yolov5s", "yolov5m", "yolov5l", "yolov5x", "None" } },
+        //                { "Training mode", new[] { "scratch", "topup", "benchmark" } } // ✅ Added training mode options
+        //            };
+
+        //            // ✅ Default selections for YOLOv5
+        //            modelOptions = new List<TrainingOption>
+        //            {
+        //                new TrainingOption { Name = "Architecture", Value = "YOLOv5" },
+        //                new TrainingOption { Name = "Input Size", Value = "640" },
+        //                new TrainingOption { Name = "Backbone", Value = "CSPDarknet" },
+        //                new TrainingOption { Name = "Pretrained Weights", Value = "yolov5n" },
+        //                new TrainingOption { Name = "Training mode", Value = "scratch" } // ✅ Default to scratch
+        //            };
+
+        //            // 🚀 Training hyperparameters for YOLOv5
+        //            trainingOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Epochs", new[] { "10", "20", "50", "100", "200" } },
+        //                { "Batch Size", new[] { "8", "16", "32", "64" } },
+        //                { "Learning Rate", new[] { "0.001", "0.005", "0.01", "0.05" } },
+        //                { "Optimizer", new[] { "SGD", "Adam", "RMSprop" } },
+        //                { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing", "ReduceLROnPlateau" } }
+        //            };
+
+
+        //            break;
+
+
+        //        case "YOLOv8":
+        //            // 🎯 Define model configuration options for YOLOv8 (no backbone selection)
+        //            modelOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Architecture", new[] { "YOLOv8" } },
+        //                { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+        //                { "Backbone", new[] { "None" } }, // Explicitly disabled or not applicable
+        //                { "Pretrained Weights", new[] { "yolov8n", "yolov8s", "yolov8m", "yolov8l", "yolov8x", "None" } },
+        //                { "Training mode", new[] { "scratch", "topup", "benchmark" } } // ✅ Added training mode options
+        //            };
+
+        //            // ✅ Default selections for YOLOv8
+        //            modelOptions = new List<TrainingOption>
+        //            {
+        //                new TrainingOption { Name = "Architecture", Value = "YOLOv8" },
+        //                new TrainingOption { Name = "Input Size", Value = "640" },
+        //                new TrainingOption { Name = "Backbone", Value = "None" },
+        //                new TrainingOption { Name = "Pretrained Weights", Value = "yolov8n" },
+        //                new TrainingOption { Name = "Training mode", Value = "scratch" } // ✅ Default to scratch
+        //            };
+
+        //            // 🚀 Training hyperparameters optimized for YOLOv8
+        //            trainingOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Epochs", new[] { "10", "20", "50", "100", "200", "300" } },
+        //                { "Batch Size", new[] { "8", "16", "32", "64", "128" } },
+        //                { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } },
+        //                { "Optimizer", new[] { "Adam", "SGD", "AdamW" } },
+        //                { "Scheduler", new[] { "None", "Cosine", "Linear", "StepLR" } }
+        //            };
+        //            break;
+
+
+
+        //        case "ONNX":
+        //            // 🎯 Define valid ONNX export options
+        //            modelOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Architecture", new[] { "ONNX" } },
+        //                { "Input Size", new[] { "320", "416", "512", "640" } },
+        //                { "Opset", new[] { "11", "12", "13" } }, // Opset 13 recommended for latest compatibility
+        //                { "Training mode", new[] { "scratch", "topup", "benchmark" } } // ✅ Added training mode options
+        //            };
+
+        //            // ✅ Set default ONNX export configuration
+        //            modelOptions = new List<TrainingOption>
+        //            {
+        //                new TrainingOption { Name = "Architecture", Value = "ONNX" },
+        //                new TrainingOption { Name = "Input Size", Value = "640" },
+        //                new TrainingOption { Name = "Opset", Value = "13" },
+        //                new TrainingOption { Name = "Training mode", Value = "scratch" } // ✅ Default to scratch
+        //            };
+
+        //            // 🚀 Training hyperparameters for ONNX-compatible models
+        //            trainingOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Epochs", new[] { "10", "20", "50", "100", "200" } },         // Standard training durations
+        //                { "Batch Size", new[] { "8", "16", "32", "64" } },              // GPU-dependent; ONNX prefers consistent input shapes
+        //                { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } }, // Conservative range for stable export
+        //                { "Optimizer", new[] { "SGD", "Adam", "AdamW" } },              // AdamW often yields smoother ONNX graphs
+        //                { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing" } }, // Compatible with most ONNX export pipelines
+        //                { "Opset", new[] { "11", "12", "13" } }                         // Critical for ONNX export compatibility
+        //            };
+        //            // Optional: Add validation to ensure selected opset matches target runtime (e.g., Jetson, Colab, etc.)
+        //            break;
+
+        //        case "Custom":
+        //            // 🎯 Allow full flexibility for user-defined models
+        //            modelOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Architecture", new[] { "Custom" } },
+        //                { "Input Size", new[] { "320", "416", "512", "640", "768", "1280" } },
+        //                { "Backbone", new[] { "UserDefined" } },
+        //                { "Training mode", new[] { "scratch", "topup", "benchmark" } } // ✅ Mode selection for custom workflows
+        //            };
+
+        //            // ✅ Default selections for Custom model setup
+        //            modelOptions = new List<TrainingOption>
+        //            {
+        //                new TrainingOption { Name = "Architecture", Value = "Custom" },
+        //                new TrainingOption { Name = "Input Size", Value = "640" },
+        //                new TrainingOption { Name = "Backbone", Value = "UserDefined" },
+        //                new TrainingOption { Name = "Training mode", Value = "scratch" } // ✅ Default to scratch
+        //            };
+
+        //            // 🚀 Training hyperparameters for Custom models
+        //            trainingOptionSources = new Dictionary<string, string[]>
+        //            {
+        //                { "Epochs", new[] { "10", "20", "50", "100", "200", "300" } }, // Flexible range for experimentation
+        //                { "Batch Size", new[] { "4", "8", "16", "32", "64", "128" } }, // Includes smaller sizes for edge devices
+        //                { "Learning Rate", new[] { "0.0001", "0.0005", "0.001", "0.005", "0.01" } }, // Wider range for tuning unknown models
+        //                { "Optimizer", new[] { "SGD", "Adam", "AdamW", "RMSprop" } }, // Broad support for various training styles
+        //                { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing", "ReduceLROnPlateau", "Linear" } } // Covers classic and modern schedulers
+        //            };
+        //            // Optional: Add validation to ensure input size matches model requirements
+        //            break;
+        //    }
+
+
+
+        //    var trainingOptions = new List<TrainingOption>
+        //    {
+        //        new TrainingOption { Name = "Epochs", Value = trainingOptionSources["Epochs"][0] },
+        //        new TrainingOption { Name = "Batch Size", Value = trainingOptionSources["Batch Size"][0] },
+        //        new TrainingOption { Name = "Learning Rate", Value = trainingOptionSources["Learning Rate"][0] },
+        //        new TrainingOption { Name = "Optimizer", Value = trainingOptionSources["Optimizer"][0] },
+        //        new TrainingOption { Name = "Scheduler", Value = trainingOptionSources["Scheduler"][0] }
+        //    };
+
+        //    // Positioning logic
+        //    double datasetBlockX = 50;
+        //    double datasetBlockWidth = 320;
+        //    double gap = 30;
+        //    double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
+        //    double modelBlockY = 50;
+
+        //    double modelBlockWidth = 320; // or use modelBlock.DesiredSize.Width after layout
+        //    double trainBlockX = modelBlockX + modelBlockWidth + gap;
+        //    double trainBlockY = modelBlockY;
+
+        //    // Create and add blocks
+        //    var modelPanel = CreateModelDetailGrid(modelOptions, blockLabel, modelOptionSources);
+        //    modelBlock = CreateBlock(modelPanel, modelBlockX, modelBlockY, "Model");
+        //    TrainingCanvas.Children.Add(modelBlock);
+
+        //    var trainPanel = CreateModelDetailGrid(trainingOptions, "🚀 Training Options", trainingOptionSources);
+        //    trainBlock = CreateBlock(trainPanel, trainBlockX, trainBlockY, "Train");
+        //    TrainingCanvas.Children.Add(trainBlock);
+
+        //    TrainingStatusText.Text = $"Model and training options updated for {selectedArch}.";
+        //}
         private Border CreateBlock(UIElement content, double left, double top, string tag)
         {
             var block = new Border
             {
-                Width = 230,
+                Width = 320,
                 Height = 380,
                 Background = new SolidColorBrush(Color.FromRgb(58, 58, 61)),
                 BorderBrush = Brushes.White,
@@ -586,12 +658,12 @@ namespace VisionAICam.Pages
                 .Select(kvp => new TrainingOption { Name = kvp.Key, Value = kvp.Value[0] })
                 .ToList();
 
-            double datasetBlockX = 10;
-            double datasetBlockWidth = 230;
-            double gap = 10;
+            double datasetBlockX = 50;
+            double datasetBlockWidth = 320;
+            double gap = 30;
             double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
-            double modelBlockY = 10;
-            double trainBlockX = modelBlockX + 230 + gap;
+            double modelBlockY = 50;
+            double trainBlockX = modelBlockX + 320 + gap;
             double trainBlockY = modelBlockY;
 
             var modelPanel = CreateModelDetailGrid(modelOptions, $"🧠 {selectedArch}", modelSources);
@@ -607,14 +679,13 @@ namespace VisionAICam.Pages
             //    GlobalSignals.TrainingModeChanged.Fire(trainingMode);
 
             //TrainingStatusText.Text = $"Model and training options updated for {selectedArch}.";
-            SaveBlockStates();
         }
 
         private void OnTrainingModeChanged(string mode)
         {
             TrainingStatusText.Text = $"🧠 Mode: {mode}";
             UpdateModelBlockPerTrainingMode(mode);
-            SaveBlockStates();
+
       
         }
         private string GetDefaultWeight(string mode, string variant)
@@ -1040,7 +1111,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                                     if (datasetBlock == null)
                                     {
                                         var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
-                                        datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
+                                        datasetBlock = CreateBlock(detailsGrid, 50, 50, "Dataset");
                                         TrainingCanvas.Children.Add(datasetBlock);
                                         TrainingStatusText.Text = "Dataset added. Now select a model.";
                                     }
@@ -1081,11 +1152,11 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                         }
 
                         // Positioning logic
-                        double datasetBlockX = 10;
-                        double datasetBlockWidth = 230;
-                        double gap = 10;
+                        double datasetBlockX = 50;
+                        double datasetBlockWidth = 320;
+                        double gap = 30;
                         double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
-                        double modelBlockY = 10;
+                        double modelBlockY = 50;
 
                         // Create and add the model block
                         var panel = CreateModelDetailGrid(modelOptions, blockLabel, optionSources);
@@ -1197,50 +1268,11 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         #endregion
 
         #region Menu event handlers
-        private void NewModel_Click(object sender, RoutedEventArgs e)
-        {
-            ModelProjectSession.CurrentProject = new ModelProjectSession.Project();
-            ConfigPanelGrid.Visibility = Visibility.Visible;
-            TrainingStatusText.Text = "New project created. Configure your model and dataset.";
-            // Optionally reset blocks and ComboBoxes here
-            TrainingCanvas.Children.Clear();
-            modelBlock = null;
-            trainBlock = null;
-            datasetBlock = new Border();
-            DatasetComboBox.Items.Clear();
-            ModelArchComboBox.SelectedIndex = -1;
-        }
-       
-        private void OpenModel_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement your open project logic here
-            ModelProjectSession.CurrentProject = new ModelProjectSession.Project();
-            ConfigPanelGrid.Visibility = Visibility.Visible;
-            TrainingStatusText.Text = "Project opened. Configure your model and dataset.";
-        }
-        private void SaveModel_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement your save project logic here
-            MessageBox.Show("Save Project action triggered.");
-        }
-        private void ExportModel_Click(object sender, RoutedEventArgs e)
-        {
-            // Implement your export project logic here
-            MessageBox.Show("Export Project action triggered.");
-        }
-        private void CloseModel_Click(object sender, RoutedEventArgs e)
-
-        {
-            ProjectSession.CurrentProject = null;
-            ConfigPanelGrid.Visibility = Visibility.Collapsed;
-            TrainingCanvas.Children.Clear();
-            modelBlock = null;
-            trainBlock = null;
-            datasetBlock = null;
-            DatasetComboBox.Items.Clear();
-            ModelArchComboBox.SelectedIndex = -1;
-            TrainingStatusText.Text = "Project closed.";
-        }
+        private void NewModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("New Model action triggered.");
+        private void OpenModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Open Model action triggered.");
+        private void SaveModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Save Model action triggered.");
+        private void ExportModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Export Model action triggered.");
+        private void CloseModel_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Close Model action triggered.");
         private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
         private void Undo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Undo action triggered.");
         private void Redo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Redo action triggered.");
@@ -1534,6 +1566,13 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                         }
                         else
                         {
+                            //MessageBox.Show(
+                            //    $"✅ Dataset loaded successfully:\n{datasetPath}",
+                            //    "Dataset Validated",
+                            //    MessageBoxButton.OK,
+                            //    MessageBoxImage.Information
+                            //);
+
                             // Remove previous dataset block if it exists
                             if (datasetBlock != null)
                             {
@@ -1542,23 +1581,105 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                             }
 
                             var detailsPanel = CreateDatasetDetailsGrid(datasetPath);
-                            datasetBlock = CreateBlock(detailsPanel, 10, 10, "Dataset");
+                            datasetBlock = CreateBlock(detailsPanel, 50, 50, "Dataset");
                             TrainingCanvas.Children.Add(datasetBlock);
-
-                            // Save state only after the block is added
-                            SaveBlockStates();
                         }
                     });
                 });
             }
         }
 
-
-    
-
-        private void ProjectTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void AddModel_Click(object sender, RoutedEventArgs e)
         {
+            // Define selectable options for each model parameter
+            var optionSources = new Dictionary<string, string[]>
+        {
+            { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
+            { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+            { "Backbone", new[] { "None" } },
+            { "Pretrained Weights", new[] { "None" } },
+            { "Training mode", new[] { "scratch", "topup", "benchmark" } } // ✅ Added training mode options
+        };
 
+
+            // Default selections
+            string selectedModel = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
+            string blockLabel = $"🧠 {selectedModel}";
+
+            var modelOptions = new List<TrainingOption>
+            {
+                new TrainingOption { Name = "Architecture", Value = selectedModel },
+                new TrainingOption { Name = "Input Size", Value = "640" },
+                new TrainingOption { Name = "Backbone", Value = "None" },
+                new TrainingOption { Name = "Pretrained Weights", Value = "None" },
+                new TrainingOption { Name = "Training mode", Value = "scratch" } // ✅ Added for mode selection
+            };
+
+            // Remove previous model block if present
+            if (modelBlock != null)
+            {
+                TrainingCanvas.Children.Remove(modelBlock);
+                modelBlock = null;
+            }
+
+            // Positioning logic
+            double datasetBlockX = 50;
+            double datasetBlockWidth = 320;
+            double gap = 30;
+            double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
+            double modelBlockY = 50;
+
+            // Create and add the model block
+            var panel = CreateModelDetailGrid(modelOptions, blockLabel, optionSources);
+            modelBlock = CreateBlock(panel, modelBlockX, modelBlockY, "Model");
+            TrainingCanvas.Children.Add(modelBlock);
+
+            TrainingStatusText.Text = "Model added. Edit model options in the block.";
         }
+
+        private void AddTrainingOption_Click(object sender, RoutedEventArgs e)
+        {
+            // Define selectable options for each training parameter
+            var trainingOptionSources = new Dictionary<string, string[]>
+    {
+        { "Epochs", new[] { "10", "20", "50", "100", "200" } },
+        { "Batch Size", new[] { "8", "16", "32", "64" } },
+        { "Learning Rate", new[] { "0.001", "0.005", "0.01", "0.05" } },
+        { "Optimizer", new[] { "Adam", "SGD", "RMSprop" } },
+        { "Scheduler", new[] { "None", "StepLR", "CosineAnnealing" } }
+    };
+
+            // Initialize with default values
+            var trainingOptions = new List<TrainingOption>
+    {
+        new TrainingOption { Name = "Epochs", Value = trainingOptionSources["Epochs"][0] },
+        new TrainingOption { Name = "Batch Size", Value = trainingOptionSources["Batch Size"][0] },
+        new TrainingOption { Name = "Learning Rate", Value = trainingOptionSources["Learning Rate"][0] },
+        new TrainingOption { Name = "Optimizer", Value = trainingOptionSources["Optimizer"][0] },
+        new TrainingOption { Name = "Scheduler", Value = trainingOptionSources["Scheduler"][0] }
+    };
+
+            // Remove previous training block if present
+            if (trainBlock != null)
+            {
+                TrainingCanvas.Children.Remove(trainBlock);
+                trainBlock = null;
+            }
+
+            // Positioning logic: to the right of model block
+            double modelBlockX = Canvas.GetLeft(modelBlock);
+            double modelBlockWidth = modelBlock.RenderSize.Width;
+            double gap = 30;
+            double trainBlockX = modelBlockX + modelBlockWidth + gap;
+            double trainBlockY = Canvas.GetTop(modelBlock); // align vertically
+
+            var panel = CreateTrainDetailGrid(trainingOptions, "🚀 Training Options", trainingOptionSources);
+            trainBlock = CreateBlock(panel, trainBlockX, trainBlockY, "Train");
+            TrainingCanvas.Children.Add(trainBlock);
+
+            TrainingStatusText.Text = "Training options added. Edit training options in the block.";
+        }
+
+     
     }
 }

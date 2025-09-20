@@ -46,12 +46,12 @@
                 </Style>
             </Menu.Resources>
             <MenuItem Header="File">
-                <MenuItem Header="New Model" Click="NewModel_Click"/>
-                <MenuItem Header="Open Model" Click="OpenModel_Click"/>
+                <MenuItem Header="New Project" Click="NewModel_Click"/>
+                <MenuItem Header="Open Project" Click="OpenModel_Click"/>
                 <Separator/>
-                <MenuItem Header="Save Model" Click="SaveModel_Click"/>
-                <MenuItem Header="Export Model" Click="ExportModel_Click"/>
-                <MenuItem Header="Close Model" Click="CloseModel_Click"/>
+                <MenuItem Header="Save Project" Click="SaveModel_Click"/>
+                <MenuItem Header="Export Project" Click="ExportModel_Click"/>
+                <MenuItem Header="Close Project" Click="CloseModel_Click"/>
                 <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
             </MenuItem>
@@ -76,8 +76,9 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 🔧 Model Training Configuration Panel -->
-            <Border Grid.Row="0"
+            <!-- 🔧 Model Training Configuration Panel (wrapped for visibility control) -->
+            <Grid x:Name="ConfigPanelGrid" Grid.Row="0" Visibility="Collapsed">
+                <Border
                     Background="#FAFAFA"
                     CornerRadius="8"
                     BorderBrush="#DDD"
@@ -85,39 +86,46 @@
                     Padding="18,12"
                     Margin="0,0,0,10"
                     Effect="{StaticResource ShadowEffect}">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Dataset:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <ComboBox x:Name="DatasetComboBox" Width="160" Margin="0,0,12,0"/>
-                    <Button Content="Browse..." Width="80" Click="BrowseDataset_Click" Margin="0,0,18,0"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- Project Type ComboBox -->
+                        <TextBlock Text="Project:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ComboBox x:Name="ProjectTypeComboBox" Width="180" Margin="0,0,12,0" SelectionChanged="ProjectTypeComboBox_SelectionChanged">
+                            <ComboBoxItem Content="Object Detection" IsSelected="True"/>
+                            <ComboBoxItem Content="Image Classification"/>
+                            <ComboBoxItem Content="Defect Detection"/>
+                        </ComboBox>
 
-                    <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                    <!-- Architecture ComboBox -->
-                    <ComboBox x:Name="ModelArchComboBox" Width="200" Height="30" SelectionChanged="ModelArchComboBox_SelectionChanged">
-                        <ComboBoxItem Content="YOLOv5n"/>
-                        <ComboBoxItem Content="YOLOv5s"/>
-                        <ComboBoxItem Content="YOLOv5m"/>
-                        <ComboBoxItem Content="YOLOv5l"/>
-                        <ComboBoxItem Content="YOLOv5x"/>
-                        <ComboBoxItem Content="YOLOv8n"/>
-                        <ComboBoxItem Content="YOLOv8s"/>
-                        <ComboBoxItem Content="YOLOv8m"/>
-                        <ComboBoxItem Content="YOLOv8l"/>
-                        <ComboBoxItem Content="YOLOv8x"/>
-                        <ComboBoxItem Content="Faster R-CNN"/>
-                        <ComboBoxItem Content="SSD"/>
-                        <ComboBoxItem Content="RetinaNet"/>
-                        <ComboBoxItem Content="EfficientDet"/>
-                        <ComboBoxItem Content="CenterNet"/>
-                        <ComboBoxItem Content="YOLOv4"/>
-                        <ComboBoxItem Content="YOLOv3"/>
-                        <ComboBoxItem Content="YOLOv7"/>
-                        <ComboBoxItem Content="DETR"/>
-                        <ComboBoxItem Content="Cascade R-CNN"/>
-                    </ComboBox>
+                        <TextBlock Text="Dataset:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ComboBox x:Name="DatasetComboBox" Width="160" Margin="0,0,12,0"/>
+                        <Button Content="Browse..." Width="80" Click="BrowseDataset_Click" Margin="0,0,18,0"/>
 
-
-                </StackPanel>
-            </Border>
+                        <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <!-- Architecture ComboBox -->
+                        <ComboBox x:Name="ModelArchComboBox" Width="200" Height="30" SelectionChanged="ModelArchComboBox_SelectionChanged">
+                            <ComboBoxItem Content="YOLOv5n"/>
+                            <ComboBoxItem Content="YOLOv5s"/>
+                            <ComboBoxItem Content="YOLOv5m"/>
+                            <ComboBoxItem Content="YOLOv5l"/>
+                            <ComboBoxItem Content="YOLOv5x"/>
+                            <ComboBoxItem Content="YOLOv8n"/>
+                            <ComboBoxItem Content="YOLOv8s"/>
+                            <ComboBoxItem Content="YOLOv8m"/>
+                            <ComboBoxItem Content="YOLOv8l"/>
+                            <ComboBoxItem Content="YOLOv8x"/>
+                            <ComboBoxItem Content="Faster R-CNN"/>
+                            <ComboBoxItem Content="SSD"/>
+                            <ComboBoxItem Content="RetinaNet"/>
+                            <ComboBoxItem Content="EfficientDet"/>
+                            <ComboBoxItem Content="CenterNet"/>
+                            <ComboBoxItem Content="YOLOv4"/>
+                            <ComboBoxItem Content="YOLOv3"/>
+                            <ComboBoxItem Content="YOLOv7"/>
+                            <ComboBoxItem Content="DETR"/>
+                            <ComboBoxItem Content="Cascade R-CNN"/>
+                        </ComboBox>
+                    </StackPanel>
+                </Border>
+            </Grid>
 
             <!-- 🎯 Training Canvas -->
             <Border Grid.Row="1"

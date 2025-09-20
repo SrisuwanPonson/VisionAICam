@@ -4,18 +4,16 @@
       Title="Production">
 
     <Page.Resources>
-        <!-- Subtle shadow effect for panels -->
         <DropShadowEffect x:Key="PanelShadow"
                           Color="Black"
                           Direction="270"
                           ShadowDepth="4"
                           Opacity="0.1"
                           BlurRadius="6"/>
-        <!-- Page background gradient -->
-        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#263238" Offset="0"/>
-            <GradientStop Color="#37474F" Offset="0.5"/>
-            <GradientStop Color="#263238" Offset="1"/>
+
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#F5F5F5" Offset="0"/>
+            <GradientStop Color="#E0E0E0" Offset="1"/>
         </LinearGradientBrush>
     </Page.Resources>
 
@@ -23,129 +21,78 @@
         <StaticResource ResourceKey="PageBackgroundBrush"/>
     </Page.Background>
 
-    <Grid Margin="24">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-
-        <!-- 🎥 Left Panel: Production Camera -->
-        <GroupBox 
-                  Grid.Column="0"
-                  FontSize="18"
-                  FontWeight="Bold"
-                  Padding="12"
-                  Background="#FAFAFA"
-                  BorderBrush="#D0D7DE"
-                  BorderThickness="1"
-                  Height="565"
-                  VerticalAlignment="Top"
-                  Effect="{StaticResource PanelShadow}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="462"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <Border Grid.Row="0"
-                        Background="#FFFFFF"
-                        BorderBrush="#D0D7DE"
-                        BorderThickness="1"
-                        CornerRadius="10"
-                        HorizontalAlignment="Left"
-                        Width="616"
-                        Padding="4">
-                    <Grid>
-                        <Image x:Name="ProductionImage"
-                               Stretch="Uniform"
-                               HorizontalAlignment="Stretch"
-                               VerticalAlignment="Stretch"
-                               AutomationProperties.Name="Production Image"/>
-                        <Canvas x:Name="BoundingBoxCanvas"
-                                IsHitTestVisible="False"/>
-                        <Grid x:Name="LoadingOverlay"
-                              Background="#80D0D7DE"
-                              Visibility="Collapsed">
-                            <Border Background="#CCD0D7DE"
-                                    Padding="32"
-                                    CornerRadius="8"
-                                    HorizontalAlignment="Center"
-                                    VerticalAlignment="Center">
-                                <StackPanel>
-                                    <TextBlock Text="Loading model and running first inference..."
-                                               Foreground="#222"
-                                               FontSize="18"
-                                               FontWeight="SemiBold"
-                                               Margin="0,0,0,16"
-                                               TextAlignment="Center"/>
-                                    <ProgressBar IsIndeterminate="True"
-                                                 Width="200"
-                                                 Height="16"/>
-                                </StackPanel>
-                            </Border>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="16">
+            <GroupBox Header="Camera Feed"
+                      FontSize="18"
+                      FontWeight="Bold"
+                      Padding="12"
+                      Background="#FAFAFA"
+                      BorderBrush="#D0D7DE"
+                      BorderThickness="1"
+                      Effect="{StaticResource PanelShadow}"
+                      VerticalAlignment="Top">
+                <StackPanel>
+                    <!-- Fixed-size image and canvas -->
+                    <Border Width="640" Height="480"
+                            Background="#FFFFFF"
+                            BorderBrush="#D0D7DE"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="4">
+                        <Grid>
+                            <Image x:Name="ProductionImage"
+                                   Width="640" Height="480"
+                                   Stretch="None"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Top"/>
+                            <Canvas x:Name="BoundingBoxCanvas"
+                                    Width="640" Height="480"
+                                    IsHitTestVisible="False"/>
+                            <Grid x:Name="LoadingOverlay"
+                                  Background="#80D0D7DE"
+                                  Visibility="Collapsed"
+                                  Width="640" Height="480">
+                                <Border Background="#CCD0D7DE"
+                                        Padding="24"
+                                        CornerRadius="8"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                    <StackPanel>
+                                        <TextBlock Text="Loading model and running first inference..."
+                                                   Foreground="#222"
+                                                   FontSize="16"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,12"
+                                                   TextAlignment="Center"/>
+                                        <ProgressBar IsIndeterminate="True"
+                                                     Width="180"
+                                                     Height="14"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
                         </Grid>
-                    </Grid>
-                </Border>
+                    </Border>
 
-                <!-- 📊 Status Bar -->
-                <StackPanel Grid.Row="1"
-                            Orientation="Horizontal"
-                            Margin="0,16,0,0">
-                    <TextBlock x:Name="StatusTextBlock"
-                               Text="Ready"
-                               FontSize="14"
-                               Foreground="#444"
-                               Margin="0,0,24,0"/>
-                    <TextBlock x:Name="FpsTextBlock"
-                               Text="FPS: 0"
-                               FontSize="14"
-                               Foreground="#444"
-                               Margin="0,0,24,0"/>
-                    <TextBlock x:Name="InferenceTimeTextBlock"
-                               Text="Inference: 0 ms"
-                               FontSize="14"
-                               Foreground="#444"/>
+                    <!-- Status Bar -->
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBlock x:Name="StatusTextBlock"
+                                   Text="Ready"
+                                   FontSize="13"
+                                   Foreground="#444"
+                                   Margin="0,0,24,0"/>
+                        <TextBlock x:Name="FpsTextBlock"
+                                   Text="FPS: 0"
+                                   FontSize="13"
+                                   Foreground="#444"
+                                   Margin="0,0,24,0"/>
+                        <TextBlock x:Name="InferenceTimeTextBlock"
+                                   Text="Inference: 0 ms"
+                                   FontSize="13"
+                                   Foreground="#444"/>
+                    </StackPanel>
                 </StackPanel>
-            </Grid>
-        </GroupBox>
-
-        <!-- 📋 Right Panel: Detections -->
-        <GroupBox
-                  Grid.Column="1"
-                  FontSize="18"
-                  FontWeight="Bold"
-                  Padding="12"
-                  Background="#FAFAFA"
-                  BorderBrush="#D0D7DE"
-                  BorderThickness="1"
-                  Height="565"
-                  VerticalAlignment="Top"
-                  Effect="{StaticResource PanelShadow}">
-            <Grid>
-                <Border Background="#FFFFFF"
-                        BorderBrush="#D0D7DE"
-                        BorderThickness="1"
-                        CornerRadius="10"
-                        Padding="4">
-                    <ListView x:Name="DetectionListView"
-                              Height="462"
-                              VerticalAlignment="Top"
-                              SelectionMode="Single"
-                              BorderBrush="#D0D7DE"
-                              BorderThickness="1"
-                              Background="#F5F5F5"
-                              Foreground="#222"
-                              AutomationProperties.Name="Detection Results">
-                        <ListView.View>
-                            <GridView>
-                                <GridViewColumn Header="Class" Width="120" DisplayMemberBinding="{Binding ClassName}"/>
-                                <GridViewColumn Header="Confidence" Width="120" DisplayMemberBinding="{Binding Confidence}"/>
-                                <GridViewColumn Header="Box" Width="180" DisplayMemberBinding="{Binding Box}"/>
-                            </GridView>
-                        </ListView.View>
-                    </ListView>
-                </Border>
-            </Grid>
-        </GroupBox>
-    </Grid>
+            </GroupBox>
+        </Grid>
+    </ScrollViewer>
 </Page>
