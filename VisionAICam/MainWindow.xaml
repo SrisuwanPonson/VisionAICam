@@ -8,7 +8,7 @@
         WindowState="Normal">
 
     <Window.Resources>
-        <!-- Circular Button Style with Hover Effect -->
+        <!-- Circular Button Style -->
         <Style x:Key="CircleButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="60"/>
             <Setter Property="Height" Value="60"/>
@@ -23,8 +23,8 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Grid>
-                            <Ellipse Fill="{TemplateBinding Background}" 
-                                     Stroke="{TemplateBinding BorderBrush}" 
+                            <Ellipse Fill="{TemplateBinding Background}"
+                                     Stroke="{TemplateBinding BorderBrush}"
                                      StrokeThickness="{TemplateBinding BorderThickness}"/>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Grid>
@@ -32,6 +32,35 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="Background" Value="#2196F3"/>
                                 <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Rounded Navigation Button Style -->
+        <Style x:Key="RoundedNavButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="110"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Margin" Value="5,15"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="20"
+                                Padding="10,4"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Opacity" Value="0.85"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -52,57 +81,43 @@
             </DockPanel.Background>
 
             <!-- Navigation Buttons -->
-            <Button Content="User" Width="110" Height="40" Margin="30,15,10,15"
-                    Background="#F4511E" BorderBrush="#BF360C" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16" 
-                    Style="{x:Null}" Click="UserButton_Click"/>
-            <Button Content="Data" Width="110" Height="40" Margin="5,15"
-                    Background="#0288D1" BorderBrush="#0277BD" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16" 
-                    Style="{x:Null}" Click="DataButton_Click"/>
-            <Button Content="Diagnostic" Width="110" Height="40" Margin="10,15"
-                    Background="#43A047" BorderBrush="#388E3C" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16" 
-                    Style="{x:Null}" Click="DiagnosticButton_Click"/>
-            <Button Content="Settings" Width="110" Height="40" Margin="5,15"
-                    Background="#FFB300" BorderBrush="#FFA000" BorderThickness="2"
-                    Foreground="#263238" FontWeight="Bold" FontSize="16" 
-                    Style="{x:Null}" Click="SettingsButton_Click"/>
-            <Button Content="Model" Width="110" Height="40" Margin="5,15"
-                    Background="#00BFAE" BorderBrush="#00897B" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16"
-                    Style="{x:Null}" Click="ModelButton_Click"/>
-            <Button Content="DataSet" Width="110" Height="40" Margin="5,15"
-                    Background="#009688" BorderBrush="#00695C" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16"
-                    Style="{x:Null}" Click="DataSetButton_Click"/>
-            <Button Content="Camera" Width="110" Height="40" Margin="5,15"
-                    Background="#8E24AA" BorderBrush="#6A1B9A" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16"
-                    Style="{x:Null}" Click="CameraButton_Click"/>
-            <Button Content="Production" Width="110" Height="40" Margin="5,15"
-                    Background="#1976D2" BorderBrush="#0D47A1" BorderThickness="2"
-                    Foreground="White" FontWeight="Bold" FontSize="16"
-                    Style="{x:Null}" Click="ProductionButton_Click"/>
+            <Button Content="Account" Background="#FF5722" BorderBrush="#E64A19" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="UserButton_Click" Margin="30,15,10,15"/>
+
+            <Button Content="Records" Background="#03A9F4" BorderBrush="#0288D1" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DataButton_Click"/>
+
+            <Button Content="Debug" Background="#4CAF50" BorderBrush="#388E3C" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DiagnosticButton_Click"/>
+
+            <Button Content="Preferences" Background="#FFC107" BorderBrush="#FFA000" BorderThickness="2"
+        Foreground="#263238" Style="{StaticResource RoundedNavButtonStyle}" Click="SettingsButton_Click"/>
+
+            <Button Content="AI Core" Background="#00BCD4" BorderBrush="#0097A7" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="ModelButton_Click"/>
+
+            <Button Content="Sample" Background="#009688" BorderBrush="#00796B" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DataSetButton_Click"/>
+
+            <Button Content="Capture" Background="#9C27B0" BorderBrush="#7B1FA2" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="CameraButton_Click"/>
+
+            <Button Content="Run Task" Background="#3F51B5" BorderBrush="#303F9F" BorderThickness="2"
+        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="ProductionButton_Click"/>
         </DockPanel>
 
         <!-- Left statistics panel -->
-        <Grid DockPanel.Dock="Left"
-              Width="140"
-              HorizontalAlignment="Left"
-              VerticalAlignment="Stretch"
-              Margin="0">
+        <Grid DockPanel.Dock="Left" Width="140" HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0">
             <Image Source="pack://application:,,,/Assets/vertical_panel.png"
-                   Stretch="UniformToFill"
-                   Opacity="1"/>
+                   Stretch="UniformToFill" Opacity="1"/>
             <StackPanel>
                 <!-- Add your statistic controls here -->
             </StackPanel>
         </Grid>
 
         <!-- Right-side vertical navigator bar -->
-        <StackPanel DockPanel.Dock="Right" 
-                    Orientation="Vertical" 
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Vertical"
                     Width="100"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Stretch"
@@ -114,16 +129,16 @@
                     <GradientStop Color="#424242" Offset="1"/>
                 </LinearGradientBrush>
             </StackPanel.Background>
-            <Button x:Name="StartStopButton" 
-                    Content="&#xE768;" 
-                    Margin="0,30,0,0" 
-                    Style="{StaticResource CircleButtonStyle}" 
+            <Button x:Name="StartStopButton"
+                    Content="&#xE768;"
+                    Margin="0,30,0,0"
+                    Style="{StaticResource CircleButtonStyle}"
                     Click="StartStopButton_Click"
                     ToolTip="Start/Stop Production"/>
-            <Button x:Name="PauseButton" 
-                    Content="&#xE769;" 
-                    Margin="10" 
-                    Style="{StaticResource CircleButtonStyle}" 
+            <Button x:Name="PauseButton"
+                    Content="&#xE769;"
+                    Margin="10"
+                    Style="{StaticResource CircleButtonStyle}"
                     Click="PauseButton_Click"
                     ToolTip="Pause/Resume Production"/>
             <Button x:Name="ExitButton"
@@ -134,7 +149,24 @@
                     ToolTip="Exit Application"/>
         </StackPanel>
 
-        <!-- Main content area -->
-        <Frame x:Name="MainContent" NavigationUIVisibility="Hidden" />
+        <!-- Main content area with watermark -->
+        <Grid>
+            <Frame x:Name="MainContent" NavigationUIVisibility="Hidden"/>
+
+            <!-- AI watermark overlay -->
+            <TextBlock Text="Demo Version"
+                       FontSize="60"
+                       FontWeight="Bold"
+                       Foreground="#661976D2"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       RenderTransformOrigin="0.5,0.5"
+                       IsHitTestVisible="False"
+                       Opacity="0.2">
+                <TextBlock.RenderTransform>
+                    <RotateTransform Angle="-30"/>
+                </TextBlock.RenderTransform>
+            </TextBlock>
+        </Grid>
     </DockPanel>
 </Window>

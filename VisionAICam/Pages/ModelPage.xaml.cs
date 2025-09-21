@@ -93,7 +93,11 @@ namespace VisionAICam.Pages
 
         private void SaveBlockStates()
         {
+            
+         
             var blocks = new List<BlockState>();
+            if (TrainingCanvas == null)
+                return;
             foreach (UIElement child in TrainingCanvas.Children)
             {
                 if (child is Border border && border.Tag is string tag)
@@ -113,6 +117,8 @@ namespace VisionAICam.Pages
         }
         private void RestoreBlockStates()
         {
+            if (ProjectSession.CurrentProject == null)
+                return;
             var project = ModelProjectSession.CurrentProject;
             if (project?.Blocks == null)
                 return;
@@ -199,7 +205,8 @@ namespace VisionAICam.Pages
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             // Restore block states on load
-    RestoreBlockStates();
+         
+            RestoreBlockStates();
 
         }
 
@@ -1203,7 +1210,10 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             ConfigPanelGrid.Visibility = Visibility.Visible;
             TrainingStatusText.Text = "New project created. Configure your model and dataset.";
             // Optionally reset blocks and ComboBoxes here
-            TrainingCanvas.Children.Clear();
+            if (TrainingCanvas!=null)
+            {
+                TrainingCanvas.Children.Clear(); 
+            }
             modelBlock = null;
             trainBlock = null;
             datasetBlock = new Border();
@@ -1233,13 +1243,16 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         {
             ProjectSession.CurrentProject = null;
             ConfigPanelGrid.Visibility = Visibility.Collapsed;
+
             TrainingCanvas.Children.Clear();
+            TrainingCanvas = null;
             modelBlock = null;
             trainBlock = null;
             datasetBlock = null;
             DatasetComboBox.Items.Clear();
             ModelArchComboBox.SelectedIndex = -1;
             TrainingStatusText.Text = "Project closed.";
+            SaveBlockStates();
         }
         private void Exit_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
         private void Undo_Click(object sender, RoutedEventArgs e) => MessageBox.Show("Undo action triggered.");
