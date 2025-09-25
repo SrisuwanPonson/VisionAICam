@@ -5,6 +5,8 @@ VisualStudioVersion = 17.12.35707.178
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionAICam", "VisionAICam\VisionAICam.csproj", "{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyApp.Core", "MyApp.Core\MyApp.Core.csproj", "{783CACB6-F53B-4202-BDF0-9F347D45A4DE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,14 @@ Global
 		{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}.Release|Any CPU.Build.0 = Release|Any CPU
 		{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}.Release|x64.ActiveCfg = Release|Any CPU
 		{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}.Release|x64.Build.0 = Release|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|x64.Build.0 = Debug|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|x64.ActiveCfg = Release|Any CPU
+		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
