@@ -103,8 +103,21 @@ namespace VisionAICam.Pages
         public bool IsRunning => _isRunning;
         public bool IsPaused => _isPaused;
 
+        private bool _cameraLoopRunning = false;
+
         private void CameraLoop()
         {
+            if (_cameraLoopRunning)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = "Camera loop is already running.";
+                });
+                return;
+            }
+
+            _cameraLoopRunning = true;
+
             string pythonDllPath = @"C:\Program Files\Python313\python313.dll";
 
             if (!File.Exists(pythonDllPath))
@@ -114,15 +127,17 @@ namespace VisionAICam.Pages
                     StatusTextBlock.Text = $"Python DLL not found: {pythonDllPath}";
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                 });
+                _cameraLoopRunning = false;
                 return;
             }
 
             Python.Runtime.Runtime.PythonDLL = pythonDllPath;
             Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}");
-            PythonEngine.Initialize();
 
             try
             {
+                PythonEngine.Initialize();
+
                 using var mat = new Mat();
 
                 Dispatcher.BeginInvoke(() =>
@@ -132,6 +147,7 @@ namespace VisionAICam.Pages
                     ClearBoundingBoxes();
                 });
 
+                // Wait for first valid frame
                 while (_isRunning && _capture != null && _capture.IsOpened())
                 {
                     if (_isPaused)
@@ -157,6 +173,7 @@ namespace VisionAICam.Pages
                     DrawBoundingBoxes(firstDetections);
                 });
 
+                // Main loop
                 while (_isRunning && _capture != null && _capture.IsOpened())
                 {
                     if (_isPaused)
@@ -184,9 +201,17 @@ namespace VisionAICam.Pages
                     Thread.Sleep(30);
                 }
             }
+            catch (Exception ex)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = $"Error: {ex.Message}";
+                });
+            }
             finally
             {
                 PythonEngine.Shutdown();
+                _cameraLoopRunning = false;
             }
         }
 
