@@ -10,14 +10,18 @@ using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
 using VisionAICam;
 using Python.Runtime;
+using System.Diagnostics;
 
 namespace VisionAICam.Pages
 {
     public class DetectionResult
     {
+        
         public string ClassName { get; set; } = "";
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
+        
+      
     }
 
     public partial class Production : Page
@@ -27,12 +31,63 @@ namespace VisionAICam.Pages
         private Thread? _cameraThread;
         private VideoCapture? _capture;
         private AppSettings? _appSettings;
-
+        private System.Timers.Timer? _timer;
+        private bool frameTrigger = false;
         public Production()
         {
             InitializeComponent();
+            InitializeTimer();
+        }
+        private void InitializeTimer()
+        {
+            _timer = new System.Timers.Timer(20); // Set interval to 10 ms
+            _timer.Elapsed += OnTimerElapsed;
+            _timer.AutoReset = true;
+            _timer.Enabled = false; // Start disabled, enable when needed
         }
 
+        // Replace all occurrences of Dispatcher.Invoke with Application.Current.Dispatcher.Invoke
+        private void StartTimer()
+        {
+            if (_timer != null && !_timer.Enabled)
+            {
+                _timer.Start();
+            }
+
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                // Add logic to execute every 10 ms here
+            });
+        }
+
+        private void StopTimer()
+        {
+            if (_timer != null && _timer.Enabled)
+            {
+                _timer.Stop();
+            }
+        }
+
+        private void OnTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+        {
+            try
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                    return;
+
+                dispatcher.Invoke(() =>
+                {
+                    frameTrigger = true;
+                    // Add logic to execute every 10 ms here
+                });
+            }
+            catch (Exception ex)
+            {
+                // Optional: log the error instead of rethrowing
+                Debug.WriteLine($"Timer error: {ex.Message}");
+            }
+        }
         public void StartProduction()
         {
             if (_isRunning) return;
@@ -63,12 +118,13 @@ namespace VisionAICam.Pages
 
             _cameraThread = new Thread(CameraLoop) { IsBackground = true };
             _cameraThread.Start();
+            StartTimer();
         }
 
         public void StopProduction()
         {
             if (!_isRunning) return;
-
+            StopTimer();
             _isRunning = false;
             _isPaused = false;
             StatusTextBlock.Text = "Production stopped";
@@ -182,21 +238,24 @@ namespace VisionAICam.Pages
                         continue;
                     }
 
-                    _capture.Read(mat);
-                    if (!mat.Empty())
+                    if (this.frameTrigger)
                     {
-                        var bitmapSource = mat.ToBitmapSource();
-                        bitmapSource.Freeze();
-
-                        var detections = GetDetectionsFromPython(mat);
-
-                        Dispatcher.BeginInvoke(() =>
+                        _capture.Read(mat);
+                        if (!mat.Empty())
                         {
-                            ProductionImage.Source = bitmapSource;
-                            DrawBoundingBoxes(detections);
-                            FpsTextBlock.Text = "FPS: 30";
-                            InferenceTimeTextBlock.Text = "Inference: ~";
-                        });
+                            var bitmapSource = mat.ToBitmapSource();
+                            bitmapSource.Freeze();
+
+                            var detections = GetDetectionsFromPython(mat);
+
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                ProductionImage.Source = bitmapSource;
+                                DrawBoundingBoxes(detections);
+                                FpsTextBlock.Text = "FPS: 30";
+                                InferenceTimeTextBlock.Text = "Inference: ~";
+                            });
+                        } 
                     }
                     Thread.Sleep(30);
                 }

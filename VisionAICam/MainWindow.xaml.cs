@@ -1,14 +1,9 @@
 ﻿using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Navigation;
 using VisionAICam.Pages;
 
 namespace VisionAICam
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
         private Production? _productionPage;
@@ -16,9 +11,16 @@ namespace VisionAICam
         public MainWindow()
         {
             InitializeComponent();
-            _productionPage = new Production();
-            MainContent.Navigate(_productionPage);
+
+            if (MainContent.Content is not Production)
+            {
+                _productionPage ??= new Production();
+                MainContent.Navigate(_productionPage);
+            }
+
+            MessageBox.Show("MainWindow has been created.", "Startup", MessageBoxButton.OK, MessageBoxImage.Information);
         }
+
 
         private void StartStopButton_Click(object sender, RoutedEventArgs e)
         {
@@ -53,7 +55,7 @@ namespace VisionAICam
                     if (!production.IsPaused)
                     {
                         production.PauseProduction();
-                        PauseButton.Content = "\uE768"; // Play icon (resume)
+                        PauseButton.Content = "\uE768"; // Play icon
                     }
                     else
                     {
@@ -68,40 +70,53 @@ namespace VisionAICam
             }
         }
 
+        private void NavigateIfNotDuplicate<T>(Page pageInstance, string pageName) where T : Page
+        {
+            if (MainContent.Content is T)
+            {
+                MessageBox.Show($"The {pageName} page is already open.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            MainContent.Navigate(pageInstance);
+        }
+
         private void UserButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new UserPage());
+            NavigateIfNotDuplicate<UserPage>(new UserPage(), "User");
         }
 
         private void DataButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new DataPage());
+            NavigateIfNotDuplicate<DataPage>(new DataPage(), "Data");
         }
 
         private void DiagnosticButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new DiagnosticsPage());
+            NavigateIfNotDuplicate<DiagnosticsPage>(new DiagnosticsPage(), "Diagnostics");
         }
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new SettingPage());
+            NavigateIfNotDuplicate<SettingPage>(new SettingPage(), "Settings");
         }
 
         private void CameraButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new CameraPage());
+            NavigateIfNotDuplicate<CameraPage>(new CameraPage(), "Camera");
         }
-
-        //private void ModelButton_Click(object sender, RoutedEventArgs e)
-        //{
-        //    MainContent.Navigate(new ModelPage());
-        //}
 
         private void ProductionButton_Click(object sender, RoutedEventArgs e)
         {
+            if (MainContent.Content is Production)
+            {
+                MessageBox.Show("The Production page is already open.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             if (_productionPage == null)
                 _productionPage = new Production();
+
             MainContent.Navigate(_productionPage);
         }
 
@@ -111,17 +126,18 @@ namespace VisionAICam
             {
                 _productionPage.StopProduction();
             }
+
             Application.Current.Shutdown();
         }
 
         private void DataSetButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new DataSetPage());
+            NavigateIfNotDuplicate<DataSetPage>(new DataSetPage(), "Dataset");
         }
 
         private void ModelButton_Click(object sender, RoutedEventArgs e)
         {
-            MainContent.Navigate(new ModelPage());
+            NavigateIfNotDuplicate<ModelPage>(new ModelPage(), "Model");
         }
     }
 }
