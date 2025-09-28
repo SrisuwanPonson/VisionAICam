@@ -25,6 +25,7 @@ namespace VisionAICam.Pages
             DiscoverAndPopulateCameras();
             this.Unloaded += CameraPage_Unloaded;
             this.IsVisibleChanged += CameraPage_IsVisibleChanged; // Handle visibility changes
+            this.Loaded += CameraPage_Loaded;
 
             // Set sliders from settings (guard against null)
             if (_appSettings != null)
@@ -34,12 +35,60 @@ namespace VisionAICam.Pages
                 ExposureSlider.Value = _appSettings.Exposure;
             }
         }
+        private void initialClass()
+        {
+            
 
+            // Read from list files if exist, use text files to save and load path in app folder  
+            string classFile = "class_list.txt";
+            string categoryFile = "category_list.txt";
+
+
+            if (System.IO.File.Exists(classFile))
+            {
+                var classes = System.IO.File.ReadAllLines(classFile);
+                ClassComboBox.Items.Clear(); // Clear existing items  
+                ClassComboBox.ItemsSource = classes;
+            }
+
+            else
+            {
+                // Create default file  
+                System.IO.File.WriteAllLines(classFile, new List<string> { "WallPlug", "Screw", "Anchor", "Bracket", "Clip" });
+            }
+
+            if (System.IO.File.Exists(categoryFile))
+            {
+                var categories = System.IO.File.ReadAllLines(categoryFile);
+                CategoryComboBox.Items.Clear(); // Clear existing items  
+                CategoryComboBox.ItemsSource = categories;
+            }
+            else
+            {
+                // Create default file with predefined categories  
+                System.IO.File.WriteAllLines(categoryFile, new List<string>
+               {
+                   "Fastener",
+                   "Anchor",
+                   "Fixture",
+                   "Electrical",
+                   "Tool"
+               });
+            }
+        }
+        private void CameraPage_Loaded(object sender, RoutedEventArgs e)
+        {
+           
+        }
         private void CameraPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             if (!this.IsVisible)
             {
                 StopCamera();
+            }
+            else
+            {
+                initialClass();
             }
         }
 
@@ -117,6 +166,7 @@ namespace VisionAICam.Pages
                 else
                     CameraComboBox.SelectedIndex = 0;
             }
+            
         }
 
         private void CameraComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -183,15 +233,28 @@ namespace VisionAICam.Pages
                 _capture.Read(mat);
                 if (!mat.Empty())
                 {
-                    var dialog = new Microsoft.Win32.SaveFileDialog
+                    string basePath = _appSettings?.DefaultImagePath ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                    string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
+                    string savePath = System.IO.Path.Combine(basePath, folderName);
+
+                    // Ensure the directory exists    
+                    if (!System.IO.Directory.Exists(savePath))
                     {
-                        Filter = "PNG Image|*.png|JPEG Image|*.jpg",
-                        FileName = "snapshot.png"
-                    };
-                    if (dialog.ShowDialog() == true)
+                        System.IO.Directory.CreateDirectory(savePath);
+                    }
+                    string ClassName = ClassComboBox.Text;
+                    string Category = CategoryComboBox.Text;
+                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                    string filePath = System.IO.Path.Combine(savePath, fileName);
+
+                    try
                     {
-                        mat.SaveImage(dialog.FileName);
-                        MessageBox.Show("Snapshot saved.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+                        mat.SaveImage(filePath);
+                        MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
                 }
                 else

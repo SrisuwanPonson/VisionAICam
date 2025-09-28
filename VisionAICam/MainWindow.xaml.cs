@@ -12,13 +12,27 @@ namespace VisionAICam
         {
             InitializeComponent();
 
+            if (IsAnotherInstanceRunning())
+            {
+                //MessageBox.Show("Another instance of the application is already running.", "Instance Detected", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Application.Current.Shutdown();
+                return;
+            }
+
             if (MainContent.Content is not Production)
             {
                 _productionPage ??= new Production();
                 MainContent.Navigate(_productionPage);
             }
 
-            MessageBox.Show("MainWindow has been created.", "Startup", MessageBoxButton.OK, MessageBoxImage.Information);
+            //MessageBox.Show("MainWindow has been created.", "Startup", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private bool IsAnotherInstanceRunning()
+        {
+            var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
+            var processes = System.Diagnostics.Process.GetProcessesByName(currentProcess.ProcessName);
+            return processes.Length > 1;
         }
 
 

@@ -19,6 +19,8 @@ namespace VisionAICam.Pages
             LoadSettings();
         }
 
+        
+
         private void DiscoverAndPopulateCameras()
         {
             DefaultCameraComboBox.Items.Clear();
@@ -61,7 +63,7 @@ namespace VisionAICam.Pages
             ContrastSlider.Value = _appSettings?.Contrast ?? 128;
             ExposureSlider.Value = _appSettings?.Exposure ?? -6;
             DefaultModelPathText.Text = string.IsNullOrEmpty(_appSettings?.DefaultModelPath) ? "(none)" : _appSettings.DefaultModelPath;
-
+            CaptureFolderPathText.Text = string.IsNullOrEmpty(_appSettings?.DefaultImagePath) ? "(none)" : _appSettings.DefaultImagePath;
             // Load theme
             foreach (ComboBoxItem item in ThemeComboBox.Items)
             {
@@ -83,7 +85,7 @@ namespace VisionAICam.Pages
             _appSettings.Exposure = ExposureSlider.Value;
             _appSettings.DefaultModelPath = DefaultModelPathText.Text;
             _appSettings.Theme = (ThemeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Light";
-
+            _appSettings.DefaultImagePath = CaptureFolderPathText.Text;
             SettingsManager.Save(_appSettings);
 
             MessageBox.Show("Settings saved.", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -112,6 +114,28 @@ namespace VisionAICam.Pages
             if (dialog.ShowDialog() == true)
             {
                 DefaultModelPathText.Text = dialog.FileName;
+            }
+        }
+
+        private void BrowseCaptureFolderButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "Select a folder to save captured images or videos.",
+                ShowNewFolderButton = true
+            };
+
+            if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            {
+                // Ensure the DefaultCaptureFolderPathText control exists and is properly referenced.  
+                if (CaptureFolderPathText != null)
+                {
+                    CaptureFolderPathText.Text = dialog.SelectedPath;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("DefaultCaptureFolderPathText is not defined or accessible.");
+                }
             }
         }
     }
