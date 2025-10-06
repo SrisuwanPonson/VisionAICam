@@ -18,12 +18,17 @@ namespace VisionAICam.Pages
         public string Label { get; set; }
         public AnnotationType Type { get; set; }
     }
-
+    public class PolygonVertexHit
+    {
+        public int VertexIndex { get; }
+        public PolygonVertexHit(int index) => VertexIndex = index;
+    }
     public enum AnnotationType
     {
         Rectangle,
         Polygon,
-        FreePen
+        FreePen,
+        RotatedBox
     }
 
     public class ShapeInfo
@@ -115,8 +120,11 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseRightButtonDown += BoundingBoxCanvas_MouseRightButtonDown;
             BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
             BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
+            
         }
-        private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    
+
+private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             switch ((DrawingModeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString())
             {
@@ -148,6 +156,41 @@ namespace VisionAICam.Pages
             MainContentPanel.Visibility = Visibility.Visible;
         }
 
+        #region Mouse handle
+
+        private void AddPolygonHandles(ShapeInfo shapeInfo)
+        {
+            RemoveResizeHandles(); // Clear old handles
+
+            if (shapeInfo.Shape is Polyline polyline)
+            {
+                for (int i = 0; i < polyline.Points.Count; i++)
+                {
+                    var point = polyline.Points[i];
+                    var handle = CreateHandle(point);
+                    handle.Tag = new PolygonVertexHit(i);
+                    _handles.Add(handle);
+                    BoundingBoxCanvas.Children.Add(handle);
+                }
+            }
+        }
+        private Ellipse CreateHandle(Point point)
+        {
+            var handle = new Ellipse
+            {
+                Width = 8,
+                Height = 8,
+                Fill = Brushes.Blue,
+                Stroke = Brushes.White,
+                StrokeThickness = 1,
+                Cursor = Cursors.SizeAll
+            };
+
+            Canvas.SetLeft(handle, point.X - handle.Width / 2);
+            Canvas.SetTop(handle, point.Y - handle.Height / 2);
+
+            return handle;
+        }
         private void BoundingBoxCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
         {
             if (e.Delta > 0)
@@ -169,41 +212,12 @@ namespace VisionAICam.Pages
                 FinalizePolygon();
             }
         }
-        private void FinalizePolygon()
-        {
-            if (_currentDrawingShapeInfo != null && _currentDrawingShapeInfo.Shape is Polyline)
-            {
-                // Convert to Polygon for final display
-                var polygon = new Polygon
-                {
-                    Stroke = Brushes.Red,
-                    StrokeThickness = 2,
-                    Fill = Brushes.Transparent,
-                    Points = new PointCollection(_currentPolygonPoints)
-                };
-                BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
-                BoundingBoxCanvas.Children.Add(polygon);
 
-                // Move label to first point
-                var first = _currentPolygonPoints.First();
-                Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, first.X + 1);
-                Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, first.Y + 1);
-
-                _currentDrawingShapeInfo.Record.Points = new List<Point>(_currentPolygonPoints);
-                Annotations.Add(_currentDrawingShapeInfo.Record);
-                SaveStateForUndo();
-                RefreshAnnotations();
-                SetStatus($"Polygon annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
-                _currentDrawingShapeInfo = null;
-                _currentPolygonPoints.Clear();
-                _isDrawing = false;
-            }
-        }
 
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             BoundingBoxCanvas.Focus();
-            Point pt = e.GetPosition(BoundingBoxCanvas);
+            Point pt = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
 
             if (!IsPointInImageBounds(pt))
             {
@@ -211,6 +225,7 @@ namespace VisionAICam.Pages
                 return;
             }
 
+            // Check if clicking on a handle
             foreach (var handle in _handles)
             {
                 if (IsPointOverHandle(pt, handle))
@@ -225,6 +240,7 @@ namespace VisionAICam.Pages
                 }
             }
 
+            // If not drawing, check for shape selection
             if (!_isDrawing)
             {
                 _activeShapeInfo = _shapeInfos.LastOrDefault(info =>
@@ -237,10 +253,16 @@ namespace VisionAICam.Pages
                         SetStatus("Shape must remain inside the image.");
                         return;
                     }
+
                     _dragStartPoint = pt;
                     _isDraggingShape = true;
                     HighlightShape(_activeShapeInfo, true);
-                    AddResizeHandles(_activeShapeInfo);
+
+                    if (_activeShapeInfo.Shape is Polyline)
+                        AddPolygonHandles(_activeShapeInfo);
+                    else
+                        AddResizeHandles(_activeShapeInfo);
+
                     BoundingBoxCanvas.CaptureMouse();
                     SetStatus("Shape selected for dragging.");
                     return;
@@ -251,6 +273,7 @@ namespace VisionAICam.Pages
                 }
             }
 
+            // If drawing a polygon, add a new point
             var label = LabelComboBox.SelectedItem?.ToString();
             if (string.IsNullOrWhiteSpace(label))
             {
@@ -258,10 +281,22 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            _isDrawing = true;
-            _dragStartPoint = pt;
-            StartRectangle(pt, label);
+            if (_currentDrawingMode == DrawingMode.Polygon)
+            {
+                _isDrawing = true;
+                StartPolygon(pt, label); // Adds a new point
+                return;
+            }
+
+            // If drawing a rectangle
+            if (_currentDrawingMode == DrawingMode.Rectangle)
+            {
+                _isDrawing = true;
+                _dragStartPoint = pt;
+                StartRectangle(pt, label);
+            }
         }
+
 
         private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
         {
@@ -289,14 +324,30 @@ namespace VisionAICam.Pages
             if (_isDrawing && _currentDrawingShapeInfo != null)
             {
                 Point clampedPt = ClampPointToImage(pt);
-                UpdateRectangle(clampedPt);
+
+                if (_currentDrawingMode == DrawingMode.Rectangle)
+                {
+                    UpdateRectangle(clampedPt);
+                }
+            }
+
+            if (_activeHandle != null && _reshapeShapeInfo?.Shape is Polyline polyline &&
+                _activeHandle.Tag is PolygonVertexHit vertexHit && e.LeftButton == MouseButtonState.Pressed)
+            {
+                Point clampedPt = ClampPointToImage(pt);
+                polyline.Points[vertexHit.VertexIndex] = clampedPt;
+                UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
+                RefreshHandles(_reshapeShapeInfo);
+                return;
             }
         }
 
         private void BoundingBoxCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             Point pt = e.GetPosition(BoundingBoxCanvas);
+            Point clampedPt = ClampPointToImage(pt);
 
+            // Handle polygon vertex dragging
             if (_activeHandle != null && _reshapeShapeInfo != null)
             {
                 BoundingBoxCanvas.ReleaseMouseCapture();
@@ -304,18 +355,24 @@ namespace VisionAICam.Pages
                 {
                     UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
                     RefreshAnnotations();
-                    AddResizeHandles(_reshapeShapeInfo);
+
+                    if (_reshapeShapeInfo.Shape is Polyline)
+                        AddPolygonHandles(_reshapeShapeInfo);
+                    else
+                        AddResizeHandles(_reshapeShapeInfo);
                 }
                 else
                 {
                     SetStatus("Shape must remain inside the image.");
                 }
+
                 _activeHandle = null;
                 _reshapeShapeInfo = null;
                 _currentHit = HitType.None;
                 return;
             }
 
+            // Handle dragging of entire shape
             if (_isDraggingShape && _activeShapeInfo != null)
             {
                 _isDraggingShape = false;
@@ -325,20 +382,33 @@ namespace VisionAICam.Pages
                     UpdateAnnotationRecordFromShape(_activeShapeInfo);
                     RefreshAnnotations();
                     HighlightShape(_activeShapeInfo, false);
-                    AddResizeHandles(_activeShapeInfo);
+
+                    if (_activeShapeInfo.Shape is Polyline)
+                        AddPolygonHandles(_activeShapeInfo);
+                    else
+                        AddResizeHandles(_activeShapeInfo);
+
                     SetStatus("Shape moved.");
                 }
                 else
                 {
                     SetStatus("Shape must remain inside the image.");
                 }
+
                 _activeShapeInfo = null;
                 return;
             }
 
-            if (_isDrawing && _currentDrawingShapeInfo != null)
+            // Handle polygon drawing
+            if (_isDrawing && _currentDrawingShapeInfo != null && _currentDrawingMode == DrawingMode.Polygon)
             {
-                Point clampedPt = ClampPointToImage(pt);
+                updatePolygon(clampedPt);
+                return;
+            }
+
+            // Handle rectangle drawing
+            if (_isDrawing && _currentDrawingShapeInfo != null && _currentDrawingMode == DrawingMode.Rectangle)
+            {
                 UpdateRectangle(clampedPt);
                 if (IsShapeFullyInImage(_currentDrawingShapeInfo))
                 {
@@ -354,72 +424,18 @@ namespace VisionAICam.Pages
                 _isDrawing = false;
             }
         }
+        #endregion
 
-        // --- Helper Methods for Bounds and Clamping ---
-
-        private bool IsPointInImageBounds(Point pt)
-        {
-            return pt.X >= 0 && pt.Y >= 0 && pt.X <= _currentImageWidth && pt.Y <= _currentImageHeight;
-        }
-
-        private Point ClampPointToImage(Point pt)
-        {
-            return new Point(
-                Math.Max(0, Math.Min(_currentImageWidth, pt.X)),
-                Math.Max(0, Math.Min(_currentImageHeight, pt.Y))
-            );
-        }
-
-        private bool IsShapeFullyInImage(ShapeInfo info)
-        {
-            if (info.Record.Points.Count != 2) return false;
-            var p0 = info.Record.Points[0];
-            var p1 = info.Record.Points[1];
-            return IsPointInImageBounds(p0) && IsPointInImageBounds(p1);
-        }
-
-        private Vector ClampDragDeltaToImage(ShapeInfo info, Vector delta)
-        {
-            if (info.Shape is Rectangle rect)
-            {
-                double left = Canvas.GetLeft(rect) + delta.X;
-                double top = Canvas.GetTop(rect) + delta.Y;
-                double right = left + rect.Width;
-                double bottom = top + rect.Height;
-
-                double dx = delta.X, dy = delta.Y;
-                if (left < 0) dx -= left;
-                if (top < 0) dy -= top;
-                if (right > _currentImageWidth) dx -= (right - _currentImageWidth);
-                if (bottom > _currentImageHeight) dy -= (bottom - _currentImageHeight);
-
-                return new Vector(dx, dy);
-            }
-            return delta;
-        }
-
-        private bool IsPointOverHandle(Point pt, Ellipse handle)
-        {
-            double x = Canvas.GetLeft(handle) + _handleSize / 2;
-            double y = Canvas.GetTop(handle) + _handleSize / 2;
-            double dx = pt.X - x;
-            double dy = pt.Y - y;
-            return dx * dx + dy * dy <= (_handleSize * _handleSize) / 4;
-        }
-
-        private void SetStatus(string message)
-        {
-            if (StatusTextBlock != null)
-                StatusTextBlock.Text = message;
-        }
-
-        // --- Drawing/Shape Helper Methods ---
+        #region Drawing/Shape Helper Methods 
 
         private void StartRectangle(Point start, string label)
         {
+            // Generate a random color based on the class name (label)
+            Color color = GetColorForClass(label);
+
             var rect = new Rectangle
             {
-                Stroke = Brushes.Blue,
+                Stroke = new SolidColorBrush(color),
                 StrokeThickness = 2
             };
             Canvas.SetLeft(rect, start.X);
@@ -428,12 +444,14 @@ namespace VisionAICam.Pages
             var labelBlock = new TextBlock
             {
                 Text = label,
-                Foreground = Brushes.Blue,
-                Background = Brushes.White,
-                FontWeight = FontWeights.Bold,
-                FontSize = 14,
-                Padding = new Thickness(2, 0, 2, 0)
+                Foreground = new SolidColorBrush(color),
+                FontSize = 10,
+                FontWeight = FontWeights.Normal,
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0)
             };
+
             Canvas.SetLeft(labelBlock, start.X + 1);
             Canvas.SetTop(labelBlock, start.Y + 1);
 
@@ -458,6 +476,37 @@ namespace VisionAICam.Pages
 
             BoundingBoxCanvas.Children.Add(rect);
             BoundingBoxCanvas.Children.Add(labelBlock);
+        }
+
+        // Utility: Generate a deterministic color for each class name
+        private Color GetColorForClass(string className)
+        {
+            // Use a hash of the class name to pick a hue, but also vary saturation and lightness for more variety
+            int hash = Math.Abs(className.GetHashCode());
+
+            // Vary hue, saturation, and lightness for more distinct colors
+            double hue = (hash % 360);
+            double saturation = 0.7 + ((hash / 360) % 30) / 100.0; // 0.7 - 1.0
+            double lightness = 0.5 + ((hash / 10800) % 20) / 100.0; // 0.5 - 0.7
+
+            // Convert HSL to RGB
+            double c = (1 - Math.Abs(2 * lightness - 1)) * saturation;
+            double x = c * (1 - Math.Abs((hue / 60) % 2 - 1));
+            double m = lightness - c / 2;
+            double r1 = 0, g1 = 0, b1 = 0;
+
+            if (hue < 60) { r1 = c; g1 = x; b1 = 0; }
+            else if (hue < 120) { r1 = x; g1 = c; b1 = 0; }
+            else if (hue < 180) { r1 = 0; g1 = c; b1 = x; }
+            else if (hue < 240) { r1 = 0; g1 = x; b1 = c; }
+            else if (hue < 300) { r1 = x; g1 = 0; b1 = c; }
+            else { r1 = c; g1 = 0; b1 = x; }
+
+            byte r = (byte)Math.Round((r1 + m) * 255);
+            byte g = (byte)Math.Round((g1 + m) * 255);
+            byte b = (byte)Math.Round((b1 + m) * 255);
+
+            return Color.FromRgb(r, g, b);
         }
 
         private void UpdateRectangle(Point current)
@@ -503,6 +552,119 @@ namespace VisionAICam.Pages
                     SetStatus("Rectangle must be fully inside the image.");
                 }
                 _currentDrawingShapeInfo = null;
+            }
+        }
+
+        private void StartPolygon(Point start, string label)
+        {
+            if (_currentDrawingShapeInfo == null)
+            {
+                // Use class-based color for polygon and label
+                Color color = GetColorForClass(label);
+                var brush = new SolidColorBrush(color);
+
+                var polyline = new Polyline
+                {
+                    Stroke = brush,
+                    StrokeThickness = 2
+                };
+
+                var labelBlock = new TextBlock
+                {
+                    Text = label,
+                    Foreground = brush,
+                    FontSize = 10,
+                    FontWeight = FontWeights.Normal,
+                    Background = Brushes.Transparent,
+                    Padding = new Thickness(0),
+                    Margin = new Thickness(0)
+                };
+
+                Canvas.SetLeft(labelBlock, start.X + 1);
+                Canvas.SetTop(labelBlock, start.Y + 1);
+
+                var record = new AnnotationRecord
+                {
+                    ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
+                    Label = label,
+                    AnnotationType = AnnotationType.Polygon,
+                    Points = new List<Point> { start }
+                };
+
+                var info = new ShapeInfo
+                {
+                    Shape = polyline,
+                    LabelBlock = labelBlock,
+                    Record = record,
+                    Metadata = new ShapeMetadata { Label = label, Type = AnnotationType.Polygon }
+                };
+
+                _currentDrawingShapeInfo = info;
+                _shapeInfos.Add(info);
+
+                BoundingBoxCanvas.Children.Add(polyline);
+                BoundingBoxCanvas.Children.Add(labelBlock);
+
+                _currentPolygonPoints = new List<Point>();
+            }
+
+            if (!_currentPolygonPoints.Contains(start))
+                _currentPolygonPoints.Add(start);
+
+            if (_currentDrawingShapeInfo.Shape is Polyline currentPolyline)
+            {
+                currentPolyline.Points = new PointCollection(_currentPolygonPoints);
+            }
+        }
+        private void updatePolygon(Point clampedPt)
+        {
+            if (_currentDrawingShapeInfo?.Shape is Polyline polyline)
+            {
+                // Replace last point with clamped position
+                if (_currentPolygonPoints.Count > 0)
+                {
+                    _currentPolygonPoints[_currentPolygonPoints.Count - 1] = clampedPt;
+                }
+                else
+                {
+                    _currentPolygonPoints.Add(clampedPt);
+                }
+
+                polyline.Points = new PointCollection(_currentPolygonPoints);
+            }
+        }
+
+        private void FinalizePolygon()
+        {
+            if (_currentDrawingShapeInfo != null && _currentDrawingShapeInfo.Shape is Polyline)
+            {
+                // Use class-based color for finalized polygon
+                var color = GetColorForClass(_currentDrawingShapeInfo.Metadata.Label);
+                var brush = new SolidColorBrush(color);
+
+                var polygon = new Polygon
+                {
+                    Stroke = brush,
+                    StrokeThickness = 2,
+                    Fill = Brushes.Transparent,
+                    Points = new PointCollection(_currentPolygonPoints)
+                };
+                BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
+                BoundingBoxCanvas.Children.Add(polygon);
+
+                var first = _currentPolygonPoints.First();
+                _currentDrawingShapeInfo.LabelBlock.Foreground = brush;
+                Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, first.X + 1);
+                Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, first.Y + 1);
+
+                _currentDrawingShapeInfo.Record.Points = new List<Point>(_currentPolygonPoints);
+                Annotations.Add(_currentDrawingShapeInfo.Record);
+                SaveStateForUndo();
+                RefreshAnnotations();
+                SetStatus($"Polygon annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
+                _currentDrawingShapeInfo = null;
+                _currentPolygonPoints.Clear();
+                _isDrawing = false;
             }
         }
 
@@ -566,6 +728,66 @@ namespace VisionAICam.Pages
             Canvas.SetLeft(info.LabelBlock, x + 1);
             Canvas.SetTop(info.LabelBlock, y + 1);
         }
+        #endregion
+
+        #region Helper Methods for Bounds and Clamping
+
+        private bool IsPointInImageBounds(Point pt)
+        {
+            return pt.X >= 0 && pt.Y >= 0 && pt.X <= _currentImageWidth && pt.Y <= _currentImageHeight;
+        }
+
+        private Point ClampPointToImage(Point pt)
+        {
+            return new Point(
+                Math.Max(0, Math.Min(_currentImageWidth, pt.X)),
+                Math.Max(0, Math.Min(_currentImageHeight, pt.Y))
+            );
+        }
+
+        private bool IsShapeFullyInImage(ShapeInfo info)
+        {
+            if (info.Record.Points.Count != 2) return false;
+            var p0 = info.Record.Points[0];
+            var p1 = info.Record.Points[1];
+            return IsPointInImageBounds(p0) && IsPointInImageBounds(p1);
+        }
+
+        private Vector ClampDragDeltaToImage(ShapeInfo info, Vector delta)
+        {
+            if (info.Shape is Rectangle rect)
+            {
+                double left = Canvas.GetLeft(rect) + delta.X;
+                double top = Canvas.GetTop(rect) + delta.Y;
+                double right = left + rect.Width;
+                double bottom = top + rect.Height;
+
+                double dx = delta.X, dy = delta.Y;
+                if (left < 0) dx -= left;
+                if (top < 0) dy -= top;
+                if (right > _currentImageWidth) dx -= (right - _currentImageWidth);
+                if (bottom > _currentImageHeight) dy -= (bottom - _currentImageHeight);
+
+                return new Vector(dx, dy);
+            }
+            return delta;
+        }
+
+        private bool IsPointOverHandle(Point pt, Ellipse handle)
+        {
+            double x = Canvas.GetLeft(handle) + _handleSize / 2;
+            double y = Canvas.GetTop(handle) + _handleSize / 2;
+            double dx = pt.X - x;
+            double dy = pt.Y - y;
+            return dx * dx + dy * dy <= (_handleSize * _handleSize) / 4;
+        }
+
+        private void SetStatus(string message)
+        {
+            if (StatusTextBlock != null)
+                StatusTextBlock.Text = message;
+        }
+        #endregion
 
         private void UpdateAnnotationRecordFromShape(ShapeInfo info)
         {
@@ -597,62 +819,6 @@ namespace VisionAICam.Pages
                 info.Shape.Effect = null;
             }
         }
-        private void SaveProject_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null) return;
-            _currentProject.ImagePaths = _imagePaths;
-            _currentProject.Annotations = Annotations;
-            _currentProject.ClassLabels = LabelComboBox.Items.Cast<object>().Select(i => i.ToString() ?? "").ToList();
-            _currentProject.SelectedImageIndex = _currentImageIndex;
-
-            var dialog = new Microsoft.Win32.SaveFileDialog
-            {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
-            };
-            if (dialog.ShowDialog() == true)
-            {
-                var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(dialog.FileName, json);
-                SetStatus("Project saved.");
-            }
-        }
-
-
-        private void OpenProject_Click(object sender, RoutedEventArgs e)
-        {
-            var dialog = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
-            };
-            if (dialog.ShowDialog() == true)
-            {
-                var json = File.ReadAllText(dialog.FileName);
-                _currentProject = System.Text.Json.JsonSerializer.Deserialize<AnnotationProject>(json);
-                if (_currentProject != null)
-                {
-                    _imagePaths = _currentProject.ImagePaths;
-                    Annotations = _currentProject.Annotations;
-                    LabelComboBox.Items.Clear();
-                    foreach (var label in _currentProject.ClassLabels)
-                        LabelComboBox.Items.Add(label);
-
-                    _currentImageIndex = (_currentProject.SelectedImageIndex >= 0 && _currentProject.SelectedImageIndex < _imagePaths.Count)
-                        ? _currentProject.SelectedImageIndex
-                        : 0;
-
-                    ProjectSession.CurrentProject = _currentProject;
-                    ProjectSession.Annotations = Annotations;
-                    ProjectSession.ImagePaths = _imagePaths;
-                    ProjectSession.CurrentImageIndex = _currentImageIndex;
-                    ProjectSession.CurrentImagePath = _imagePaths.Count > 0 ? _imagePaths[_currentImageIndex] : null;
-
-                    _ = LoadImageAtIndex(_currentImageIndex);
-                    SetStatus("Project opened.");
-                    ShowMainContentPanel();
-                }
-            }
-        }
-
         private void AddResizeHandles(ShapeInfo info)
         {
             RemoveResizeHandles();
@@ -688,6 +854,131 @@ namespace VisionAICam.Pages
                 BoundingBoxCanvas.Children.Add(handle);
             }
         }
+
+        private void RemoveResizeHandles()
+        {
+            foreach (var h in _handles)
+                BoundingBoxCanvas.Children.Remove(h);
+            _handles.Clear();
+        }
+
+        private void RefreshHandles(ShapeInfo? info)
+        {
+            if (info != null)
+            {
+                AddResizeHandles(info);
+            }
+            else
+            {
+                RemoveResizeHandles();
+            }
+        }
+
+        #region Project management
+        private void SaveProject_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null) return;
+            _currentProject.ImagePaths = _imagePaths;
+            _currentProject.Annotations = Annotations;
+            _currentProject.ClassLabels = LabelComboBox.Items.Cast<object>().Select(i => i.ToString() ?? "").ToList();
+            _currentProject.SelectedImageIndex = _currentImageIndex;
+
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(dialog.FileName, json);
+                SetStatus("Project saved.");
+            }
+        }
+
+        private void OpenProject_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
+            };
+
+            if (dialog.ShowDialog() != true) return;
+
+            try
+            {
+                var json = File.ReadAllText(dialog.FileName);
+                _currentProject = System.Text.Json.JsonSerializer.Deserialize<AnnotationProject>(json);
+
+                if (_currentProject == null)
+                {
+                    SetStatus("Failed to load project.");
+                    return;
+                }
+
+                // Load saved data
+                var savedPaths = _currentProject.ImagePaths ?? new List<string>();
+                var savedAnnotations = _currentProject.Annotations ?? new List<AnnotationRecord>();
+                var savedLabels = _currentProject.ClassLabels ?? new List<string>();
+
+                // Scan folder for new images
+                var folderPath = System.IO.Path.GetDirectoryName(savedPaths.FirstOrDefault() ?? "");
+                var allImages = Directory.Exists(folderPath)
+                    ? Directory.GetFiles(folderPath)
+                        .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                        .ToList()
+                    : new List<string>();
+
+                // Merge: keep existing annotations, add new images
+                var knownImages = new HashSet<string>(savedPaths);
+                var newImages = allImages.Where(img => !knownImages.Contains(img)).ToList();
+                var mergedPaths = savedPaths.Concat(newImages).ToList();
+
+                //// Add empty annotations using object initializer
+                //savedAnnotations.AddRange(
+                //    newImages.Select(img => new AnnotationRecord
+                //    {
+                //        ImagePath = img,
+                //        Labels = new List<string>()
+                //    })
+                //);
+
+                // Update project
+                _currentProject.ImagePaths = mergedPaths;
+                _currentProject.Annotations = savedAnnotations;
+                _currentProject.ClassLabels = savedLabels;
+                _currentProject.SelectedImageIndex = (_currentProject.SelectedImageIndex >= 0 &&
+                                                      _currentProject.SelectedImageIndex < mergedPaths.Count)
+                    ? _currentProject.SelectedImageIndex
+                    : 0;
+
+                // Sync local state
+                _imagePaths = mergedPaths;
+                Annotations = savedAnnotations;
+                _currentImageIndex = _currentProject.SelectedImageIndex;
+
+                LabelComboBox.Items.Clear();
+                foreach (var label in savedLabels)
+                    LabelComboBox.Items.Add(label);
+
+                ProjectSession.CurrentProject = _currentProject;
+                ProjectSession.Annotations = Annotations;
+                ProjectSession.ImagePaths = _imagePaths;
+                ProjectSession.CurrentImageIndex = _currentImageIndex;
+                ProjectSession.CurrentImagePath = _imagePaths.Count > 0 ? _imagePaths[_currentImageIndex] : null;
+
+                _ = LoadImageAtIndex(_currentImageIndex);
+                SetStatus($"Project opened. {savedLabels.Count} classes, {savedAnnotations.Count} images.");
+                ShowMainContentPanel();
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Error opening project: {ex.Message}");
+            }
+        }
+
+
         private void CreateProject_Click(object sender, RoutedEventArgs e)
         {
             _imagePaths = new List<string>();
@@ -718,24 +1009,7 @@ namespace VisionAICam.Pages
             ShowMainContentPanel();
         }
 
-        private void RemoveResizeHandles()
-        {
-            foreach (var h in _handles)
-                BoundingBoxCanvas.Children.Remove(h);
-            _handles.Clear();
-        }
 
-        private void RefreshHandles(ShapeInfo? info)
-        {
-            if (info != null)
-            {
-                AddResizeHandles(info);
-            }
-            else
-            {
-                RemoveResizeHandles();
-            }
-        }
         private void CloseProject_Click(object sender, RoutedEventArgs e)
         {
             var result = MessageBox.Show(
@@ -785,7 +1059,12 @@ namespace VisionAICam.Pages
 
         private void Undo_Click(object sender, RoutedEventArgs e) => Undo();
         private void Redo_Click(object sender, RoutedEventArgs e) => Redo();
-
+        private void EditAnnotation_Click(object sender, RoutedEventArgs e)
+        {
+            // TODO: Implement the logic to edit the selected annotation.
+            // For now, you can show a message box as a placeholder.
+            MessageBox.Show("Edit annotation clicked.");
+        }
         private void Undo()
         {
             if (_undoStack.Count > 0)
@@ -815,70 +1094,63 @@ namespace VisionAICam.Pages
             foreach (var ann in filtered)
             {
                 Shape shape = null;
+                // Use the same color logic as Start/Finalize: only class name
+                Color color = GetColorForClass(ann.Label);
+                var brush = new SolidColorBrush(color);
+
                 TextBlock label = new TextBlock
                 {
                     Text = string.IsNullOrWhiteSpace(ann.Label) ? "(No Class)" : ann.Label,
-                    FontWeight = FontWeights.Bold,
-                    FontSize = 14,
+                    FontWeight = FontWeights.Normal,
+                    FontSize = 10,
                     Padding = new Thickness(2, 0, 2, 0),
-                    Background = Brushes.White
+                    Background = Brushes.Transparent,
+                    Foreground = brush
                 };
 
-                switch (ann.AnnotationType)
+                if (ann.AnnotationType == AnnotationType.Rectangle && ann.Points.Count == 2)
                 {
-                    case AnnotationType.Rectangle:
-                        if (ann.Points.Count == 2)
-                        {
-                            var x = Math.Min(ann.Points[0].X, ann.Points[1].X);
-                            var y = Math.Min(ann.Points[0].Y, ann.Points[1].Y);
-                            var w = Math.Abs(ann.Points[1].X - ann.Points[0].X);
-                            var h = Math.Abs(ann.Points[1].Y - ann.Points[0].Y);
+                    var x = Math.Min(ann.Points[0].X, ann.Points[1].X);
+                    var y = Math.Min(ann.Points[0].Y, ann.Points[1].Y);
+                    var w = Math.Abs(ann.Points[1].X - ann.Points[0].X);
+                    var h = Math.Abs(ann.Points[1].Y - ann.Points[0].Y);
 
-                            shape = new Rectangle
-                            {
-                                Stroke = Brushes.Blue,
-                                StrokeThickness = 2,
-                                Width = w,
-                                Height = h
-                            };
-                            Canvas.SetLeft(shape, x);
-                            Canvas.SetTop(shape, y);
-                            label.Foreground = Brushes.Blue;
-                            Canvas.SetLeft(label, x + 1);
-                            Canvas.SetTop(label, y + 1);
-                        }
-                        break;
-                    case AnnotationType.Polygon:
-                        if (ann.Points.Count > 2)
-                        {
-                            shape = new Polygon
-                            {
-                                Stroke = Brushes.Red,
-                                StrokeThickness = 2,
-                                Fill = Brushes.Transparent,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            var first = ann.Points.First();
-                            label.Foreground = Brushes.Red;
-                            Canvas.SetLeft(label, first.X + 1);
-                            Canvas.SetTop(label, first.Y + 1);
-                        }
-                        break;
-                    case AnnotationType.FreePen:
-                        if (ann.Points.Count > 1)
-                        {
-                            shape = new Polyline
-                            {
-                                Stroke = Brushes.Green,
-                                StrokeThickness = 2,
-                                Points = new PointCollection(ann.Points)
-                            };
-                            var first = ann.Points.First();
-                            label.Foreground = Brushes.Green;
-                            Canvas.SetLeft(label, first.X + 1);
-                            Canvas.SetTop(label, first.Y + 1);
-                        }
-                        break;
+                    shape = new Rectangle
+                    {
+                        Stroke = brush,
+                        StrokeThickness = 2,
+                        Width = w,
+                        Height = h
+                    };
+                    Canvas.SetLeft(shape, x);
+                    Canvas.SetTop(shape, y);
+                    Canvas.SetLeft(label, x + 1);
+                    Canvas.SetTop(label, y + 1);
+                }
+                else if (ann.AnnotationType == AnnotationType.Polygon && ann.Points.Count > 2)
+                {
+                    shape = new Polygon
+                    {
+                        Stroke = brush,
+                        StrokeThickness = 2,
+                        Fill = Brushes.Transparent,
+                        Points = new PointCollection(ann.Points)
+                    };
+                    var first = ann.Points.First();
+                    Canvas.SetLeft(label, first.X + 1);
+                    Canvas.SetTop(label, first.Y + 1);
+                }
+                else if (ann.AnnotationType == AnnotationType.FreePen && ann.Points.Count > 1)
+                {
+                    shape = new Polyline
+                    {
+                        Stroke = brush,
+                        StrokeThickness = 2,
+                        Points = new PointCollection(ann.Points)
+                    };
+                    var first = ann.Points.First();
+                    Canvas.SetLeft(label, first.X + 1);
+                    Canvas.SetTop(label, first.Y + 1);
                 }
 
                 if (shape != null)
@@ -895,6 +1167,16 @@ namespace VisionAICam.Pages
                 }
             }
         }
+
+        // Utility: Generate a deterministic color for each class name
+        //private Color GetColorForClass(string className)
+        //{
+        //    int hash = className.GetHashCode();
+        //    byte r = (byte)(128 + (hash & 0x7F));
+        //    byte g = (byte)(128 + ((hash >> 8) & 0x7F));
+        //    byte b = (byte)(128 + ((hash >> 16) & 0x7F));
+        //    return Color.FromRgb(r, g, b);
+        //}
 
         private void Redo()
         {
@@ -917,6 +1199,287 @@ namespace VisionAICam.Pages
             ShowNoProjectPanel();
             SetStatus("No project loaded.");
         }
+
+        private void ExportYoloV5_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv5 export",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string outputFolder = System.IO.Path.Combine(
+                    dialog.SelectedPath,
+                    $"Yolo5Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+                );
+
+                YoloExporter.ExportWithSplit(
+                    _currentProject,
+                    outputFolder,
+                    imageName =>
+                    {
+                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
+                        if (path == null) return new Size(0, 0);
+                        try
+                        {
+                            using var img = System.Drawing.Image.FromFile(path);
+                            return new Size(img.Width, img.Height);
+                        }
+                        catch
+                        {
+                            return new Size(0, 0);
+                        }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV5
+                );
+
+                SetStatus("YOLOv5 export complete (train/val/test).");
+            }
+            else
+            {
+                SetStatus("YOLOv5 export canceled.");
+            }
+        }
+
+        private void ExportYoloV8_Click(object sender, RoutedEventArgs e)
+        {
+
+            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv8 export",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string outputFolder = System.IO.Path.Combine(
+                    dialog.SelectedPath,
+                    $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+                );
+
+                YoloExporter.ExportWithSplit(
+                    _currentProject,
+                    outputFolder,
+                    imageName =>
+                    {
+                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
+                        if (path == null) return new Size(0, 0);
+                        try
+                        {
+                            using var img = System.Drawing.Image.FromFile(path);
+                            return new Size(img.Width, img.Height);
+                        }
+                        catch
+                        {
+                            return new Size(0, 0);
+                        }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV8
+                );
+
+                SetStatus("YOLOv8 export complete (train/val/test).");
+            }
+            else
+            {
+                SetStatus("YOLOv8 export canceled.");
+            }
+        }
+        private void ExportYoloV5_OBB_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv5_OBB export",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string outputFolder = System.IO.Path.Combine(
+                    dialog.SelectedPath,
+                    $"Yolo5OBBExport_{DateTime.Now:yyyyMMdd_HHmmss}"
+                );
+
+                YoloExporter.ExportWithSplit(
+                    _currentProject,
+                    outputFolder,
+                    imageName =>
+                    {
+                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
+                        if (path == null) return new Size(0, 0);
+                        try
+                        {
+                            using var img = System.Drawing.Image.FromFile(path);
+                            return new Size(img.Width, img.Height);
+                        }
+                        catch
+                        {
+                            return new Size(0, 0);
+                        }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV5_OBB
+                );
+
+                SetStatus("YOLOv5_OBB export complete (train/val/test).");
+            }
+            else
+            {
+                SetStatus("YOLOv5_OBB export canceled.");
+            }
+        }
+        private void ExportYoloV8_OBB_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv8_OBB export",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() == true)
+            {
+                string outputFolder = System.IO.Path.Combine(
+                    dialog.SelectedPath,
+                    $"Yolo8OBBExport_{DateTime.Now:yyyyMMdd_HHmmss}"
+                );
+
+                YoloExporter.ExportWithSplit(
+                    _currentProject,
+                    outputFolder,
+                    imageName =>
+                    {
+                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
+                        if (path == null) return new Size(0, 0);
+                        try
+                        {
+                            using var img = System.Drawing.Image.FromFile(path);
+                            return new Size(img.Width, img.Height);
+                        }
+                        catch
+                        {
+                            return new Size(0, 0);
+                        }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV8_OBB
+                );
+
+                SetStatus("YOLOv8_OBB export complete (train/val/test).");
+            }
+            else
+            {
+                SetStatus("YOLOv8_OBB export canceled.");
+            }
+        }
+        private void ExportYoloV8_SEG_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv8_SEG export",
+                UseDescriptionForTitle = true
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                string outputFolder = System.IO.Path.Combine(
+                    dialog.SelectedPath,
+                    $"Yolo8SEGExport_{DateTime.Now:yyyyMMdd_HHmmss}"
+                );
+                YoloExporter.ExportWithSplit(
+                    _currentProject,
+                    outputFolder,
+                    imageName =>
+                    {
+                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
+                        if (path == null) return new Size(0, 0);
+                        try
+                        {
+                            using var img = System.Drawing.Image.FromFile(path);
+                            return new Size(img.Width, img.Height);
+                        }
+                        catch
+                        {
+                            return new Size(0, 0);
+                        }
+                    },
+                    trainRatio: 0.7, 0.2, 0.1,
+                    exportFormat: YoloExportFormat.YoloV8_SEG
+                );
+                SetStatus("YOLOv8_SEG export complete (train/val/test).");
+            }
+            else
+            {
+                SetStatus("YOLOv8_SEG export canceled.");
+            }
+        }
+        private void ViewHelp_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show(
+                "How to use:\n\n" +
+                "1. Load a folder of images.\n" +
+                "2. Select or add a label/class.\n" +
+                "3. Draw annotations using the selected mode.\n" +
+                "4. Use the menu to save, export, or finish your project.\n\n" +
+                "Keyboard Shortcuts:\n" +
+                "F: Next image\n" +
+                "S: Previous image\n" +
+                "A: Add box\n" +
+                "D: Remove selected\n" +
+                "E: Export YOLO\n" +
+                "Enter: Save annotations\n" +
+                "Ctrl+Z: Undo\n" +
+                "Ctrl+Y: Redo\n" +
+                "F: Toggle full screen\n",
+                "Help",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information
+            );
+        }
+
+        private void About_Click(object sender, RoutedEventArgs e)
+        {
+            MessageBox.Show(
+                "VisionAICam\n" +
+                "Image Annotation Tool\n\n" +
+                "Version 1.0\n" +
+                "© 2024 Your Company/Team Name",
+                "About",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information
+            );
+        }
+        #endregion
 
         private void AddClassButton_Click(object sender, RoutedEventArgs e)
         {
@@ -956,6 +1519,97 @@ namespace VisionAICam.Pages
             SetStatus($"Class '{newClass}' added.");
         }
 
+      
+
+        private void Page_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (NewClassTextBox.IsFocused)
+                return;
+
+            if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.A) { /* AddBox_Click(sender, e); */ e.Handled = true; }
+            else if (e.Key == Key.D) { RemoveSelected_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.Enter) { SaveAnnotations_Click(sender, e); e.Handled = true; }
+            else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Undo(); e.Handled = true; }
+            else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
+            else if (e.Key == Key.Delete)
+            {
+                if (AnnotationListView.SelectedItem is AnnotationRecord selected)
+                {
+                    Annotations.Remove(selected);
+                    ProjectSession.Annotations = Annotations;
+                    SaveStateForUndo();
+                    RefreshAnnotations();
+                    SetStatus("Box removed.");
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.Escape)
+            {
+                if (_isDrawing)
+                {
+                    _isDrawing = false;
+                    _currentPolygonPoints.Clear();
+                    if (_currentDrawingShapeInfo != null)
+                    {
+                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
+                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                        _currentDrawingShapeInfo = null;
+                    }
+                    SetStatus("Drawing canceled.");
+                }
+
+                if (_isDraggingShape)
+                {
+                    _isDraggingShape = false;
+                    BoundingBoxCanvas.ReleaseMouseCapture();
+                    if (_activeShapeInfo != null)
+                    {
+                        HighlightShape(_activeShapeInfo, false);
+                        _activeShapeInfo = null;
+                    }
+                    RemoveResizeHandles();
+                    SetStatus("Drag canceled.");
+                }
+
+                if (_activeHandle != null)
+                {
+                    _activeHandle = null;
+                    _reshapeShapeInfo = null;
+                    _currentHit = HitType.None;
+                    BoundingBoxCanvas.ReleaseMouseCapture();
+                    RemoveResizeHandles();
+                    SetStatus("Reshape canceled.");
+                }
+
+                e.Handled = true;
+            }
+        }
+
+        #region Image selection
+        private async void PrevImage_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentImageIndex > 0)
+            {
+                SaveAnnotations_Click(sender, e);
+                _currentImageIndex--;
+                ProjectSession.CurrentImageIndex = _currentImageIndex;
+                ProjectSession.CurrentImagePath = _currentImagePath;
+                await LoadImageAtIndex(_currentImageIndex);
+            }
+        }
+        private async void NextImage_Click(object sender, RoutedEventArgs e)
+        {
+            if (_imagePaths != null && _currentImageIndex < _imagePaths.Count - 1)
+            {
+                SaveAnnotations_Click(sender, e);
+                _currentImageIndex++;
+                ProjectSession.CurrentImageIndex = _currentImageIndex;
+                ProjectSession.CurrentImagePath = _currentImagePath;
+                await LoadImageAtIndex(_currentImageIndex);
+            }
+        }
 
         public async void LoadFolder_Click(object sender, RoutedEventArgs e)
         {
@@ -1024,15 +1678,14 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.Focus();
 
             RefreshAnnotations();
-
-            ImageProgressText.Text = $"Image {index + 1} of {_imagePaths.Count} ({(int)(((index + 1) * 100.0) / _imagePaths.Count)}%)";
+            ImageProgressText.Text = $"Image {index + 1} of {_imagePaths.Count} ({(int)(((index + 1) * 100.0) / _imagePaths.Count)}%) - {System.IO.Path.GetFileName(imagePath)}";
 
             _isDrawing = false;
             _currentDrawingShapeInfo = null;
             _currentPolygonPoints.Clear();
             BoundingBoxCanvas.ReleaseMouseCapture();
 
-            SetStatus($"Loaded image {index + 1} of {_imagePaths.Count}. Ready to draw.");
+            SetStatus($"Loaded image {index + 1} of {_imagePaths.Count} ({System.IO.Path.GetFileName(imagePath)}). Ready to draw.");
         }
 
         private void ZoomIn_Click(object sender, RoutedEventArgs e)
@@ -1050,99 +1703,7 @@ namespace VisionAICam.Pages
             ZoomTransform.ScaleY = _zoom;
             SetStatus($"Zoom: {_zoom * 100:0}%");
         }
-
-        private void Page_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (NewClassTextBox.IsFocused)
-                return;
-
-            if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.A) { /* AddBox_Click(sender, e); */ e.Handled = true; }
-            else if (e.Key == Key.D) { RemoveSelected_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.Enter) { SaveAnnotations_Click(sender, e); e.Handled = true; }
-            else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Undo(); e.Handled = true; }
-            else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control) { Redo(); e.Handled = true; }
-            else if (e.Key == Key.Delete)
-            {
-                // Remove the selected annotation from the list and update the view
-                if (AnnotationListView.SelectedItem is AnnotationRecord selected)
-                {
-                    Annotations.Remove(selected);
-                    ProjectSession.Annotations = Annotations;
-                    SaveStateForUndo();
-                    RefreshAnnotations();
-                    SetStatus("Box removed.");
-                    e.Handled = true;
-                }
-            }
-            else if (e.Key == Key.Escape)
-            {
-                // Cancel drawing
-                if (_isDrawing)
-                {
-                    _isDrawing = false;
-                    _currentPolygonPoints.Clear();
-                    if (_currentDrawingShapeInfo != null)
-                    {
-                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
-                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
-                        _currentDrawingShapeInfo = null;
-                    }
-                    SetStatus("Drawing canceled.");
-                }
-
-                // Cancel dragging
-                if (_isDraggingShape)
-                {
-                    _isDraggingShape = false;
-                    BoundingBoxCanvas.ReleaseMouseCapture();
-                    if (_activeShapeInfo != null)
-                    {
-                        HighlightShape(_activeShapeInfo, false);
-                        _activeShapeInfo = null;
-                    }
-                    RemoveResizeHandles();
-                    SetStatus("Drag canceled.");
-                }
-
-                // Cancel reshaping
-                if (_activeHandle != null)
-                {
-                    _activeHandle = null;
-                    _reshapeShapeInfo = null;
-                    _currentHit = HitType.None;
-                    BoundingBoxCanvas.ReleaseMouseCapture();
-                    RemoveResizeHandles();
-                    SetStatus("Reshape canceled.");
-                }
-
-                e.Handled = true;
-            }
-        }
-
-        private async void PrevImage_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentImageIndex > 0)
-            {
-                SaveAnnotations_Click(sender, e);
-                _currentImageIndex--;
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
-        private async void NextImage_Click(object sender, RoutedEventArgs e)
-        {
-            if (_imagePaths != null && _currentImageIndex < _imagePaths.Count - 1)
-            {
-                SaveAnnotations_Click(sender, e);
-                _currentImageIndex++;
-                ProjectSession.CurrentImageIndex = _currentImageIndex;
-                ProjectSession.CurrentImagePath = _currentImagePath;
-                await LoadImageAtIndex(_currentImageIndex);
-            }
-        }
+        #endregion
 
         private void SaveAnnotations_Click(object sender, RoutedEventArgs e)
         {
@@ -1173,141 +1734,9 @@ namespace VisionAICam.Pages
             }
         }
 
-        private void ExportYoloV5_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
-            {
-                SetStatus("No project or images to export.");
-                return;
-            }
+      
 
-            var dialog = new VistaFolderBrowserDialog
-            {
-                Description = "Select output folder for YOLOv5 export",
-                UseDescriptionForTitle = true
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                string outputFolder = System.IO.Path.Combine(
-                    dialog.SelectedPath,
-                    $"Yolo5Export_{DateTime.Now:yyyyMMdd_HHmmss}"
-                );
-
-                YoloExporter.ExportWithSplit(
-                    _currentProject,
-                    outputFolder,
-                    imageName =>
-                    {
-                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
-                        try
-                        {
-                            using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
-                        }
-                        catch
-                        {
-                            return new Size(0, 0);
-                        }
-                    },
-                    trainRatio: 0.7, 0.2, 0.1,
-                    exportFormat: YoloExportFormat.YoloV5
-                );
-
-                SetStatus("YOLOv5 export complete (train/val/test).");
-            }
-            else
-            {
-                SetStatus("YOLOv5 export canceled.");
-            }
-        }
-
-        private void ExportYoloV8_Click(object sender, RoutedEventArgs e)
-        {
-            if (_currentProject == null || _currentProject.ImagePaths.Count == 0)
-            {
-                SetStatus("No project or images to export.");
-                return;
-            }
-
-            var dialog = new VistaFolderBrowserDialog
-            {
-                Description = "Select output folder for YOLOv8 export",
-                UseDescriptionForTitle = true
-            };
-
-            if (dialog.ShowDialog() == true)
-            {
-                string outputFolder = System.IO.Path.Combine(
-                    dialog.SelectedPath,
-                    $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
-                );
-
-                YoloExporter.ExportWithSplit(
-                    _currentProject,
-                    outputFolder,
-                    imageName =>
-                    {
-                        var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
-                        try
-                        {
-                            using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
-                        }
-                        catch
-                        {
-                            return new Size(0, 0);
-                        }
-                    },
-                    trainRatio: 0.7, 0.2, 0.1,
-                    exportFormat: YoloExportFormat.YoloV8
-                );
-
-                SetStatus("YOLOv8 export complete (train/val/test).");
-            }
-            else
-            {
-                SetStatus("YOLOv8 export canceled.");
-            }
-        }
-        private void ViewHelp_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "How to use:\n\n" +
-                "1. Load a folder of images.\n" +
-                "2. Select or add a label/class.\n" +
-                "3. Draw annotations using the selected mode.\n" +
-                "4. Use the menu to save, export, or finish your project.\n\n" +
-                "Keyboard Shortcuts:\n" +
-                "F: Next image\n" +
-                "S: Previous image\n" +
-                "A: Add box\n" +
-                "D: Remove selected\n" +
-                "E: Export YOLO\n" +
-                "Enter: Save annotations\n" +
-                "Ctrl+Z: Undo\n" +
-                "Ctrl+Y: Redo\n" +
-                "F: Toggle full screen\n",
-                "Help",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information
-            );
-        }
-
-        private void About_Click(object sender, RoutedEventArgs e)
-        {
-            MessageBox.Show(
-                "VisionAICam\n" +
-                "Image Annotation Tool\n\n" +
-                "Version 1.0\n" +
-                "© 2024 Your Company/Team Name",
-                "About",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information
-            );
-        }
+        
 
         private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
         {
@@ -1331,7 +1760,5 @@ namespace VisionAICam.Pages
                 SetStatus("Exited full screen mode.");
             }
         }
-
-        // --- The rest of your project management, export, and UI methods remain unchanged ---
     }
 }

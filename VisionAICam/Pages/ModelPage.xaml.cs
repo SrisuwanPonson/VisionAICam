@@ -67,7 +67,7 @@ namespace VisionAICam.Pages
         private Border? trainBlock;
         private string pretrainFolderPath;
         private int modelBlockAddCount = 0;
-
+        private string datasetType = "Unknown";
         public string PretrainFolderPath
         {
             get
@@ -442,31 +442,137 @@ namespace VisionAICam.Pages
             switch (baseArch)
             {
                 case "YOLOv5":
-                case "YOLOv8":
-                    sources = new()
-            {
-                { "Architecture", new[] { baseArch } },
-                { "Variant", new[] { "n", "s", "m", "l", "x" } },
-                { "Input Size", baseArch == "YOLOv5" ? new[] { "320", "416", "512", "640" } : new[] { "320", "416", "512", "640", "768" } },
-                { "Backbone", baseArch == "YOLOv5" ? new[] { "CSPDarknet", "Custom-ResNet" } : new[] { "None" } },
-                { "Pretrained Weights", new[] {
-                    $"{baseArch.ToLower()}n", $"{baseArch.ToLower()}s", $"{baseArch.ToLower()}m",
-                    $"{baseArch.ToLower()}l", $"{baseArch.ToLower()}x", "None"
-                }},
-                { "Training mode", new[] { "scratch", "topup", "benchmark" } }
-            };
+                    if (variant.Contains("obb"))
+                    {
+                        sources = new()
+                {
+                    { "Architecture", new[] { "YOLOv5-OBB" } },
+                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
+                    { "Input Size", new[] { "320", "416", "512", "640" } },
+                    { "Backbone", new[] { "CSPDarknet", "Custom-ResNet" } },
+                    { "Pretrained Weights", new[] {
+                        "yolov5n_obb", "yolov5s_obb", "yolov5m_obb",
+                        "yolov5l_obb", "yolov5x_obb", "None"
+                    }},
+                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                };
 
-                    options = new()
-            {
-                new TrainingOption { Name = "Architecture", Value = baseArch },
-                new TrainingOption { Name = "Variant", Value = defaultVariant },
-                new TrainingOption { Name = "Input Size", Value = defaultInput },
-                new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
-                new TrainingOption { Name = "Pretrained Weights", Value = $"{baseArch.ToLower()}{defaultVariant}" },
-                new TrainingOption { Name = "Training mode", Value = defaultMode }
-            };
+                        options = new()
+                {
+                    new TrainingOption { Name = "Architecture", Value = "YOLOv5-OBB" },
+                    new TrainingOption { Name = "Variant", Value = defaultVariant },
+                    new TrainingOption { Name = "Input Size", Value = defaultInput },
+                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov5{defaultVariant}_obb" },
+                    new TrainingOption { Name = "Training mode", Value = defaultMode }
+                };
+                    }
+                    else
+                    {
+                        sources = new()
+                {
+                    { "Architecture", new[] { "YOLOv5" } },
+                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
+                    { "Input Size", new[] { "320", "416", "512", "640" } },
+                    { "Backbone", new[] { "CSPDarknet", "Custom-ResNet" } },
+                    { "Pretrained Weights", new[] {
+                        "yolov5n", "yolov5s", "yolov5m",
+                        "yolov5l", "yolov5x", "None"
+                    }},
+                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                };
+
+                        options = new()
+                {
+                    new TrainingOption { Name = "Architecture", Value = "YOLOv5" },
+                    new TrainingOption { Name = "Variant", Value = defaultVariant },
+                    new TrainingOption { Name = "Input Size", Value = defaultInput },
+                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov5{defaultVariant}" },
+                    new TrainingOption { Name = "Training mode", Value = defaultMode }
+                };
+                    }
                     break;
 
+                case "YOLOv8":
+                    if (variant.Contains("obb"))
+                    {
+                        sources = new()
+                {
+                    { "Architecture", new[] { "YOLOv8-OBB" } },
+                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
+                    { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                    { "Backbone", new[] { "None" } },
+                    { "Pretrained Weights", new[] {
+                        "yolov8n_obb", "yolov8s_obb", "yolov8m_obb",
+                        "yolov8l_obb", "yolov8x_obb", "None"
+                    }},
+                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                };
+
+                        options = new()
+                {
+                    new TrainingOption { Name = "Architecture", Value = "YOLOv8-OBB" },
+                    new TrainingOption { Name = "Variant", Value = defaultVariant },
+                    new TrainingOption { Name = "Input Size", Value = defaultInput },
+                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{defaultVariant}_obb" },
+                    new TrainingOption { Name = "Training mode", Value = defaultMode }
+                };
+                    }
+                    else if (variant.Contains("seg"))
+                    {
+                        sources = new()
+                {
+                    { "Architecture", new[] { "YOLOv8-Seg" } },
+                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
+                    { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                    { "Backbone", new[] { "None" } },
+                    { "Pretrained Weights", new[] {
+                        "yolov8n_seg", "yolov8s_seg", "yolov8m_seg",
+                        "yolov8l_seg", "yolov8x_seg", "None"
+                    }},
+                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                };
+
+                        options = new()
+                {
+                    new TrainingOption { Name = "Architecture", Value = "YOLOv8-Seg" },
+                    new TrainingOption { Name = "Variant", Value = defaultVariant },
+                    new TrainingOption { Name = "Input Size", Value = defaultInput },
+                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{defaultVariant}_seg" },
+                    new TrainingOption { Name = "Training mode", Value = defaultMode }
+                };
+                    }
+                    else
+                    {
+                        sources = new()
+                {
+                    { "Architecture", new[] { "YOLOv8" } },
+                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
+                    { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                    { "Backbone", new[] { "None" } },
+                    { "Pretrained Weights", new[] {
+                        "yolov8n", "yolov8s", "yolov8m",
+                        "yolov8l", "yolov8x", "None"
+                    }},
+                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                };
+
+                        options = new()
+                {
+                    new TrainingOption { Name = "Architecture", Value = "YOLOv8" },
+                    new TrainingOption { Name = "Variant", Value = defaultVariant },
+                    new TrainingOption { Name = "Input Size", Value = defaultInput },
+                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{defaultVariant}" },
+                    new TrainingOption { Name = "Training mode", Value = defaultMode }
+                };
+                    }
+                    break;
+
+                // Other architectures unchanged
                 case "YOLOv3":
                 case "YOLOv4":
                 case "YOLOv7":
@@ -629,8 +735,16 @@ namespace VisionAICam.Pages
             variant = variant?.ToLower() ?? "n";
             string type = selectedModelType?.ToLower();
 
-            if (type.StartsWith("yolov5")) return $"yolov5{variant}";
-            if (type.StartsWith("yolov8")) return $"yolov8{variant}";
+            if (type.StartsWith("yolov5") && type.Contains("obb"))
+                return $"yolov5{variant}_obb";
+            if (type.StartsWith("yolov8") && type.Contains("obb"))
+                return $"yolov8{variant}_obb";
+            if (type.StartsWith("yolov8") && (type.Contains("seg") || type.Contains("segment")))
+                return $"yolov8{variant}_seg";
+            if (type.StartsWith("yolov5"))
+                return $"yolov5{variant}";
+            if (type.StartsWith("yolov8"))
+                return $"yolov8{variant}";
 
             return type switch
             {
@@ -657,6 +771,11 @@ namespace VisionAICam.Pages
             arch = arch?.Trim() ?? string.Empty;
 
             // Explicit mappings by architecture
+            if (arch.StartsWith("YOLOv5-OBB", StringComparison.OrdinalIgnoreCase) ||
+                arch.StartsWith("YOLOv8-OBB", StringComparison.OrdinalIgnoreCase) ||
+                arch.StartsWith("YOLOv8-Seg", StringComparison.OrdinalIgnoreCase))
+                return "None";
+
             if (arch.StartsWith("YOLOv3", StringComparison.OrdinalIgnoreCase) ||
                 arch.StartsWith("YOLOv4", StringComparison.OrdinalIgnoreCase))
                 return "Darknet";
@@ -783,14 +902,14 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
         private Dictionary<string, string[]> BuildTrainingSources()
         {
-            return new()
-    {
-        { "Epochs", new[] { "1","10", "20", "50", "100", "200", "300" } },
-        { "Batch Size", new[] { "8", "16", "32", "64", "128" } },
-        { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } },
-        { "Optimizer", new[] { "Adam", "SGD", "AdamW" } },
-        { "Scheduler", new[] { "None", "Cosine", "Linear", "StepLR" } }
-    };
+                    return new()
+            {
+                { "Epochs", new[] { "1","10", "20", "50", "100", "200", "300" } },
+                { "Batch Size", new[] { "8", "16", "32", "64", "128" } },
+                { "Learning Rate", new[] { "0.0005", "0.001", "0.005", "0.01" } },
+                { "Optimizer", new[] { "Adam", "SGD", "AdamW" } },
+                { "Scheduler", new[] { "None", "Cosine", "Linear", "StepLR" } }
+            };
         }
         // DO NOT MODIFY THIS METHOD (per your request)
         private UIElement CreateDatasetDetailsGrid(string datasetPath)
@@ -1007,7 +1126,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                     {
                         var folderDialog = new System.Windows.Forms.FolderBrowserDialog
                         {
-                            Description = "📂 Select your YOLOv8 dataset folder",
+                            Description = "📂 Select your YOLOv5/YOLOv8/YOLOv5_OBB/YOLOv8_OBB/Segmentation dataset folder",
                             UseDescriptionForTitle = true,
                             ShowNewFolderButton = false
                         };
@@ -1018,8 +1137,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
                             Task.Run(() =>
                             {
-                                bool isValid = ValidateYoloDatasetStructure(datasetPath);
-                                var imageToLabelMap = isValid ? SyncYoloAnnotations(datasetPath) : null;
+                                bool isValid = ValidateYoloDatasetStructure(datasetPath, out datasetType);
 
                                 Dispatcher.Invoke(() =>
                                 {
@@ -1035,22 +1153,37 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                                         return;
                                     }
 
-                                    //MessageBox.Show(
-                                    //    $"✅ Dataset loaded successfully:\n{datasetPath}",
-                                    //    "Dataset Validated",
-                                    //    MessageBoxButton.OK,
-                                    //    MessageBoxImage.Information
-                                    //);
-
                                     AddOrSelectDataset(datasetPath);
 
-                                    if (datasetBlock == null)
+                                    // Remove previous dataset block if it exists
+                                    if (datasetBlock != null)
                                     {
-                                        var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
-                                        datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
-                                        TrainingCanvas.Children.Add(datasetBlock);
-                                        TrainingStatusText.Text = "Dataset added. Now select a model.";
+                                        TrainingCanvas.Children.Remove(datasetBlock);
+                                        datasetBlock = null;
                                     }
+
+                                    var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
+                                    datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
+                                    TrainingCanvas.Children.Add(datasetBlock);
+
+                                    // Show dataset type in status
+                                    switch (datasetType)
+                                    {
+                                        case "Segmentation":
+                                            TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
+                                            break;
+                                        case "YOLO_OBB":
+                                            TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
+                                            break;
+                                        case "YOLO":
+                                            TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
+                                            break;
+                                        default:
+                                            TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
+                                            break;
+                                    }
+
+                                    SaveBlockStates();
                                 });
                             });
                         }
@@ -1061,24 +1194,24 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                     {
                         // Define selectable options for each model parameter
                         var optionSources = new Dictionary<string, string[]>
-                        {
-                            { "Architecture", new[] { "YOLOv5", "YOLOv8", "ONNX", "Custom" } },
-                            { "Input Size", new[] { "320", "416", "512", "640", "768" } },
-                            { "Backbone", new[] { "None" } },
-                            { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
-                        };
+            {
+                { "Architecture", new[] { "YOLOv5", "YOLOv8", "YOLOv8-OBB", "YOLOv8-Seg", "YOLOv5-OBB", "ONNX", "Custom" } },
+                { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                { "Backbone", new[] { "None", "CSPDarknet", "Custom-ResNet", "C2f-Darknet" } },
+                { "Pretrained Weights", new[] { "COCO", "ImageNet", "None" } }
+            };
 
                         // Default selections
                         string selectedModel = optionSources["Architecture"][1]; // YOLOv8
                         string blockLabel = $"🧠 {selectedModel}";
 
                         var modelOptions = new List<TrainingOption>
-    {
-        new TrainingOption { Name = "Architecture", Value = selectedModel },
-        new TrainingOption { Name = "Input Size", Value = "640" },
-        new TrainingOption { Name = "Backbone", Value = "None" },
-        new TrainingOption { Name = "Pretrained Weights", Value = "None" }
-    };
+            {
+                new TrainingOption { Name = "Architecture", Value = selectedModel },
+                new TrainingOption { Name = "Input Size", Value = "640" },
+                new TrainingOption { Name = "Backbone", Value = "None" },
+                new TrainingOption { Name = "Pretrained Weights", Value = "None" }
+            };
 
                         // Remove previous model block if present
                         if (modelBlock != null)
@@ -1100,28 +1233,30 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                         TrainingCanvas.Children.Add(modelBlock);
 
                         TrainingStatusText.Text = "Model added. Edit model options in the block.";
+                        SaveBlockStates();
                         break;
                     }
 
-
                 case "Train":
-                    var result = MessageBox.Show("🚀 Start training now?", "Training", MessageBoxButton.YesNo, MessageBoxImage.Question);
-                    if (result == MessageBoxResult.Yes)
                     {
-                        TrainingStatusText.Text = "Training started...";
-                        TrainModelButton.IsEnabled = false;
-
-                        Task.Run(() =>
+                        var result = MessageBox.Show("🚀 Start training now?", "Training", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        if (result == MessageBoxResult.Yes)
                         {
-                            System.Threading.Thread.Sleep(2000);
-                            Dispatcher.Invoke(() =>
+                            TrainingStatusText.Text = "Training started...";
+                            TrainModelButton.IsEnabled = false;
+
+                            Task.Run(() =>
                             {
-                                TrainingStatusText.Text = "Training complete!";
-                                TrainModelButton.IsEnabled = true;
+                                System.Threading.Thread.Sleep(2000);
+                                Dispatcher.Invoke(() =>
+                                {
+                                    TrainingStatusText.Text = "Training complete!";
+                                    TrainModelButton.IsEnabled = true;
+                                });
                             });
-                        });
+                        }
+                        break;
                     }
-                    break;
 
                 default:
                     MessageBox.Show($"❓ Unknown block type: {tag}");
@@ -1129,10 +1264,14 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             }
         }
 
-        private bool ValidateYoloDatasetStructure(string rootPath)
+        private bool ValidateYoloDatasetStructure(string rootPath, out string datasetType)
         {
             string[] splits = { "train", "valid", "test" };
             string[] imageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
+            datasetType = "Unknown";
+            bool foundNormal = false;
+            bool foundObb = false;
+            bool foundSegmentation = false;
 
             foreach (string split in splits)
             {
@@ -1161,17 +1300,61 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                         .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
                         .ToHashSet();
 
-                    if (imageNames.Except(labelNames).Any() || labelNames.Except(imageNames).Any())
+                    if (!imageNames.SetEquals(labelNames))
                         return false;
 
-                    if (imageNames.Count != labelNames.Count)
-                        return false;
+                    // Classify label format (sample up to 20 files for robustness)
+                    foreach (var file in labelFiles.Take(20))
+                    {
+                        var lines = File.ReadAllLines(file);
+                        foreach (var line in lines)
+                        {
+                            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                            if (parts.Length == 8)
+                                foundObb = true;
+                            else if (parts.Length == 5)
+                                foundNormal = true;
+                            else if (parts.Length > 8)
+                                foundSegmentation = true;
+                        }
+                    }
                 }
                 catch
                 {
                     return false;
                 }
             }
+
+            // Validate data.yaml
+            string yamlPath = System.IO.Path.Combine(rootPath, "data.yaml");
+            if (!File.Exists(yamlPath))
+                return false;
+
+            try
+            {
+                var lines = File.ReadAllLines(yamlPath);
+                bool hasNc = lines.Any(l => l.TrimStart().StartsWith("nc:"));
+                bool hasNames = lines.Any(l => l.TrimStart().StartsWith("names:"));
+                bool hasTaskSegmentation = lines.Any(l => l.TrimStart().StartsWith("task:") && l.ToLowerInvariant().Contains("segmentation"));
+                if (!hasNc || !hasNames)
+                    return false;
+                if (foundSegmentation && !hasTaskSegmentation)
+                    return false; // Segmentation should have task: segmentation
+            }
+            catch
+            {
+                return false;
+            }
+
+            // Set dataset type (priority: Segmentation > OBB > Normal)
+            if (foundSegmentation)
+                datasetType = "Segmentation";
+            else if (foundObb)
+                datasetType = "YOLO_OBB";
+            else if (foundNormal)
+                datasetType = "YOLO";
+            else
+                datasetType = "Unknown";
 
             return true;
         }
@@ -1295,15 +1478,21 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             var modelOptions = ExtractOptionsFromBlock(modelBlock);
             var trainingOptions = ExtractOptionsFromBlock(trainBlock);
 
-            // ✅ Resolve training mode directly from modelOptions grid
+            // Validate required options
+            if (datasetOptions.Count == 0 || modelOptions.Count == 0)
+            {
+                MessageBox.Show("❌ Missing dataset or model configuration.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TrainingStatusText.Text = "Training aborted due to missing configuration.";
+                TrainModelButton.IsEnabled = true;
+                return;
+            }
+
+            // Resolve training mode from model options
             string selectedMode = modelOptions.FirstOrDefault(opt => opt.Name == "Training mode")?.Value?.ToLower() ?? "scratch";
-            
-            // ✅ Inject training mode into trainingOptions
             trainingOptions.RemoveAll(opt => opt.Name == "Training Mode");
             trainingOptions.Add(new TrainingOption { Name = "Training Mode", Value = selectedMode });
-            
 
-            // ✅ Resolve Python path
+            // Resolve Python path
             string pythonPath;
             try
             {
@@ -1316,40 +1505,74 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 return;
             }
 
-            // ✅ Basic validation
-            if (datasetOptions.Count == 0 || modelOptions.Count == 0)
+            // Determine architecture and dataset type
+            string architecture = modelOptions.FirstOrDefault(opt => opt.Name == "Architecture")?.Value ?? "YOLOv8";
+            string datasetPath = datasetOptions.FirstOrDefault(opt => opt.Name == "Path")?.Value ?? "";
+            string detectedType = datasetType;
+
+            // Optionally re-validate datasetType for robustness
+            if (!string.IsNullOrEmpty(datasetPath))
             {
-                MessageBox.Show("❌ Missing dataset or model configuration.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                TrainingStatusText.Text = "Training aborted due to missing configuration.";
-                TrainModelButton.IsEnabled = true;
-                return;
+                ValidateYoloDatasetStructure(datasetPath, out detectedType);
             }
 
-            // ✅ Determine architecture
-            string architecture = modelOptions.FirstOrDefault(opt => opt.Name == "Architecture")?.Value ?? "YOLOv8";
-
+            // Start training in background
             Task.Run(() =>
             {
                 try
                 {
+                    bool trainingSuccess = false;
+
+                    // Dispatch to correct training logic
                     if (architecture == "YOLOv8")
                     {
-                        TrainingHelper.LaunchYOLOv8Training(datasetOptions, modelOptions, trainingOptions);
+                        if (detectedType == "Segmentation")
+                        {
+                            TrainingHelper.LaunchYOLOv8SegmentationTraining(datasetOptions, modelOptions, trainingOptions);
+                            trainingSuccess = true;
+                        }
+                        else if (detectedType == "YOLO_OBB")
+                        {
+                            TrainingHelper.LaunchYOLOv8OBBTraining(datasetOptions, modelOptions, trainingOptions);
+                            trainingSuccess = true;
+                        }
+                        else if (detectedType == "YOLO")
+                        {
+                            TrainingHelper.LaunchYOLOv8Training(datasetOptions, modelOptions, trainingOptions);
+                            trainingSuccess = true;
+                        }
                     }
                     else if (architecture == "YOLOv5")
                     {
-                        TrainingHelper.LaunchYOLOv5Training(datasetOptions, modelOptions, trainingOptions);
+                        if (detectedType == "YOLO_OBB")
+                        {
+                            TrainingHelper.LaunchYOLOv5OBBTraining(datasetOptions, modelOptions, trainingOptions);
+                            trainingSuccess = true;
+                        }
+                        else if (detectedType == "YOLO")
+                        {
+                            TrainingHelper.LaunchYOLOv5Training(datasetOptions, modelOptions, trainingOptions);
+                            trainingSuccess = true;
+                        }
                     }
                     else
                     {
                         string trainingCommand = BuildTrainingCommand(architecture, modelOptions, trainingOptions);
                         Console.WriteLine($"Executing: {trainingCommand}");
                         // TODO: Replace with actual training logic for other architectures
+                        trainingSuccess = true;
                     }
 
                     Dispatcher.Invoke(() =>
                     {
-                        TrainingStatusText.Text = $"✅ Training complete for {architecture}!";
+                        if (trainingSuccess)
+                        {
+                            TrainingStatusText.Text = $"✅ Training complete for {architecture} ({detectedType})!";
+                        }
+                        else
+                        {
+                            TrainingStatusText.Text = $"⚠️ Training logic not available for {architecture} ({detectedType}).";
+                        }
                         TrainModelButton.IsEnabled = true;
                     });
                 }
@@ -1366,9 +1589,26 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         }
         private string BuildTrainingCommand(string arch, List<TrainingOption> modelOpts, List<TrainingOption> trainOpts)
         {
-            var args = modelOpts.Concat(trainOpts)
-                .Select(opt => $"{opt.Name.Replace(" ", "").ToLower()}={opt.Value}");
-            return $"train_model --arch={arch} " + string.Join(" ", args);
+            // Combine and filter options, ensuring no duplicates and valid values
+            var allOpts = modelOpts.Concat(trainOpts)
+                .Where(opt => !string.IsNullOrWhiteSpace(opt.Name) && opt.Value != null)
+                .GroupBy(opt => opt.Name.Trim().ToLowerInvariant())
+                .Select(g => g.Last()); // Use the last occurrence if duplicate names
+
+            // Format arguments: key=value, keys are lowercased and spaces replaced with underscores
+            var args = allOpts
+                .Select(opt =>
+                {
+                    var key = opt.Name.Trim().ToLowerInvariant().Replace(" ", "_");
+                    var value = opt.Value?.Trim() ?? "";
+                    // Quote value if it contains spaces or special characters
+                    if (value.Contains(' ') || value.Contains('"'))
+                        value = $"\"{value.Replace("\"", "\\\"")}\"";
+                    return $"{key}={value}";
+                });
+
+            // Compose the command string
+            return $"train_model --arch=\"{arch}\" {string.Join(" ", args)}";
         }
 
         private List<TrainingOption> ExtractOptionsFromBlock(UIElement? block)
@@ -1425,6 +1665,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             return options;
         }
 
+        #region Python script
         private void ValidatePythonPath(string pythonPath)
         {
             if (!File.Exists(pythonPath))
@@ -1487,8 +1728,9 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 logCallback?.Invoke($"❌ Failed to run Python: {ex.Message}");
                 exitCallback?.Invoke(-1);
             }
-        }
-       
+        } 
+        #endregion
+
 
         // ✅ Utility: Show error with UI feedback
         private void ShowError(string messageBoxText, string statusText)
@@ -1520,7 +1762,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         {
             var folderDialog = new System.Windows.Forms.FolderBrowserDialog
             {
-                Description = "Select your YOLOv8 dataset folder",
+                Description = "Select your YOLOv8/YOLOv5/OBB/Segmentation dataset folder",
                 UseDescriptionForTitle = true,
                 ShowNewFolderButton = false
             };
@@ -1530,9 +1772,27 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 string datasetPath = folderDialog.SelectedPath;
                 AddOrSelectDataset(datasetPath);
 
+                // Run validation and UI update asynchronously
                 Task.Run(() =>
                 {
-                    bool isValid = ValidateYoloDatasetStructure(datasetPath);
+                    bool isValid;
+                    string detectedType;
+                    try
+                    {
+                        isValid = ValidateYoloDatasetStructure(datasetPath, out detectedType);
+                    }
+                    catch (Exception ex)
+                    {
+                        isValid = false;
+                        detectedType = "Unknown";
+                        Dispatcher.Invoke(() =>
+                        {
+                            MessageBox.Show($"Error validating dataset: {ex.Message}", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            TrainingStatusText.Text = "Dataset validation failed due to an error.";
+                        });
+                        return;
+                    }
+
                     Dispatcher.Invoke(() =>
                     {
                         if (!isValid)
@@ -1544,30 +1804,46 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                                 MessageBoxImage.Warning
                             );
                             TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
+                            return;
                         }
-                        else
+
+                        // Remove previous dataset block if it exists
+                        if (datasetBlock != null)
                         {
-                            // Remove previous dataset block if it exists
-                            if (datasetBlock != null)
-                            {
-                                TrainingCanvas.Children.Remove(datasetBlock);
-                                datasetBlock = null;
-                            }
-
-                            var detailsPanel = CreateDatasetDetailsGrid(datasetPath);
-                            datasetBlock = CreateBlock(detailsPanel, 10, 10, "Dataset");
-                            TrainingCanvas.Children.Add(datasetBlock);
-
-                            // Save state only after the block is added
-                            SaveBlockStates();
+                            TrainingCanvas.Children.Remove(datasetBlock);
+                            datasetBlock = null;
                         }
+
+                        var detailsPanel = CreateDatasetDetailsGrid(datasetPath);
+                        datasetBlock = CreateBlock(detailsPanel, 10, 10, "Dataset");
+                        TrainingCanvas.Children.Add(datasetBlock);
+
+                        // Show dataset type in status
+                        switch (detectedType)
+                        {
+                            case "Segmentation":
+                                TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
+                                break;
+                            case "YOLO_OBB":
+                                TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
+                                break;
+                            case "YOLO":
+                                TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
+                                break;
+                            default:
+                                TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
+                                break;
+                        }
+
+                        // Save state only after the block is added
+                        SaveBlockStates();
                     });
                 });
             }
         }
 
 
-    
+
 
         private void ProjectTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {

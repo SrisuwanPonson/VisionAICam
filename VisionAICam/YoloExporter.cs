@@ -9,24 +9,26 @@ namespace VisionAICam
     public enum YoloExportFormat
     {
         YoloV5,
-        YoloV8
+        YoloV8,
+        YoloV5_OBB,
+        YoloV8_OBB,
+        YoloV8_SEG,
     }
+
     public static class YoloExporter
     {
         public static void ExportWithSplit(
-        AnnotationProject project,
-        string outputFolder,
-        Func<string, Size> getImageSize,
-        double trainRatio = 0.7,
-        double valRatio = 0.2,
-        double testRatio = 0.1,
-        YoloExportFormat exportFormat = YoloExportFormat.YoloV8)
+            AnnotationProject project,
+            string outputFolder,
+            Func<string, Size> getImageSize,
+            double trainRatio = 0.7,
+            double valRatio = 0.2,
+            double testRatio = 0.1,
+            YoloExportFormat exportFormat = YoloExportFormat.YoloV8)
         {
             if (project == null || project.ImagePaths.Count == 0)
                 return;
-           
-            
-            // Clean and create output directory
+
             if (Directory.Exists(outputFolder))
             {
                 Directory.Delete(outputFolder, recursive: true);
@@ -39,19 +41,15 @@ namespace VisionAICam
             ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
             ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
 
-
-
-            //File.WriteAllLines(Path.Combine(outputFolder, "classes.txt"), project.ClassLabels);
             WriteDataYaml(outputFolder, project.ClassLabels, project.ProjectName);
         }
 
-
         private static void ExportSet(
-    AnnotationProject project,
-    List<string> imagePaths,
-    string setFolder,
-    Func<string, Size> getImageSize,
-    YoloExportFormat exportFormat)
+            AnnotationProject project,
+            List<string> imagePaths,
+            string setFolder,
+            Func<string, Size> getImageSize,
+            YoloExportFormat exportFormat)
         {
             var imagesFolder = Path.Combine(setFolder, "images");
             var labelsFolder = Path.Combine(setFolder, "labels");
@@ -62,9 +60,11 @@ namespace VisionAICam
                 imagePaths.Select(p => Path.GetFileName(p)),
                 StringComparer.OrdinalIgnoreCase);
 
+            var supportedTypes = GetSupportedAnnotationTypes(exportFormat);
+
             var annotations = project.Annotations
                 .Where(a => imageFileNames.Contains(a.ImageName))
-                .Where(a => a.AnnotationType == AnnotationType.Rectangle)
+                .Where(a => supportedTypes.Contains(a.AnnotationType))
                 .GroupBy(a => a.ImageName);
 
             foreach (var group in annotations)
@@ -78,13 +78,11 @@ namespace VisionAICam
                     .Where(line => !string.IsNullOrEmpty(line))
                     .ToList();
 
-                // Use the same name as the image, but with .txt extension
                 var imageFileName = Path.GetFileName(group.Key);
                 var labelFileName = Path.ChangeExtension(imageFileName, ".txt");
                 var labelFile = Path.Combine(labelsFolder, labelFileName);
                 File.WriteAllLines(labelFile, lines);
 
-                // Copy the image file to the image folder
                 var srcImagePath = project.ImagePaths.FirstOrDefault(p => Path.GetFileName(p) == imageFileName);
                 if (!string.IsNullOrEmpty(srcImagePath))
                 {
@@ -95,19 +93,29 @@ namespace VisionAICam
             }
         }
 
+        private static List<AnnotationType> GetSupportedAnnotationTypes(YoloExportFormat format)
+        {
+            return format switch
+            {
+                YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => new List<AnnotationType> { AnnotationType.Rectangle },
+                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon },
+                YoloExportFormat.YoloV8_SEG => new List<AnnotationType> { AnnotationType.Polygon, AnnotationType.FreePen },
+                _ => new List<AnnotationType>()
+            };
+        }
 
         private static void WriteDataYaml(string outputFolder, List<string> classLabels, string projectName)
         {
             var classNames = string.Join(", ", classLabels.Select(n => $"'{n}'"));
             var yaml = $@"
-train: ../train/image
-val: ../valid/image
-test: ../test/image
+train: ../train/images
+val: ../valid/images
+test: ../test/images
 
 nc: {classLabels.Count}
 names: [{classNames}]
 
-roboflow:
+
   workspace: 
   project: {projectName}
   version: 
@@ -116,11 +124,5 @@ roboflow:
 ";
             File.WriteAllText(Path.Combine(outputFolder, "data.yaml"), yaml.Trim());
         }
-
-
-
-
-
-
     }
 }
