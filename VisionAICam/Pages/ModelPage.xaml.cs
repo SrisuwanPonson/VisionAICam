@@ -68,6 +68,7 @@ namespace VisionAICam.Pages
         private string pretrainFolderPath;
         private int modelBlockAddCount = 0;
         private string datasetType = "Unknown";
+        TaskType desiredTaskType;
         public string PretrainFolderPath
         {
             get
@@ -208,6 +209,7 @@ namespace VisionAICam.Pages
          
             RestoreBlockStates();
 
+            PopulateProjectTypeComboBox();
         }
 
 
@@ -307,11 +309,23 @@ namespace VisionAICam.Pages
             return block;
         }
 
-        private UIElement CreateModelDetailGrid(List<TrainingOption> modelOptions, string blockLabel, Dictionary<string, string[]> optionSources)
+        private UIElement CreateModelDetailGrid(
+    List<TrainingOption> modelOptions,
+    string blockLabel,
+    Dictionary<string, string[]> optionSources)
         {
+            // 🧼 Filter out internal-use-only options
+            var visibleOptions = modelOptions
+                .Where(opt =>
+                    !string.Equals(opt.Name, "Input Size", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(opt.Name, "Backbone", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(opt.Name, "Pretrained Weights", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // 🧩 Create DataGrid for visible model options
             var modelGrid = new DataGrid
             {
-                ItemsSource = modelOptions,
+                ItemsSource = visibleOptions,
                 AutoGenerateColumns = false,
                 CanUserAddRows = false,
                 CanUserDeleteRows = false,
@@ -320,7 +334,7 @@ namespace VisionAICam.Pages
                 RowHeight = 28
             };
 
-            // Static column for option name
+            // 📌 Static column for option name
             modelGrid.Columns.Add(new DataGridTextColumn
             {
                 Header = "Model Option",
@@ -329,7 +343,7 @@ namespace VisionAICam.Pages
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star)
             });
 
-            // Dynamic column for value (ComboBox or TextBlock)
+            // 🎛️ Dynamic column for value (ComboBox or TextBlock)
             modelGrid.Columns.Add(new DataGridTemplateColumn
             {
                 Header = "Value",
@@ -337,8 +351,9 @@ namespace VisionAICam.Pages
                 CellTemplateSelector = new ModelOptionTemplateSelector(optionSources)
             });
 
-            // Layout panel
+            // 🧱 Compose layout panel
             var panel = new StackPanel();
+
             panel.Children.Add(new TextBlock
             {
                 Text = blockLabel,
@@ -348,14 +363,17 @@ namespace VisionAICam.Pages
                 Margin = new Thickness(0, 0, 0, 8),
                 HorizontalAlignment = HorizontalAlignment.Center
             });
+
             panel.Children.Add(new TextBlock
             {
                 Text = "Model Options",
                 Foreground = Brushes.LightGray,
                 FontWeight = FontWeights.SemiBold,
+                FontSize = 14,
                 Margin = new Thickness(0, 0, 0, 2),
-                FontSize = 14
+                HorizontalAlignment = HorizontalAlignment.Left
             });
+
             panel.Children.Add(modelGrid);
 
             return panel;
@@ -919,11 +937,18 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         new TrainingOption { Name = "Path", Value = datasetPath }
     };
 
-            // Attempt to parse data.yaml for YOLO format metadata
             string yamlPath = System.IO.Path.Combine(datasetPath, "data.yaml");
+            string jsonPath = System.IO.Path.Combine(datasetPath, "annotations.json");
+            string xmlDir = System.IO.Path.Combine(datasetPath, "Annotations");
+
+            string resolvedFormat = "unknown";
+
+            // 🔍 Detect format
             if (File.Exists(yamlPath))
             {
-                datasetOptions.Add(new TrainingOption { Name = "Format", Value = "YOLO" });
+                resolvedFormat = DetectYoloSubtype(datasetPath);
+                datasetOptions.Add(new TrainingOption { Name = "Format", Value = resolvedFormat });
+
                 try
                 {
                     var lines = File.ReadAllLines(yamlPath);
@@ -947,14 +972,28 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                     datasetOptions.Add(new TrainingOption { Name = "YAML Parse", Value = "Failed" });
                 }
             }
+            else if (File.Exists(jsonPath))
+            {
+                resolvedFormat = "normal";
+                datasetOptions.Add(new TrainingOption { Name = "Format", Value = resolvedFormat });
+                datasetOptions.Add(new TrainingOption { Name = "Num Classes", Value = "?" });
+                datasetOptions.Add(new TrainingOption { Name = "Class Names", Value = "?" });
+            }
+            else if (Directory.Exists(xmlDir))
+            {
+                resolvedFormat = "normal";
+                datasetOptions.Add(new TrainingOption { Name = "Format", Value = resolvedFormat });
+                datasetOptions.Add(new TrainingOption { Name = "Num Classes", Value = "?" });
+                datasetOptions.Add(new TrainingOption { Name = "Class Names", Value = "?" });
+            }
             else
             {
-                datasetOptions.Add(new TrainingOption { Name = "Format", Value = "Unknown" });
+                datasetOptions.Add(new TrainingOption { Name = "Format", Value = "unknown" });
                 datasetOptions.Add(new TrainingOption { Name = "Num Classes", Value = "?" });
                 datasetOptions.Add(new TrainingOption { Name = "Class Names", Value = "?" });
             }
 
-            // Collect split statistics
+            // 📊 Collect split statistics
             var splits = new[] { "train", "valid", "test" };
             var imageExts = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
             var datasetDetails = new List<TrainingOption>();
@@ -976,7 +1015,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 datasetDetails.Add(new TrainingOption { Name = $"{split} labels", Value = lblCount.ToString() });
             }
 
-            // Create labeled DataGrid for dataset options
+            // 🧾 Dataset Options Grid
             var optionsGrid = new DataGrid
             {
                 ItemsSource = datasetOptions,
@@ -1001,7 +1040,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star)
             });
 
-            // Create labeled DataGrid for split statistics
+            // 📊 Split Statistics Grid
             var statsGrid = new DataGrid
             {
                 ItemsSource = datasetDetails,
@@ -1026,7 +1065,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star)
             });
 
-            // Compose UI panel with headers and grids
+            // 🧱 Compose UI Panel
             var panel = new StackPanel();
 
             panel.Children.Add(new TextBlock
@@ -1063,6 +1102,23 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
             ModelArchComboBox.Text = ""; // Reset model selection if applicable
             return panel;
+        }
+
+        // 🧠 Format resolver for YOLO subtypes
+        private static string DetectYoloSubtype(string datasetPath)
+        {
+            string lblDir = System.IO.Path.Combine(datasetPath, "train", "labels");
+            if (!Directory.Exists(lblDir)) return "normal";
+
+            var sampleFile = Directory.GetFiles(lblDir, "*.txt").FirstOrDefault();
+            if (sampleFile == null) return "normal";
+
+            var lines = File.ReadAllLines(sampleFile);
+            if (lines.Any(l => l.Split(' ').Length == 9)) return "_obb";
+            if (lines.Any(l => l.Split(' ').Length == 5)) return "normal";
+            if (lines.Any(l => l.Split(' ').Length > 5)) return "seg";
+
+            return "normal";
         }
 
 
@@ -1269,8 +1325,10 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             string[] splits = { "train", "valid", "test" };
             string[] imageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
             datasetType = "Unknown";
+
             bool foundNormal = false;
-            bool foundObb = false;
+            bool foundObbV5 = false;
+            bool foundObbV8 = false;
             bool foundSegmentation = false;
 
             foreach (string split in splits)
@@ -1292,32 +1350,13 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                     if (imageFiles.Length == 0 || labelFiles.Length == 0)
                         return false;
 
-                    var imageNames = imageFiles
-                        .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
-                        .ToHashSet();
-
-                    var labelNames = labelFiles
-                        .Select(f => System.IO.Path.GetFileNameWithoutExtension(f))
-                        .ToHashSet();
+                    var imageNames = imageFiles.Select(f => System.IO.Path.GetFileNameWithoutExtension(f)).ToHashSet();
+                    var labelNames = labelFiles.Select(f => System.IO.Path.GetFileNameWithoutExtension(f)).ToHashSet();
 
                     if (!imageNames.SetEquals(labelNames))
                         return false;
 
-                    // Classify label format (sample up to 20 files for robustness)
-                    foreach (var file in labelFiles.Take(20))
-                    {
-                        var lines = File.ReadAllLines(file);
-                        foreach (var line in lines)
-                        {
-                            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-                            if (parts.Length == 8)
-                                foundObb = true;
-                            else if (parts.Length == 5)
-                                foundNormal = true;
-                            else if (parts.Length > 8)
-                                foundSegmentation = true;
-                        }
-                    }
+                    ClassifyLabelFormat(labelFiles, ref foundNormal, ref foundObbV5, ref foundObbV8, ref foundSegmentation);
                 }
                 catch
                 {
@@ -1325,32 +1364,35 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 }
             }
 
-            // Validate data.yaml
             string yamlPath = System.IO.Path.Combine(rootPath, "data.yaml");
             if (!File.Exists(yamlPath))
                 return false;
+            
+            //try
+            //{
+            //    // Get desired TaskType from ProjectTypeComboBox
+            //    desiredTaskType = TaskType.Detection; // Default fallback
+            //    if (ProjectTypeComboBox.SelectedItem is ComboBoxItem selectedItem && selectedItem.Tag is TaskType selectedTask)
+            //    {
+            //        desiredTaskType = selectedTask;
+            //    }
+            //}
+            //catch (Exception ex)
+            //{
+            //    MessageBox.Show(ex.Message);
+            //    throw;
+            //}
 
-            try
-            {
-                var lines = File.ReadAllLines(yamlPath);
-                bool hasNc = lines.Any(l => l.TrimStart().StartsWith("nc:"));
-                bool hasNames = lines.Any(l => l.TrimStart().StartsWith("names:"));
-                bool hasTaskSegmentation = lines.Any(l => l.TrimStart().StartsWith("task:") && l.ToLowerInvariant().Contains("segmentation"));
-                if (!hasNc || !hasNames)
-                    return false;
-                if (foundSegmentation && !hasTaskSegmentation)
-                    return false; // Segmentation should have task: segmentation
-            }
-            catch
-            {
+            if (!ValidateYaml(yamlPath, desiredTaskType))
                 return false;
-            }
 
-            // Set dataset type (priority: Segmentation > OBB > Normal)
+            // Priority: Segmentation > YOLOv8_OBB > YOLOv5_OBB > Normal
             if (foundSegmentation)
-                datasetType = "Segmentation";
-            else if (foundObb)
-                datasetType = "YOLO_OBB";
+                datasetType = "YOLOv8_SEG";
+            else if (foundObbV8)
+                datasetType = "YOLOv8_OBB";
+            else if (foundObbV5)
+                datasetType = "YOLOv5_OBB";
             else if (foundNormal)
                 datasetType = "YOLO";
             else
@@ -1358,7 +1400,75 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
             return true;
         }
+        private void ClassifyLabelFormat(string[] labelFiles, ref bool foundNormal, ref bool foundObbV5, ref bool foundObbV8, ref bool foundSegmentation)
+        {
+            foreach (var file in labelFiles.Take(20))
+            {
+                foreach (var line in File.ReadLines(file))
+                {
+                    var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 5)
+                        foundNormal = true;
+                    else if (parts.Length == 8)
+                        foundObbV5 = true;
+                    else if (parts.Length == 9)
+                        foundObbV8 = true;
+                    else if (parts.Length > 9)
+                        foundSegmentation = true;
+                }
+            }
+        }
 
+        private bool ValidateYaml(string yamlPath, TaskType expectedTask)
+        {
+            if (!File.Exists(yamlPath))
+                return false;
+
+            var lines = File.ReadAllLines(yamlPath);
+
+            // Check for required fields
+            bool hasNc = lines.Any(line => line.TrimStart().StartsWith("nc:"));
+            bool hasNames = lines.Any(line => line.TrimStart().StartsWith("names:"));
+            string taskLine = lines.FirstOrDefault(line => line.TrimStart().StartsWith("task:"));
+
+            if (!hasNc || !hasNames || string.IsNullOrWhiteSpace(taskLine))
+                return false;
+
+            // Extract and compare task type
+            string actualTask = taskLine.Split(':')[1].Trim().ToLower();
+            string actualTaskDescription = GetEnumDescription(ParseTaskType(actualTask)).ToLower();
+            string expectedTaskText = GetEnumDescription(expectedTask).ToLower();
+
+            return actualTaskDescription == expectedTaskText;
+        }
+
+        // Helper to parse string to TaskType enum
+        private TaskType ParseTaskType(string task)
+        {
+            return task switch
+            {
+                "detection" => TaskType.Detection,
+                "classification" => TaskType.Classification,
+                "obb" => TaskType.Obb,
+                "segmentation" => TaskType.Segmentation,
+                "keypoints" => TaskType.Keypoints,
+                _ => TaskType.Detection // fallback
+            };
+        }
+
+        // Add this helper if ToYamlString is not implemented for TaskType
+        private string GetTaskTypeYamlString(TaskType type)
+        {
+            return type switch
+            {
+                TaskType.Detection => "detection",
+                TaskType.Classification => "classification",
+                TaskType.Obb => "obb",
+                TaskType.Segmentation => "segmentation",
+                TaskType.Keypoints => "keypoints",
+                _ => type.ToString().ToLower()
+            };
+        }
         private List<(string ImagePath, string LabelPath, bool LabelExists)> SyncYoloAnnotations(string rootPath)
         {
             string imageDir = System.IO.Path.Combine(rootPath, "train", "images");
@@ -1473,26 +1583,26 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             TrainingStatusText.Text = "🚀 Training started...";
             TrainModelButton.IsEnabled = false;
 
-            // Extract selected options from UI blocks
+            // 🧩 Extract options from UI blocks
             var datasetOptions = ExtractOptionsFromBlock(datasetBlock);
             var modelOptions = ExtractOptionsFromBlock(modelBlock);
             var trainingOptions = ExtractOptionsFromBlock(trainBlock);
 
-            // Validate required options
-            if (datasetOptions.Count == 0 || modelOptions.Count == 0)
+            // ✅ Validate dataset options only
+            if (datasetOptions.Count == 0)
             {
-                MessageBox.Show("❌ Missing dataset or model configuration.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                TrainingStatusText.Text = "Training aborted due to missing configuration.";
+                MessageBox.Show("❌ Dataset configuration is missing.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TrainingStatusText.Text = "Training aborted due to missing dataset.";
                 TrainModelButton.IsEnabled = true;
                 return;
             }
 
-            // Resolve training mode from model options
+            // 🧠 Resolve training mode
             string selectedMode = modelOptions.FirstOrDefault(opt => opt.Name == "Training mode")?.Value?.ToLower() ?? "scratch";
             trainingOptions.RemoveAll(opt => opt.Name == "Training Mode");
             trainingOptions.Add(new TrainingOption { Name = "Training Mode", Value = selectedMode });
 
-            // Resolve Python path
+            // 🐍 Resolve Python path
             string pythonPath;
             try
             {
@@ -1500,79 +1610,43 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             }
             catch (FileNotFoundException ex)
             {
-                Dispatcher.Invoke(() => TrainingStatusText.Text = ex.Message);
-                TrainModelButton.IsEnabled = true;
+                Dispatcher.Invoke(() =>
+                {
+                    TrainingStatusText.Text = ex.Message;
+                    TrainModelButton.IsEnabled = true;
+                });
                 return;
             }
 
-            // Determine architecture and dataset type
+            // 🧬 Determine architecture and dataset format
             string architecture = modelOptions.FirstOrDefault(opt => opt.Name == "Architecture")?.Value ?? "YOLOv8";
             string datasetPath = datasetOptions.FirstOrDefault(opt => opt.Name == "Path")?.Value ?? "";
-            string detectedType = datasetType;
+            string format = datasetOptions.FirstOrDefault(opt => opt.Name == "Format")?.Value?.ToLower() ?? "normal";
 
-            // Optionally re-validate datasetType for robustness
-            if (!string.IsNullOrEmpty(datasetPath))
-            {
-                ValidateYoloDatasetStructure(datasetPath, out detectedType);
-            }
-
-            // Start training in background
+            // 🚦 Launch training in background
             Task.Run(() =>
             {
+                bool trainingSuccess = false;
+
                 try
                 {
-                    bool trainingSuccess = false;
+                    trainingSuccess = (architecture, format) switch
+                    {
+                        ("YOLOv8", "seg") => Launch(() => TrainingHelper.LaunchYOLOv8SegmentationTraining(datasetOptions, trainingOptions)),
+                        ("YOLOv8", "_obb") => Launch(() => TrainingHelper.LaunchYOLOv8OBBTraining(datasetOptions, trainingOptions)),
+                        ("YOLOv8", "normal") => Launch(() => TrainingHelper.LaunchYOLOv8Training(datasetOptions, trainingOptions)),
 
-                    // Dispatch to correct training logic
-                    if (architecture == "YOLOv8")
-                    {
-                        if (detectedType == "Segmentation")
-                        {
-                            TrainingHelper.LaunchYOLOv8SegmentationTraining(datasetOptions, modelOptions, trainingOptions);
-                            trainingSuccess = true;
-                        }
-                        else if (detectedType == "YOLO_OBB")
-                        {
-                            TrainingHelper.LaunchYOLOv8OBBTraining(datasetOptions, modelOptions, trainingOptions);
-                            trainingSuccess = true;
-                        }
-                        else if (detectedType == "YOLO")
-                        {
-                            TrainingHelper.LaunchYOLOv8Training(datasetOptions, modelOptions, trainingOptions);
-                            trainingSuccess = true;
-                        }
-                    }
-                    else if (architecture == "YOLOv5")
-                    {
-                        if (detectedType == "YOLO_OBB")
-                        {
-                            TrainingHelper.LaunchYOLOv5OBBTraining(datasetOptions, modelOptions, trainingOptions);
-                            trainingSuccess = true;
-                        }
-                        else if (detectedType == "YOLO")
-                        {
-                            TrainingHelper.LaunchYOLOv5Training(datasetOptions, modelOptions, trainingOptions);
-                            trainingSuccess = true;
-                        }
-                    }
-                    else
-                    {
-                        string trainingCommand = BuildTrainingCommand(architecture, modelOptions, trainingOptions);
-                        Console.WriteLine($"Executing: {trainingCommand}");
-                        // TODO: Replace with actual training logic for other architectures
-                        trainingSuccess = true;
-                    }
+                        ("YOLOv5", "_obb") => Launch(() => TrainingHelper.LaunchYOLOv5OBBTraining(datasetOptions, trainingOptions)),
+                        ("YOLOv5", "normal") => Launch(() => TrainingHelper.LaunchYOLOv5Training(datasetOptions, trainingOptions)),
+
+                        _ => LaunchFallback(architecture, modelOptions, trainingOptions)
+                    };
 
                     Dispatcher.Invoke(() =>
                     {
-                        if (trainingSuccess)
-                        {
-                            TrainingStatusText.Text = $"✅ Training complete for {architecture} ({detectedType})!";
-                        }
-                        else
-                        {
-                            TrainingStatusText.Text = $"⚠️ Training logic not available for {architecture} ({detectedType}).";
-                        }
+                        TrainingStatusText.Text = trainingSuccess
+                            ? $"✅ Training complete for {architecture} ({format})!"
+                            : $"⚠️ Training logic not available for {architecture} ({format}).";
                         TrainModelButton.IsEnabled = true;
                     });
                 }
@@ -1586,6 +1660,21 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                     });
                 }
             });
+
+            // 🔧 Local helpers
+            bool Launch(Action launchAction)
+            {
+                launchAction();
+                return true;
+            }
+
+            bool LaunchFallback(string arch, List<TrainingOption> model, List<TrainingOption> train)
+            {
+                string cmd = BuildTrainingCommand(arch, model, train);
+                Console.WriteLine($"Executing: {cmd}");
+                // TODO: Replace with actual fallback logic
+                return true;
+            }
         }
         private string BuildTrainingCommand(string arch, List<TrainingOption> modelOpts, List<TrainingOption> trainOpts)
         {
@@ -1844,10 +1933,36 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
 
 
-
         private void ProjectTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            if (ProjectTypeComboBox.SelectedItem is ComboBoxItem selectedItem && selectedItem.Tag is TaskType selectedTask)
+    {
+        desiredTaskType = selectedTask;
+        TrainingStatusText.Text = $"Project type set to: {GetEnumDescription(selectedTask)}";
+        SaveBlockStates();
+    }
+        }
 
+        private void PopulateProjectTypeComboBox()
+        {
+            ProjectTypeComboBox.Items.Clear();
+            foreach (TaskType t in Enum.GetValues(typeof(TaskType)))
+            {
+                var item = new ComboBoxItem { Content = GetEnumDescription(t), Tag = t };
+                ProjectTypeComboBox.Items.Add(item);
+            }
+            // Optionally select the first item
+            if (ProjectTypeComboBox.Items.Count > 0)
+                ProjectTypeComboBox.SelectedIndex = 0;
+        }
+
+        // Helper method to get enum description
+        private string GetEnumDescription(TaskType value)
+        {
+            var field = value.GetType().GetField(value.ToString());
+            var attr = Attribute.GetCustomAttribute(field, typeof(System.ComponentModel.DescriptionAttribute))
+                as System.ComponentModel.DescriptionAttribute;
+            return attr != null ? attr.Description : value.ToString();
         }
     }
 }

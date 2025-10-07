@@ -1,11 +1,45 @@
-﻿using System.IO;
-using System.Windows;
+﻿using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
 using System.Linq;
-using System.Collections.Generic;
+using System.Text;
+using System.Windows;
 using VisionAICam.Pages;
 
 namespace VisionAICam
 {
+    public enum TaskType
+    {
+        [Description("Object Detection (AABB)")]
+        Detection,
+
+        [Description("Object Detection (OBB)")]
+        Obb,
+
+        [Description("Image Classification")]
+        Classification,
+
+        [Description("Segmentation")]
+        Segmentation,
+
+        [Description("Keypoint Detection")]
+        Keypoints
+    }
+
+    public static class TaskTypeExtensions
+    {
+        public static string ToYamlString(this TaskType taskType)
+        {
+            return taskType switch
+            {
+                TaskType.Detection => "detection",
+                TaskType.Classification => "classification",
+                TaskType.Obb => "obb",
+                _ => "unknown"
+            };
+        }
+    }
+
     public enum YoloExportFormat
     {
         YoloV5,
@@ -40,8 +74,14 @@ namespace VisionAICam
             ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize, exportFormat);
             ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
             ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
-
-            WriteDataYaml(outputFolder, project.ClassLabels, project.ProjectName);
+            TaskType taskType = exportFormat switch
+            {
+                YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => TaskType.Detection,
+                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => TaskType.Obb,
+                YoloExportFormat.YoloV8_SEG => TaskType.Detection,
+                _ => TaskType.Detection
+            };
+            WriteDataYaml(outputFolder, project.ClassLabels, project.ProjectName,taskType);
         }
 
         private static void ExportSet(
@@ -104,25 +144,28 @@ namespace VisionAICam
             };
         }
 
-        private static void WriteDataYaml(string outputFolder, List<string> classLabels, string projectName)
+        private static void WriteDataYaml(string outputFolder, List<string> classLabels, string projectName, TaskType taskType)
         {
             var classNames = string.Join(", ", classLabels.Select(n => $"'{n}'"));
-            var yaml = $@"
-train: ../train/images
-val: ../valid/images
-test: ../test/images
+            var yamlBuilder = new StringBuilder();
 
-nc: {classLabels.Count}
-names: [{classNames}]
+            yamlBuilder.AppendLine("train: ../train/images");
+            yamlBuilder.AppendLine("val: ../valid/images");
+            yamlBuilder.AppendLine("test: ../test/images");
+            yamlBuilder.AppendLine();
+            yamlBuilder.AppendLine($"nc: {classLabels.Count}");
+            yamlBuilder.AppendLine($"names: [{classNames}]");
+            yamlBuilder.AppendLine($"task: {taskType.ToYamlString()}");
+            yamlBuilder.AppendLine();
+            yamlBuilder.AppendLine("workspace: ");
+            yamlBuilder.AppendLine($"project: {projectName ?? "UnnamedProject"}");
+            yamlBuilder.AppendLine("version: ");
+            yamlBuilder.AppendLine("license: ");
+            yamlBuilder.AppendLine("url: ");
 
-
-  workspace: 
-  project: {projectName}
-  version: 
-  license: 
-  url: 
-";
-            File.WriteAllText(Path.Combine(outputFolder, "data.yaml"), yaml.Trim());
+            var yamlPath = Path.Combine(outputFolder, "data.yaml");
+            File.WriteAllText(yamlPath, yamlBuilder.ToString().Trim());
         }
+
     }
 }
