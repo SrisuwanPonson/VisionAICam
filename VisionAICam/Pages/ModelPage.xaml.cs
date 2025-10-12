@@ -472,7 +472,7 @@ namespace VisionAICam.Pages
                         "yolov5n_obb", "yolov5s_obb", "yolov5m_obb",
                         "yolov5l_obb", "yolov5x_obb", "None"
                     }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    { "Training mode", new[] { "scratch" } }
                 };
 
                         options = new()
@@ -497,7 +497,7 @@ namespace VisionAICam.Pages
                         "yolov5n", "yolov5s", "yolov5m",
                         "yolov5l", "yolov5x", "None"
                     }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    { "Training mode", new[] { "scratch" } }
                 };
 
                         options = new()
@@ -525,7 +525,7 @@ namespace VisionAICam.Pages
                         "yolov8n_obb", "yolov8s_obb", "yolov8m_obb",
                         "yolov8l_obb", "yolov8x_obb", "None"
                     }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    { "Training mode", new[] { "scratch" } }
                 };
 
                         options = new()
@@ -550,7 +550,7 @@ namespace VisionAICam.Pages
                         "yolov8n_seg", "yolov8s_seg", "yolov8m_seg",
                         "yolov8l_seg", "yolov8x_seg", "None"
                     }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    { "Training mode", new[] { "scratch" } }
                 };
 
                         options = new()
@@ -575,7 +575,7 @@ namespace VisionAICam.Pages
                         "yolov8n", "yolov8s", "yolov8m",
                         "yolov8l", "yolov8x", "None"
                     }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    { "Training mode", new[] { "scratch" } }
                 };
 
                         options = new()
@@ -621,7 +621,7 @@ namespace VisionAICam.Pages
                 { "Input Size", new[] { "512", "640", "768" } },
                 { "Backbone", new[] { "ResNet50", "ResNet101" } },
                 { "Pretrained Weights", new[] { "COCO", "None" } },
-                { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                { "Training mode", new[] { "scratch" } }
             };
 
                     options = new()
@@ -645,7 +645,7 @@ namespace VisionAICam.Pages
                 { "Input Size", new[] { "512", "640", "768", "1024" } },
                 { "Backbone", new[] { "ResNet", "EfficientNet", "Custom" } },
                 { "Pretrained Weights", new[] { "Default", "None" } },
-                { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                { "Training mode", new[] { "scratch"} }
             };
 
                     options = new()
@@ -664,7 +664,7 @@ namespace VisionAICam.Pages
                 { "Architecture", new[] { "ONNX" } },
                 { "Input Size", new[] { "320", "416", "512", "640" } },
                 { "Opset", new[] { "11", "12", "13" } },
-                { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                { "Training mode", new[] { "scratch" } }
             };
 
                     options = new()
@@ -682,7 +682,7 @@ namespace VisionAICam.Pages
                 { "Architecture", new[] { "Custom" } },
                 { "Input Size", new[] { "320", "416", "512", "640", "768", "1280" } },
                 { "Backbone", new[] { "UserDefined" } },
-                { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                { "Training mode", new[] { "scratch"} }
             };
 
                     options = new()
@@ -1510,7 +1510,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             modelBlock = null;
             trainBlock = null;
             datasetBlock = new Border();
-            DatasetComboBox.Items.Clear();
+           
             ModelArchComboBox.SelectedIndex = -1;
         }
        
@@ -1542,7 +1542,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             modelBlock = null;
             trainBlock = null;
             datasetBlock = null;
-            DatasetComboBox.Items.Clear();
+           
             ModelArchComboBox.SelectedIndex = -1;
             TrainingStatusText.Text = "Project closed.";
             SaveBlockStates();
@@ -1835,16 +1835,16 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
         private void AddOrSelectDataset(string datasetPath)
         {
-            if (DatasetComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Content == datasetPath) is ComboBoxItem existing)
-            {
-                DatasetComboBox.SelectedItem = existing;
-            }
-            else
-            {
-                var item = new ComboBoxItem { Content = datasetPath };
-                DatasetComboBox.Items.Add(item);
-                DatasetComboBox.SelectedItem = item;
-            }
+            //if (DatasetComboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Content == datasetPath) is ComboBoxItem existing)
+            //{
+            //    DatasetComboBox.SelectedItem = existing;
+            //}
+            //else
+            //{
+            //    var item = new ComboBoxItem { Content = datasetPath };
+            //    DatasetComboBox.Items.Add(item);
+            //    DatasetComboBox.SelectedItem = item;
+            //}
         }
 
         private void BrowseDataset_Click(object sender, RoutedEventArgs e)
@@ -1953,7 +1953,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             }
             // Optionally select the first item
             if (ProjectTypeComboBox.Items.Count > 0)
-                ProjectTypeComboBox.SelectedIndex = 0;
+                ProjectTypeComboBox.SelectedIndex = 1;
         }
 
         // Helper method to get enum description

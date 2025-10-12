@@ -160,6 +160,7 @@ namespace VisionAICam.Pages
         public bool IsPaused => _isPaused;
 
         private bool _cameraLoopRunning = false;
+        private TaskType tasktype;
 
         private void CameraLoop()
         {
@@ -217,7 +218,7 @@ namespace VisionAICam.Pages
                     Thread.Sleep(30);
                 }
 
-                var firstDetections = GetDetectionsFromPython(mat);
+                var firstDetections = GetDetectionsFromPython(mat,out tasktype);
 
                 Dispatcher.BeginInvoke(() =>
                 {
@@ -226,7 +227,7 @@ namespace VisionAICam.Pages
                     var bitmapSource = mat.ToBitmapSource();
                     bitmapSource.Freeze();
                     ProductionImage.Source = bitmapSource;
-                    DrawBoundingBoxes(firstDetections);
+                    DrawBoundingBoxes(firstDetections,tasktype);
                 });
 
                 // Main loop
@@ -246,12 +247,13 @@ namespace VisionAICam.Pages
                             var bitmapSource = mat.ToBitmapSource();
                             bitmapSource.Freeze();
 
-                            var detections = GetDetectionsFromPython(mat);
+                            var detections = GetDetectionsFromPython(mat, out tasktype  
+                                );
 
                             Dispatcher.BeginInvoke(() =>
                             {
                                 ProductionImage.Source = bitmapSource;
-                                DrawBoundingBoxes(detections);
+                                DrawBoundingBoxes(detections,tasktype);
                                 FpsTextBlock.Text = "FPS: 30";
                                 InferenceTimeTextBlock.Text = "Inference: ~";
                             });
@@ -274,15 +276,16 @@ namespace VisionAICam.Pages
             }
         }
 
-        private DetectionResult[] GetDetectionsFromPython(Mat mat)
+        private DetectionResult[] GetDetectionsFromPython(Mat mat, out TaskType taskType, double confidenceThreshold = 0.3)
         {
+            taskType = TaskType.Detection;
             try
             {
                 Cv2.ImEncode(".jpg", mat, out var buf);
 
                 using (Py.GIL())
                 {
-                    string pythonScriptDir = AppDomain.CurrentDomain.BaseDirectory;
+                    string pythonScriptDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script");
                     dynamic sys = Py.Import("sys");
                     bool pathExists = false;
                     foreach (dynamic p in sys.path)
@@ -303,15 +306,28 @@ namespace VisionAICam.Pages
                     foreach (dynamic det in results)
                     {
                         var box = det["box"];
-                        if (box != null && box.Length() == 4)
+                        double confidence = (double)det["confidence"];
+                        if (box != null && box.Length() == 4 && confidence >= confidenceThreshold)
                         {
                             detections.Add(new DetectionResult
                             {
                                 ClassName = det["class"].ToString(),
-                                Confidence = (double)det["confidence"],
+                                Confidence = confidence,
                                 Box = $"{box[0]},{box[1]},{box[2]},{box[3]}"
                             });
                         }
+                    }
+                    if (detections.Count > 0)
+                    {
+                        var boxParts = detections[0].Box.Split(',');
+                        int boxCount = boxParts.Length;
+
+                        if (boxCount == 4)
+                            taskType = TaskType.Detection;
+                        else if (boxCount == 8)
+                            taskType = TaskType.Obb;
+                        else if (boxCount > 8)
+                            taskType = TaskType.Segmentation;
                     }
                     return detections.ToArray();
                 }
@@ -326,43 +342,50 @@ namespace VisionAICam.Pages
             return Array.Empty<DetectionResult>();
         }
 
-        private void DrawBoundingBoxes(IEnumerable<DetectionResult> detections)
+        private void DrawBoundingBoxes(IEnumerable<DetectionResult> detections,TaskType taskType)
         {
             BoundingBoxCanvas.Children.Clear();
 
-            foreach (var det in detections)
+            if (taskType==TaskType.Detection)
             {
-                var parts = det.Box.Split(',');
-                if (parts.Length == 4 &&
-                    double.TryParse(parts[0], out double x1) &&
-                    double.TryParse(parts[1], out double y1) &&
-                    double.TryParse(parts[2], out double x2) &&
-                    double.TryParse(parts[3], out double y2))
+                foreach (var det in detections)
                 {
-                    var rect = new Rectangle
+                    var parts = det.Box.Split(',');
+                    if (parts.Length == 4 &&
+                        double.TryParse(parts[0], out double x1) &&
+                        double.TryParse(parts[1], out double y1) &&
+                        double.TryParse(parts[2], out double x2) &&
+                        double.TryParse(parts[3], out double y2))
                     {
-                        Stroke = Brushes.Red,
-                        StrokeThickness = 2,
-                        Width = Math.Abs(x2 - x1),
-                        Height = Math.Abs(y2 - y1),
-                        Fill = Brushes.Transparent
-                    };
-                    Canvas.SetLeft(rect, x1);
-                    Canvas.SetTop(rect, y1);
-                    BoundingBoxCanvas.Children.Add(rect);
+                        var rect = new Rectangle
+                        {
+                            Stroke = Brushes.Red,
+                            StrokeThickness = 2,
+                            Width = Math.Abs(x2 - x1),
+                            Height = Math.Abs(y2 - y1),
+                            Fill = Brushes.Transparent
+                        };
+                        Canvas.SetLeft(rect, x1);
+                        Canvas.SetTop(rect, y1);
+                        BoundingBoxCanvas.Children.Add(rect);
 
-                    var label = new TextBlock
-                    {
-                        Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                        Foreground = Brushes.Yellow,
-                        Background = Brushes.Black,
-                        FontSize = 12,
-                        Padding = new Thickness(2, 0, 2, 0)
-                    };
-                    Canvas.SetLeft(label, x1 + 2);
-                    Canvas.SetTop(label, y1 - 18);
-                    BoundingBoxCanvas.Children.Add(label);
-                }
+                        var label = new TextBlock
+                        {
+                            Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
+                            Foreground = Brushes.Yellow,
+                            Background = Brushes.Black,
+                            FontSize = 12,
+                            Padding = new Thickness(2, 0, 2, 0)
+                        };
+                        Canvas.SetLeft(label, x1 + 2);
+                        Canvas.SetTop(label, y1 - 18);
+                        BoundingBoxCanvas.Children.Add(label);
+                    }
+                } 
+            }
+            else if (taskType==TaskType.Obb)
+            {
+              
             }
         }
 
@@ -374,6 +397,21 @@ namespace VisionAICam.Pages
         private void SnapshotButton_Click(object sender, RoutedEventArgs e)
         {
             // TODO: Implement snapshot logic
+        }
+
+        private void ObbRadio_Checked(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void AabbRadio_Checked(object sender, RoutedEventArgs e)
+        {
+
+        }
+
+        private void SegmentationRadio_Checked(object sender, RoutedEventArgs e)
+        {
+
         }
     }
 }

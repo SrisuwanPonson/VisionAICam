@@ -10,7 +10,6 @@
                           ShadowDepth="4"
                           Opacity="0.1"
                           BlurRadius="6"/>
-
         <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Color="#F5F5F5" Offset="0"/>
             <GradientStop Color="#E0E0E0" Offset="1"/>
@@ -40,7 +39,9 @@
                             BorderThickness="1"
                             CornerRadius="10"
                             Padding="4">
+                        <!-- Use a Grid to layer elements -->
                         <Grid>
+                            <!-- Camera image and canvas -->
                             <Image x:Name="ProductionImage"
                                    Width="640" Height="480"
                                    Stretch="None"
@@ -49,6 +50,7 @@
                             <Canvas x:Name="BoundingBoxCanvas"
                                     Width="640" Height="480"
                                     IsHitTestVisible="False"/>
+                            <!-- Loading overlay -->
                             <Grid x:Name="LoadingOverlay"
                                   Background="#80D0D7DE"
                                   Visibility="Collapsed"
@@ -71,6 +73,40 @@
                                     </StackPanel>
                                 </Border>
                             </Grid>
+                            <!-- Model Selection Overlay: ensure this is last for topmost rendering -->
+                            <Border Width="496"
+                                    Padding="12"
+                                    Background="#F5F5F5"
+                                    BorderBrush="#D0D7DE"
+                                    BorderThickness="1"
+                                    CornerRadius="8"
+                                    Effect="{StaticResource PanelShadow}"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Top"
+                                    Margin="0,12,0,0">
+                                <StackPanel>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                        <RadioButton x:Name="AabbRadio"
+                                                     Content="Object Detection (AABB)"
+                                                     FontSize="13"
+                                                     Margin="0,4,12,4"
+                                                     GroupName="ModelType"
+                                                     ToolTip="Axis-aligned bounding box detection. / ตรวจจับวัตถุแบบกรอบสี่เหลี่ยม" Checked="AabbRadio_Checked"/>
+                                        <RadioButton x:Name="ObbRadio"
+                                                     Content="Object Detection (OBB)"
+                                                     FontSize="13"
+                                                     Margin="0,4,12,4"
+                                                     GroupName="ModelType"
+                                                     ToolTip="Oriented bounding box detection. / ตรวจจับวัตถุแบบกรอบหมุนได้" Checked="ObbRadio_Checked"/>
+                                        <RadioButton x:Name="SegmentationRadio"
+                                                     Content="Segmentation"
+                                                     FontSize="13"
+                                                     Margin="0,4,0,4"
+                                                     GroupName="ModelType"
+                                                     ToolTip="Pixel-level segmentation. / การแบ่งส่วนภาพระดับพิกเซล" Checked="SegmentationRadio_Checked"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                         </Grid>
                     </Border>
 

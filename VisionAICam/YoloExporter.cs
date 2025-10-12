@@ -70,10 +70,6 @@ namespace VisionAICam
             Directory.CreateDirectory(outputFolder);
 
             var (train, val, test) = DatasetSplitter.Split(project.ImagePaths, trainRatio, valRatio, testRatio);
-
-            ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize, exportFormat);
-            ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
-            ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
             TaskType taskType = exportFormat switch
             {
                 YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => TaskType.Detection,
@@ -81,7 +77,80 @@ namespace VisionAICam
                 YoloExportFormat.YoloV8_SEG => TaskType.Detection,
                 _ => TaskType.Detection
             };
+
+            // if ( annotations type=polygon and tasktype=obb convert rotated box before export)  
+            if ((exportFormat == YoloExportFormat.YoloV5_OBB || exportFormat == YoloExportFormat.YoloV8_OBB))
+            {
+                for (int i = 0; i < project.Annotations.Count; i++)
+                {
+                    var ann = project.Annotations[i];
+                    if (ann.AnnotationType == AnnotationType.Polygon)
+                    {
+                        var rotatedBox = ConvertPolygonToRotatedBox(ann.Points);
+                        if (rotatedBox != null)
+                        {
+                            project.Annotations[i] = new AnnotationRecord
+                            {
+                                ImageName = ann.ImageName,
+                                Label = ann.Label,
+                                AnnotationType = AnnotationType.RotatedBox,
+                                Points = rotatedBox
+                            };
+                        }
+                    }
+                }
+            }
+
+            ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize, exportFormat);
+            ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
+            ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
+          
             WriteDataYaml(outputFolder, project.ClassLabels, project.ProjectName,taskType);
+        }
+
+        /// <summary>
+        /// Converts a polygon to a rotated rectangle (OBB) represented as 4 points.
+        /// </summary>
+        // This is a simplified placeholder. For production, use a proper minimum-area rectangle algorithm.
+        private static List<Point>? ConvertPolygonToRotatedBox(List<Point> polygon)
+        {
+            if (polygon == null || polygon.Count < 3)
+                return null;
+
+            // TODO: Implement minimum-area rectangle (rotating calipers or similar).
+            // For now, return axis-aligned bounding box as fallback.
+            double minX = polygon.Min(p => p.X);
+            double minY = polygon.Min(p => p.Y);
+            double maxX = polygon.Max(p => p.X);
+            double maxY = polygon.Max(p => p.Y);
+
+            return new List<Point>
+            {
+                new Point(minX, minY),
+                new Point(maxX, minY),
+                new Point(maxX, maxY),
+                new Point(minX, maxY)
+            };
+        }
+
+        public static List<float>? ConvertPolygonToObbData(List<Point> polygon)
+        {
+            if (polygon == null || polygon.Count < 3)
+                return null;
+
+            // Convert WPF Point to OpenCvSharp.Point2f and scale for precision
+            var points = polygon.Select(p => new OpenCvSharp.Point2f((float)p.X * 1000f, (float)p.Y * 1000f)).ToArray();
+            var rect = OpenCvSharp.Cv2.MinAreaRect(points);
+            var box = rect.Points(); // 4 points in consistent order
+
+            // Convert back to float and scale down, flatten to [x1, y1, ..., x4, y4]
+            var obbData = new List<float>(8);
+            foreach (var p in box)
+            {
+                obbData.Add(p.X / 1000f);
+                obbData.Add(p.Y / 1000f);
+            }
+            return obbData;
         }
 
         private static void ExportSet(
@@ -138,7 +207,7 @@ namespace VisionAICam
             return format switch
             {
                 YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => new List<AnnotationType> { AnnotationType.Rectangle },
-                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon },
+                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon, AnnotationType.RotatedBox },
                 YoloExportFormat.YoloV8_SEG => new List<AnnotationType> { AnnotationType.Polygon, AnnotationType.FreePen },
                 _ => new List<AnnotationType>()
             };
