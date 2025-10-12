@@ -11,9 +11,9 @@ namespace VisionAICam.Utilities
     public static class TrainingHelper
     {
         internal static void LaunchYOLOv8Training(
-     List<TrainingOption> datasetOptions,
-     List<TrainingOption> trainingOptions,
-     Action<string> updateStatus = null)
+    List<TrainingOption> datasetOptions,
+    List<TrainingOption> trainingOptions,
+    Action<string> updateStatus = null)
         {
             updateStatus?.Invoke("🔍 Validating training configuration...");
 
@@ -44,7 +44,8 @@ namespace VisionAICam.Utilities
             string pretrainedWeights = GetOptionValue(trainingOptions, "Pretrained Weights");
 
             // Internal defaults
-            string inputSize = "640";
+            string inputWidth = "640";
+            string inputHeight = "480";
             string backbone = "yolov8n";
             string modelScale = "n";
 
@@ -72,13 +73,12 @@ namespace VisionAICam.Utilities
             var argsList = new List<string>
     {
         $"--data \"{datasetYamlPath}\"",
-        $"--imgsz \"{inputSize}\"",
+        $"--imgsz {inputWidth} {inputHeight}", // ✅ FIXED: no quotes
         $"--backbone \"{backbone}\"",
-        $"--epochs \"{epochs}\"",
-        $"--batch \"{batchSize}\"",
-        $"--lr \"{lr}\"",
+        $"--epochs {epochs}",
+        $"--batch {batchSize}",
+        $"--lr {lr}",
         $"--opt \"{optimizer}\"",
-        $"--sched \"{scheduler}\"",
         $"--modelSaveDir \"{modelDir}\"",
         $"--Log_dir \"{logDir}\"",
         $"--name \"{expName}\"",
@@ -130,6 +130,7 @@ namespace VisionAICam.Utilities
 
             string fullCommand = $"\"{pythonPath}\" \"{scriptPath}\" {args}";
             updateStatus?.Invoke("🚀 Launching training script...");
+            updateStatus?.Invoke($"🧪 Command: {fullCommand}");
 
             var startInfo = new ProcessStartInfo
             {
