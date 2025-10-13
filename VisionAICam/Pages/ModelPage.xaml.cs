@@ -1110,13 +1110,23 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             string lblDir = System.IO.Path.Combine(datasetPath, "train", "labels");
             if (!Directory.Exists(lblDir)) return "normal";
 
-            var sampleFile = Directory.GetFiles(lblDir, "*.txt").FirstOrDefault();
-            if (sampleFile == null) return "normal";
+            var labelFiles = Directory.GetFiles(lblDir, "*.txt");
+            if (labelFiles.Length == 0) return "normal";
 
-            var lines = File.ReadAllLines(sampleFile);
-            if (lines.Any(l => l.Split(' ').Length == 9)) return "_obb";
-            if (lines.Any(l => l.Split(' ').Length == 5)) return "normal";
-            if (lines.Any(l => l.Split(' ').Length > 5)) return "seg";
+            foreach (var file in labelFiles)
+            {
+                var lines = File.ReadAllLines(file);
+
+                foreach (var line in lines)
+                {
+                    var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    int count = tokens.Length;
+
+                    if (count == 6) return "_obb";         // YOLOv8 OBB: cx cy w h angle
+                    if (count > 6) return "seg";           // Segmentation: x1 y1 x2 y2 ...
+                    if (count == 5) return "normal";       // Normal: cx cy w h
+                }
+            }
 
             return "normal";
         }
@@ -1634,6 +1644,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                     {
                         ("YOLOv8", "seg") => Launch(() => TrainingHelper.LaunchYOLOv8SegmentationTraining(datasetOptions, trainingOptions)),
                         ("YOLOv8", "_obb") => Launch(() => TrainingHelper.LaunchYOLOv8OBBTraining(datasetOptions, trainingOptions)),
+                        
                         ("YOLOv8", "normal") => Launch(() => TrainingHelper.LaunchYOLOv8Training(datasetOptions, trainingOptions)),
 
                         ("YOLOv5", "_obb") => Launch(() => TrainingHelper.LaunchYOLOv5OBBTraining(datasetOptions, trainingOptions)),

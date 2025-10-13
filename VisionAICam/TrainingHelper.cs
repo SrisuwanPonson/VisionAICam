@@ -487,10 +487,7 @@ namespace VisionAICam.Utilities
         }
 
 
-        internal static void LaunchYOLOv8OBBTraining(
-    List<TrainingOption> datasetOptions,
-    List<TrainingOption> trainingOptions,
-    Action<string> updateStatus = null)
+        internal static void LaunchYOLOv8OBBTraining(List<TrainingOption> datasetOptions,List<TrainingOption> trainingOptions,Action<string> updateStatus = null)
         {
             updateStatus?.Invoke("🔍 Validating OBB training configuration...");
 
@@ -513,18 +510,19 @@ namespace VisionAICam.Utilities
 
             // 📦 Extract training parameters
             string expName = GetOptionValue(trainingOptions, "Experiment Name") ?? $"exp_{DateTime.Now:yyyyMMdd_HHmmss}";
-            string trainingMode = GetOptionValue(trainingOptions, "Training Mode")?.ToLower() ?? "scratch";
+            //string trainingMode = GetOptionValue(trainingOptions, "Training Mode")?.ToLower() ?? "scratch";
             string epochs = GetOptionValue(trainingOptions, "Epochs") ?? "50";
             string batchSize = GetOptionValue(trainingOptions, "Batch Size") ?? "16";
             string lr = GetOptionValue(trainingOptions, "Learning Rate") ?? "0.001";
             string optimizer = GetOptionValue(trainingOptions, "Optimizer") ?? "Adam";
             string scheduler = GetOptionValue(trainingOptions, "Scheduler") ?? "StepLR";
             string pretrainedWeights = GetOptionValue(trainingOptions, "Pretrained Weights");
-
-            // 🔧 Internal defaults
-            string inputSize = "640";
-            string backbone = "yolov8n-obb";
             string modelScale = GetOptionValue(trainingOptions, "Variant")?.ToLower() ?? "n";
+            
+            // 🔧 Internal defaults
+            string inputWidth = "640";
+            string inputHeight = "480";
+            string backbone = $"yolov8{modelScale}-obb.pt";
 
             // 📁 Resolve paths
             string baseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
@@ -550,45 +548,24 @@ namespace VisionAICam.Utilities
             var argsList = new List<string>
     {
         $"--data \"{datasetYamlPath}\"",
-        $"--imgsz \"{inputSize}\"",
+        $"--imgsz {inputWidth} {inputHeight}",
         $"--backbone \"{backbone}\"",
         $"--epochs \"{epochs}\"",
         $"--batch \"{batchSize}\"",
         $"--lr \"{lr}\"",
         $"--opt \"{optimizer}\"",
-        $"--sched \"{scheduler}\"",
         $"--modelSaveDir \"{modelDir}\"",
         $"--Log_dir \"{logDir}\"",
         $"--name \"{expName}\"",
         $"--base_dir \"{baseDir}\"",
         $"--pretrain_dir \"{pretrainDir}\"",
         $"--results_dir \"{resultDir}\"",
-        $"--mode \"{trainingMode}\""
+       
+        $"--weights \"{pretrainedWeights}\"" // ✅ Added here
+
     };
 
-            // 🧠 Handle training mode
-            if (trainingMode == "scratch")
-            {
-                string cfgPath = Path.Combine(pretrainDir, "yolov8-obb.yaml");
-                argsList.Add($"--cfg \"{cfgPath}\"");
-                argsList.Add($"--model \"{modelScale}\"");
-                updateStatus?.Invoke($"🧼 Scratch mode selected. Using scale: {modelScale}");
-            }
-            else if (trainingMode == "topup" || trainingMode == "benchmark")
-            {
-                if (string.IsNullOrWhiteSpace(pretrainedWeights) || !File.Exists(pretrainedWeights))
-                {
-                    ShowError("❌ Pretrained weights file is missing or invalid.", $"Training aborted for mode: {trainingMode}.", updateStatus);
-                    return;
-                }
-                argsList.Add($"--weights \"{pretrainedWeights}\"");
-                updateStatus?.Invoke($"🔁 {trainingMode.ToUpper()} mode selected. Using pretrained weights...");
-            }
-            else
-            {
-                ShowError($"❌ Unknown training mode: {trainingMode}", "Training aborted due to invalid mode.", updateStatus);
-                return;
-            }
+            
 
             string args = string.Join(" ", argsList);
 
