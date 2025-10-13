@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Ookii.Dialogs.Wpf;
 
+
 namespace VisionAICam.Pages
 {
     public class ShapeMetadata
@@ -48,7 +49,7 @@ namespace VisionAICam.Pages
         private string? _currentImagePath;
 
         private bool _isFullScreen = false;
-
+       
         private enum DrawingMode { FreePen, Rectangle, Polygon }
         private DrawingMode _currentDrawingMode = DrawingMode.Rectangle;
 
@@ -87,7 +88,8 @@ namespace VisionAICam.Pages
             {
                 this.Focus();
                 SetStatus("Ready");
-
+                Logger.Instance.LogInfo("DataSetPage loaded.");
+                
                 if (ProjectSession.CurrentProject != null)
                 {
                     _currentProject = ProjectSession.CurrentProject;
@@ -1369,7 +1371,22 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     dialog.SelectedPath,
                     $"Yolo8OBBExport_{DateTime.Now:yyyyMMdd_HHmmss}"
                 );
-
+                _currentProject=Convert2RotatedBox(_currentProject);// this fuction convert all box annotation to rotated box annotation(convert rectangle or polygon to rotated box)
+              
+                Logger.Instance.LogInfo("Example OBB label structure: Xcenter,Ycenter,Width,Height,Angle(degree)");
+                for (int i = 0; i < Math.Min(5, _currentProject.Annotations.Count); i++)
+                {
+                    var a = _currentProject.Annotations[i];
+                    if (a.AnnotationType == AnnotationType.RotatedBox && a.Points.Count >= 3)
+                    {
+                        var cx = a.Points[0].X;
+                        var cy = a.Points[0].Y;
+                        var w = a.Points[1].X;
+                        var h = a.Points[1].Y;
+                        var angle = a.Points[2].X;
+                        Logger.Instance.LogInfo($"Label: {a.Label}, OBB: {cx},{cy},{w},{h},{angle}");
+                    }
+                }
                 YoloExporter.ExportWithSplit(
                     _currentProject,
                     outputFolder,
@@ -1442,6 +1459,123 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             {
                 SetStatus("YOLOv8_SEG export canceled.");
             }
+        }
+        // Converts all rectangle or polygon annotations in the project to rotated box annotations.
+        private AnnotationProject Convert2RotatedBox(AnnotationProject project)
+        {
+            if (project == null) return null;
+
+            var rotatedAnnotations = new List<AnnotationRecord>();
+
+            foreach (var ann in project.Annotations)
+            {
+                if (ann.AnnotationType == AnnotationType.Rectangle && ann.Points.Count == 2)
+                {
+                    var p0 = ann.Points[0];
+                    var p1 = ann.Points[1];
+
+                    double x1 = Math.Min(p0.X, p1.X);
+                    double y1 = Math.Min(p0.Y, p1.Y);
+                    double x2 = Math.Max(p0.X, p1.X);
+                    double y2 = Math.Max(p0.Y, p1.Y);
+
+                    double cx = (x1 + x2) / 2.0;
+                    double cy = (y1 + y2) / 2.0;
+                    double w = Math.Abs(x2 - x1);
+                    double h = Math.Abs(y2 - y1);
+                    double angle = 0.0;
+
+                    var corners = GetRotatedCorners(cx, cy, w, h, angle);
+
+                    rotatedAnnotations.Add(new AnnotationRecord
+                    {
+                        ImageName = ann.ImageName,
+                        Label = ann.Label,
+                        AnnotationType = AnnotationType.RotatedBox,
+                        Points = corners
+                    });
+                }
+                else if (ann.AnnotationType == AnnotationType.Polygon && ann.Points.Count > 2)
+                {
+                    var rect = GetMinAreaRect(ann.Points);
+                    double angle = rect.Angle;
+                    //while (angle > 90.0) angle -= 180.0;
+                    //while (angle < -90.0) angle += 180.0;
+
+                    var corners = GetRotatedCorners(rect.Center.X, rect.Center.Y, rect.Size.Width, rect.Size.Height, rect.Angle);
+
+                    rotatedAnnotations.Add(new AnnotationRecord
+                    {
+                        ImageName = ann.ImageName,
+                        Label = ann.Label,
+                        AnnotationType = AnnotationType.RotatedBox,
+                        Points = corners
+                    });
+                }
+                else
+                {
+                    rotatedAnnotations.Add(ann);
+                }
+            }
+
+            return new AnnotationProject
+            {
+                ProjectName = project.ProjectName,
+                ImagePaths = project.ImagePaths,
+                ClassLabels = project.ClassLabels,
+                Annotations = rotatedAnnotations,
+                SelectedImageIndex = project.SelectedImageIndex
+            };
+        }
+
+        // Helper struct for minimum area rectangle
+        private struct MinAreaRect
+        {
+            public Point Center;
+            public Size Size;
+            public double Angle;
+        }
+
+        // Fit minimum area rectangle to a set of points (simple approximation)
+        private MinAreaRect GetMinAreaRect(List<Point> points)
+        {
+            // Use bounding box as a simple approximation
+            double minX = points.Min(p => p.X);
+            double minY = points.Min(p => p.Y);
+            double maxX = points.Max(p => p.X);
+            double maxY = points.Max(p => p.Y);
+
+            var center = new Point((minX + maxX) / 2.0, (minY + maxY) / 2.0);
+            var size = new Size(Math.Abs(maxX - minX), Math.Abs(maxY - minY));
+            double angle = 0.0; // No rotation for bounding box
+
+            return new MinAreaRect
+            {
+                Center = center,
+                Size = size,
+                Angle = angle
+            };
+        }
+        private List<Point> GetRotatedCorners(double cx, double cy, double w, double h, double angleDegrees)
+        {
+            double angle = angleDegrees * Math.PI / 180.0;
+            double cosA = Math.Cos(angle);
+            double sinA = Math.Sin(angle);
+
+            double w2 = w / 2.0;
+            double h2 = h / 2.0;
+
+            var corners = new List<Point>
+            {
+                new Point(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
+                new Point(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
+                new Point(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
+                new Point(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
+            };
+
+
+
+            return corners;
         }
         private void ViewHelp_Click(object sender, RoutedEventArgs e)
         {

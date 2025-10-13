@@ -74,26 +74,37 @@ namespace VisionAICam
                         double widthNorm = width / imgW;
                         double heightNorm = height / imgH;
 
-                        return $"{classId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6}";
+                        return format == YoloExportFormat.YoloV8_OBB
+                            ? $"{classId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6} 0.000000"
+                            : $"{classId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6}";
                     }
-                case AnnotationType.RotatedBox when Points.Count == 4:
+
+                case AnnotationType.RotatedBox when Points.Count >= 3:
                     {
-                        // YOLO OBB: <class_id> x1 y1 x2 y2 x3 y3 x4 y4 (normalized)
-                        var normPoints = Points.Select(p => $"{(p.X / imgW):F6} {(p.Y / imgH):F6}");
-                        return $"{classId} {string.Join(" ", normPoints)}";
+                        var center = Points[0];
+                        var size = Points[1];
+                        var anglePoint = Points[2];
+
+                        double cx = center.X / imgW;
+                        double cy = center.Y / imgH;
+                        double w = size.X / imgW;
+                        double h = size.Y / imgH;
+                        double angle = anglePoint.X; // already in degrees
+
+                        while (angle > 180.0) angle -= 360.0;
+                        while (angle < -180.0) angle += 360.0;
+
+
+                        return $"{classId} {cx:F6} {cy:F6} {w:F6} {h:F6} {angle:F6}";
                     }
+
                 case AnnotationType.Polygon when Points.Count >= 3:
-                    {
-                        // YOLO Segmentation: <class_id> x1 y1 x2 y2 ... xn yn (normalized)
-                        var normPoints = Points.Select(p => $"{(p.X / imgW):F6} {(p.Y / imgH):F6}");
-                        return $"{classId} {string.Join(" ", normPoints)}";
-                    }
                 case AnnotationType.FreePen when Points.Count >= 2:
                     {
-                        // Treat freehand as segmentation
                         var normPoints = Points.Select(p => $"{(p.X / imgW):F6} {(p.Y / imgH):F6}");
                         return $"{classId} {string.Join(" ", normPoints)}";
                     }
+
                 default:
                     return string.Empty;
             }

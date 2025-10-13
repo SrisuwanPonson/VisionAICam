@@ -101,6 +101,7 @@ namespace VisionAICam
                 StringComparer.OrdinalIgnoreCase);
 
             var supportedTypes = GetSupportedAnnotationTypes(exportFormat);
+            Logger.Instance.LogInfo($"{supportedTypes}");
 
             var annotations = project.Annotations
                 .Where(a => imageFileNames.Contains(a.ImageName))
@@ -138,7 +139,7 @@ namespace VisionAICam
             return format switch
             {
                 YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => new List<AnnotationType> { AnnotationType.Rectangle },
-                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon },
+                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon,AnnotationType.RotatedBox },
                 YoloExportFormat.YoloV8_SEG => new List<AnnotationType> { AnnotationType.Polygon, AnnotationType.FreePen },
                 _ => new List<AnnotationType>()
             };
