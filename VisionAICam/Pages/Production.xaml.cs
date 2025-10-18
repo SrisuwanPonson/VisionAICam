@@ -12,6 +12,8 @@ using VisionAICam;
 using Python.Runtime;
 using System.Diagnostics;
 
+
+
 namespace VisionAICam.Pages
 {
     public class DetectionResult
@@ -20,8 +22,9 @@ namespace VisionAICam.Pages
         public string ClassName { get; set; } = "";
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
-        
-      
+        public string Task { get; set; } = ""; // "detect" or "obb"
+
+
     }
 
     public partial class Production : Page
@@ -283,6 +286,7 @@ namespace VisionAICam.Pages
                 using (Py.GIL())
                 {
                     string pythonScriptDir = AppDomain.CurrentDomain.BaseDirectory;
+                    pythonScriptDir = System.IO.Path.Combine(pythonScriptDir, "Script");
                     dynamic sys = Py.Import("sys");
                     bool pathExists = false;
                     foreach (dynamic p in sys.path)
@@ -297,20 +301,45 @@ namespace VisionAICam.Pages
 
                     dynamic inference = Py.Import("inference");
                     string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-                    dynamic results = inference.detect(buf, modelPath);
+                    string logDir = Logger.Instance.GetLogDirectory();
+                    dynamic results = inference.detect(buf, modelPath,logDir);
+
 
                     var detections = new Collection<DetectionResult>();
                     foreach (dynamic det in results)
                     {
-                        var box = det["box"];
-                        if (box != null && box.Length() == 4)
+                        string task = det["Task"]?.ToString();
+                        string className = det["class"]?.ToString();
+                        double confidence = (double)det["confidence"];
+
+                        if (task == "detect")
                         {
-                            detections.Add(new DetectionResult
+                            var box = det["box"];
+                            if (box != null && box.Length() == 4)
                             {
-                                ClassName = det["class"].ToString(),
-                                Confidence = (double)det["confidence"],
-                                Box = $"{box[0]},{box[1]},{box[2]},{box[3]}"
-                            });
+                                detections.Add(new DetectionResult
+                                {
+                                    ClassName = className,
+                                    Confidence = confidence,
+                                    Box = $"{box[0]},{box[1]},{box[2]},{box[3]}",
+                                    Task= "detect"
+                                });
+                            }
+                        }
+                        else if (task == "obb")
+                        {
+                            var rotateBox = det["rotate_box"];
+                            if (rotateBox != null && rotateBox.Length() == 5)
+                            {
+                                detections.Add(new DetectionResult
+                                {
+                                    ClassName = className,
+                                    Confidence = confidence,
+                                    Box = $"{rotateBox[0]},{rotateBox[1]},{rotateBox[2]},{rotateBox[3]},{rotateBox[4]}",
+                                    Task= "obb"
+
+                                });
+                            }
                         }
                     }
                     return detections.ToArray();
@@ -333,7 +362,8 @@ namespace VisionAICam.Pages
             foreach (var det in detections)
             {
                 var parts = det.Box.Split(',');
-                if (parts.Length == 4 &&
+
+                if (parts.Length == 4 && det.Task == "detect" &&
                     double.TryParse(parts[0], out double x1) &&
                     double.TryParse(parts[1], out double y1) &&
                     double.TryParse(parts[2], out double x2) &&
@@ -361,6 +391,39 @@ namespace VisionAICam.Pages
                     };
                     Canvas.SetLeft(label, x1 + 2);
                     Canvas.SetTop(label, y1 - 18);
+                    BoundingBoxCanvas.Children.Add(label);
+                }
+                else if (parts.Length == 5 && det.Task == "obb" &&
+                    double.TryParse(parts[0], out double cx) &&
+                    double.TryParse(parts[1], out double cy) &&
+                    double.TryParse(parts[2], out double w) &&
+                    double.TryParse(parts[3], out double h) &&
+                    double.TryParse(parts[4], out double angle))
+                {
+                    var rect = new Rectangle
+                    {
+                        Stroke = Brushes.Lime,
+                        StrokeThickness = 2,
+                        Width = w,
+                        Height = h,
+                        Fill = Brushes.Transparent,
+                        RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+                        RenderTransform = new RotateTransform(angle)
+                    };
+                    Canvas.SetLeft(rect, cx - w / 2);
+                    Canvas.SetTop(rect, cy - h / 2);
+                    BoundingBoxCanvas.Children.Add(rect);
+
+                    var label = new TextBlock
+                    {
+                        Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
+                        Foreground = Brushes.Cyan,
+                        Background = Brushes.Black,
+                        FontSize = 12,
+                        Padding = new Thickness(2, 0, 2, 0)
+                    };
+                    Canvas.SetLeft(label, cx - w / 2 + 2);
+                    Canvas.SetTop(label, cy - h / 2 - 18);
                     BoundingBoxCanvas.Children.Add(label);
                 }
             }

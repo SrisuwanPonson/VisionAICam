@@ -8,11 +8,12 @@ namespace VisionAICam
     {
         private static readonly Lazy<Logger> _instance = new(() => new Logger());
         private readonly string _logFilePath;
+        private readonly string logDirectory;
 
         // Private constructor to prevent instantiation
         private Logger()
         {
-            var logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log");
+            logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log");
             Directory.CreateDirectory(logDirectory);
             var logFileName = $"log_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
             _logFilePath = Path.Combine(logDirectory, logFileName);
@@ -52,6 +53,11 @@ namespace VisionAICam
         internal void LogInfo(object export, string v)
         {
             throw new NotImplementedException();
+        }
+
+        internal string GetLogDirectory()
+        {
+            return logDirectory;
         }
     }
 }

@@ -528,6 +528,7 @@ namespace VisionAICam.Utilities
             string batchSize = GetOptionValue(trainingOptions, "Batch Size") ?? "16";
             string lr = GetOptionValue(trainingOptions, "Learning Rate") ?? "0.001";
             string optimizer = GetOptionValue(trainingOptions, "Optimizer") ?? "Adam";
+            string taskType = GetOptionValue(trainingOptions, "Task") ?? "obb"; // ✅ NEW: task type
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             string scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8_obb.py");
@@ -556,6 +557,7 @@ namespace VisionAICam.Utilities
         $"--batch \"{batchSize}\"",
         $"--lr \"{lr}\"",
         $"--opt \"{optimizer}\"",
+        $"--task \"{taskType}\"", // ✅ NEW: inject task type
         $"--modelSaveDir \"{modelSaveDir}\"",
         $"--Log_dir \"{trainingLogPath}\"",
         $"--name \"{expName}\"",
