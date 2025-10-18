@@ -85,11 +85,11 @@ namespace VisionAICam
         }
 
         private static void ExportSet(
-            AnnotationProject project,
-            List<string> imagePaths,
-            string setFolder,
-            Func<string, Size> getImageSize,
-            YoloExportFormat exportFormat)
+    AnnotationProject project,
+    List<string> imagePaths,
+    string setFolder,
+    Func<string, Size> getImageSize,
+    YoloExportFormat exportFormat)
         {
             var imagesFolder = Path.Combine(setFolder, "images");
             var labelsFolder = Path.Combine(setFolder, "labels");
@@ -101,28 +101,71 @@ namespace VisionAICam
                 StringComparer.OrdinalIgnoreCase);
 
             var supportedTypes = GetSupportedAnnotationTypes(exportFormat);
-            Logger.Instance.LogInfo($"{supportedTypes}");
+            var readableTypes = string.Join(", ", supportedTypes.Select(t => t.ToString()));
+            Logger.Instance.LogInfo($"Supported types: {readableTypes}");
 
-            var annotations = project.Annotations
+            var annotationsByImage = project.Annotations
                 .Where(a => imageFileNames.Contains(a.ImageName))
-                .Where(a => supportedTypes.Contains(a.AnnotationType))
                 .GroupBy(a => a.ImageName);
 
-            foreach (var group in annotations)
+            foreach (var group in annotationsByImage)
             {
                 var imageSize = getImageSize(group.Key);
                 if (imageSize.Width == 0 || imageSize.Height == 0)
+                {
+                    Logger.Instance.LogWarning($"Skipped image '{group.Key}' due to invalid size: {imageSize.Width}x{imageSize.Height}");
                     continue;
-
-                var lines = group
-                    .Select(a => a.ToYoloFormat(imageSize, project.ClassLabels, exportFormat))
-                    .Where(line => !string.IsNullOrEmpty(line))
-                    .ToList();
+                }
 
                 var imageFileName = Path.GetFileName(group.Key);
                 var labelFileName = Path.ChangeExtension(imageFileName, ".txt");
                 var labelFile = Path.Combine(labelsFolder, labelFileName);
-                File.WriteAllLines(labelFile, lines);
+
+                var lines = new List<string>();
+
+                foreach (var a in group)
+                {
+                    if (!supportedTypes.Contains(a.AnnotationType))
+                    {
+                        Logger.Instance.LogWarning($"Skipped annotation in '{a.ImageName}' due to unsupported type: {a.AnnotationType}");
+                        continue;
+                    }
+
+                    var line = a.ToYoloFormat(imageSize, project.ClassLabels, exportFormat);
+                    if (string.IsNullOrEmpty(line))
+                    {
+                        string labelText = (a.ClassId >= 0 && a.ClassId < project.ClassLabels.Count)
+                            ? project.ClassLabels[a.ClassId]
+                            : "(unknown)";
+
+                        Logger.Instance.LogWarning(
+                            $"Skipped empty annotation output in '{a.ImageName}' for Annotation ID: {a.Id}, ClassId: {a.ClassId}, Label: {labelText}, Type: {a.AnnotationType}"
+                        );
+                        continue;
+                    }
+
+                    lines.Add(line);
+
+                    if ((exportFormat == YoloExportFormat.YoloV5_OBB || exportFormat == YoloExportFormat.YoloV8_OBB)
+                        && a.AnnotationType == AnnotationType.RotatedBox)
+                    {
+                        string labelText = (a.ClassId >= 0 && a.ClassId < project.ClassLabels.Count)
+                            ? project.ClassLabels[a.ClassId]
+                            : "(unknown)";
+
+                        Logger.Instance.LogInfo($"ClassId: {a.ClassId}, Label: {labelText}, OBB 8-Data: {line}");
+                    }
+                }
+
+                if (lines.Count > 0)
+                {
+                    File.WriteAllLines(labelFile, lines);
+                    Logger.Instance.LogInfo($"Label file written: {labelFile} with {lines.Count} annotations");
+                }
+                else
+                {
+                    Logger.Instance.LogInfo($"Processed 0 annotations for {imageFileName}, skipped writing label file: {labelFile}");
+                }
 
                 var srcImagePath = project.ImagePaths.FirstOrDefault(p => Path.GetFileName(p) == imageFileName);
                 if (!string.IsNullOrEmpty(srcImagePath))

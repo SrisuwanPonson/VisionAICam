@@ -1363,6 +1363,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             {
                 Description = "Select output folder for YOLOv8_OBB export",
                 UseDescriptionForTitle = true
+
             };
 
             if (dialog.ShowDialog() == true)
@@ -1371,21 +1372,22 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     dialog.SelectedPath,
                     $"Yolo8OBBExport_{DateTime.Now:yyyyMMdd_HHmmss}"
                 );
-                _currentProject=Convert2RotatedBox(_currentProject);// this fuction convert all box annotation to rotated box annotation(convert rectangle or polygon to rotated box)
-              
-                Logger.Instance.LogInfo("Example OBB label structure: Xcenter,Ycenter,Width,Height,Angle(degree)");
+                //I want to know annotation type of current project before convert and data structure befor convert
+                
+                _currentProject =Convert2RotatedBox(_currentProject);// this fuction convert all box annotation to rotated box annotation(convert rectangle or polygon to rotated box)
+
+                Logger.Instance.LogInfo("Example OBB label structure: x1,y1,x2,y2,x3,y3,x4,y4");
+
                 for (int i = 0; i < Math.Min(5, _currentProject.Annotations.Count); i++)
                 {
                     var a = _currentProject.Annotations[i];
-                    if (a.AnnotationType == AnnotationType.RotatedBox && a.Points.Count >= 3)
+                    if (a.AnnotationType == AnnotationType.RotatedBox && a.RawValues != null && a.RawValues.Count == 8)
                     {
-                        var cx = a.Points[0].X;
-                        var cy = a.Points[0].Y;
-                        var w = a.Points[1].X;
-                        var h = a.Points[1].Y;
-                        var angle = a.Points[2].X;
-                        Logger.Instance.LogInfo($"Label: {a.Label}, OBB: {cx},{cy},{w},{h},{angle}");
+                        Logger.Instance.LogInfo(
+                            $"Label: {a.Label}, OBB 8-Data: {string.Join(",", a.RawValues.Select(v => v.ToString("F2")))}"
+                        );
                     }
+
                 }
                 YoloExporter.ExportWithSplit(
                     _currentProject,
@@ -1469,6 +1471,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
             foreach (var ann in project.Annotations)
             {
+                List<double> values = null;
+
                 if (ann.AnnotationType == AnnotationType.Rectangle && ann.Points.Count == 2)
                 {
                     var p0 = ann.Points[0];
@@ -1485,31 +1489,31 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     double h = Math.Abs(y2 - y1);
                     double angle = 0.0;
 
-                    var corners = GetRotatedCorners(cx, cy, w, h, angle);
-
-                    rotatedAnnotations.Add(new AnnotationRecord
-                    {
-                        ImageName = ann.ImageName,
-                        Label = ann.Label,
-                        AnnotationType = AnnotationType.RotatedBox,
-                        Points = corners
-                    });
+                    values = GetRotatedBoxAs8Values(cx, cy, w, h, angle);
                 }
                 else if (ann.AnnotationType == AnnotationType.Polygon && ann.Points.Count > 2)
                 {
                     var rect = GetMinAreaRect(ann.Points);
-                    double angle = rect.Angle;
-                    //while (angle > 90.0) angle -= 180.0;
-                    //while (angle < -90.0) angle += 180.0;
+                    values = GetRotatedBoxAs8Values(rect.Center.X, rect.Center.Y, rect.Size.Width, rect.Size.Height, rect.Angle);
+                }
 
-                    var corners = GetRotatedCorners(rect.Center.X, rect.Center.Y, rect.Size.Width, rect.Size.Height, rect.Angle);
+                if (values != null && values.Count == 8)
+                {
+                    var points = new List<Point>
+            {
+                new Point((int)values[0], (int)values[1]),
+                new Point((int)values[2], (int)values[3]),
+                new Point((int)values[4], (int)values[5]),
+                new Point((int)values[6], (int)values[7])
+            };
 
                     rotatedAnnotations.Add(new AnnotationRecord
                     {
                         ImageName = ann.ImageName,
                         Label = ann.Label,
                         AnnotationType = AnnotationType.RotatedBox,
-                        Points = corners
+                        RawValues = values,
+                        Points = points
                     });
                 }
                 else
@@ -1527,36 +1531,69 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 SelectedImageIndex = project.SelectedImageIndex
             };
         }
-
-        // Helper struct for minimum area rectangle
-        private struct MinAreaRect
-        {
-            public Point Center;
-            public Size Size;
-            public double Angle;
-        }
-
-        // Fit minimum area rectangle to a set of points (simple approximation)
         private MinAreaRect GetMinAreaRect(List<Point> points)
         {
-            // Use bounding box as a simple approximation
-            double minX = points.Min(p => p.X);
-            double minY = points.Min(p => p.Y);
-            double maxX = points.Max(p => p.X);
-            double maxY = points.Max(p => p.Y);
+            if (points == null || points.Count < 3)
+                throw new ArgumentException("At least 3 points are required for minimum area rectangle.");
 
-            var center = new Point((minX + maxX) / 2.0, (minY + maxY) / 2.0);
-            var size = new Size(Math.Abs(maxX - minX), Math.Abs(maxY - minY));
-            double angle = 0.0; // No rotation for bounding box
+            // Step 1: Compute centroid
+            double cx = points.Average(p => p.X);
+            double cy = points.Average(p => p.Y);
+
+            // Step 2: Compute covariance matrix
+            double sumXX = 0, sumXY = 0, sumYY = 0;
+            foreach (var p in points)
+            {
+                double dx = p.X - cx;
+                double dy = p.Y - cy;
+                sumXX += dx * dx;
+                sumXY += dx * dy;
+                sumYY += dy * dy;
+            }
+
+            // Step 3: Compute orientation using PCA (eigenvector of largest eigenvalue)
+            double covXX = sumXX / points.Count;
+            double covXY = sumXY / points.Count;
+            double covYY = sumYY / points.Count;
+
+            double theta = 0.5 * Math.Atan2(2 * covXY, covXX - covYY); // angle in radians
+            double cosT = Math.Cos(theta);
+            double sinT = Math.Sin(theta);
+
+            // Step 4: Rotate all points to align with principal axis
+            var rotated = points.Select(p =>
+            {
+                double dx = p.X - cx;
+                double dy = p.Y - cy;
+                return new Point(
+                    dx * cosT + dy * sinT,
+                    -dx * sinT + dy * cosT
+                );
+            }).ToList();
+
+            // Step 5: Get bounding box in rotated space
+            double minX = rotated.Min(p => p.X);
+            double maxX = rotated.Max(p => p.X);
+            double minY = rotated.Min(p => p.Y);
+            double maxY = rotated.Max(p => p.Y);
+
+            double width = maxX - minX;
+            double height = maxY - minY;
 
             return new MinAreaRect
             {
-                Center = center,
-                Size = size,
-                Angle = angle
+                Center = new Point(cx, cy),
+                Size = new Size(width, height),
+                Angle = theta * 180.0 / Math.PI // convert to degrees
             };
         }
-        private List<Point> GetRotatedCorners(double cx, double cy, double w, double h, double angleDegrees)
+        private struct MinAreaRect
+{
+    public Point Center;
+    public Size Size;
+    public double Angle; // In degrees
+}
+        private List<double> GetRotatedBoxAs8Values(double cx, double cy, double w, double h, double angleDegrees)
         {
             double angle = angleDegrees * Math.PI / 180.0;
             double cosA = Math.Cos(angle);
@@ -1566,16 +1603,14 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             double h2 = h / 2.0;
 
             var corners = new List<Point>
-            {
-                new Point(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
-                new Point(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
-                new Point(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
-                new Point(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
-            };
+    {
+        new Point(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
+        new Point(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
+        new Point(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
+        new Point(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
+    };
 
-
-
-            return corners;
+            return corners.SelectMany(p => new List<double> { p.X, p.Y }).ToList();
         }
         private void ViewHelp_Click(object sender, RoutedEventArgs e)
         {

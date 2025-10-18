@@ -8,6 +8,11 @@ namespace VisionAICam
 {
     public class AnnotationRecord
     {
+        public int Id { get; set; } // Unique identifier for traceability
+        public int ClassId { get; set; } = -1; // Will be resolved from Label
+
+        internal List<double> RawValues;
+
         public required string ImageName { get; set; }
         public required string Label { get; set; }
         public AnnotationType AnnotationType { get; set; }
@@ -25,16 +30,42 @@ namespace VisionAICam
                         var w = Math.Abs(Points[1].X - Points[0].X);
                         var h = Math.Abs(Points[1].Y - Points[0].Y);
                         return $"({x:0},{y:0},{w:0},{h:0})";
+
                     case AnnotationType.RotatedBox when Points.Count == 4:
-                        // OBB: 4 points (x1,y1,x2,y2,x3,y3,x4,y4)
                         return string.Join(";", Points.Select(p => $"({p.X:0},{p.Y:0})"));
+
                     case AnnotationType.Polygon:
                     case AnnotationType.FreePen:
-                        // Polygon or freehand: all points
                         return string.Join(";", Points.Select(p => $"({p.X:0},{p.Y:0})"));
+
                     default:
                         return string.Join(";", Points.Select(p => $"({p.X:0},{p.Y:0})"));
                 }
+            }
+        }
+
+        /// <summary>
+        /// Resolves ClassId from Label using provided classLabels list.
+        /// </summary>
+        public void ResolveClassId(List<string> classLabels)
+        {
+            if (classLabels == null || string.IsNullOrWhiteSpace(Label))
+            {
+                Logger.Instance.LogWarning($"Label is missing or classLabels not provided for record ID={Id}");
+                ClassId = 0;
+                return;
+            }
+
+            var index = classLabels.FindIndex(c => string.Equals(c.Trim(), Label.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                ClassId = index;
+                Logger.Instance.LogInfo($"Resolved label '{Label}' → ClassId={ClassId} for record ID={Id}");
+            }
+            else
+            {
+                Logger.Instance.LogWarning($"Unmapped label '{Label}' — defaulting ClassId to 0 for record ID={Id}");
+                ClassId = 0;
             }
         }
 
@@ -43,8 +74,10 @@ namespace VisionAICam
         /// </summary>
         public string ToYoloFormat(Size imageSize, List<string> classLabels, YoloExportFormat format = YoloExportFormat.YoloV8)
         {
-            int classId = classLabels.IndexOf(Label);
-            if (classId < 0) classId = 0;
+            ResolveClassId(classLabels);
+
+            if (ClassId < 0 || ClassId >= classLabels.Count)
+                return string.Empty;
 
             double imgW = imageSize.Width;
             double imgH = imageSize.Height;
@@ -75,34 +108,24 @@ namespace VisionAICam
                         double heightNorm = height / imgH;
 
                         return format == YoloExportFormat.YoloV8_OBB
-                            ? $"{classId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6} 0.000000"
-                            : $"{classId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6}";
+                            ? $"{ClassId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6} 0.000000"
+                            : $"{ClassId} {xCenterNorm:F6} {yCenterNorm:F6} {widthNorm:F6} {heightNorm:F6}";
                     }
 
-                case AnnotationType.RotatedBox when Points.Count >= 3:
+                case AnnotationType.RotatedBox when Points.Count == 4:
                     {
-                        var center = Points[0];
-                        var size = Points[1];
-                        var anglePoint = Points[2];
+                        var normalizedPoints = Points
+                            .Select(p => $"{(p.X / imgW):F6} {(p.Y / imgH):F6}")
+                            .ToArray();
 
-                        double cx = center.X / imgW;
-                        double cy = center.Y / imgH;
-                        double w = size.X / imgW;
-                        double h = size.Y / imgH;
-                        double angle = anglePoint.X; // already in degrees
-
-                        while (angle > 180.0) angle -= 360.0;
-                        while (angle < -180.0) angle += 360.0;
-
-
-                        return $"{classId} {cx:F6} {cy:F6} {w:F6} {h:F6} {angle:F6}";
+                        return $"{ClassId} {string.Join(" ", normalizedPoints)}";
                     }
 
                 case AnnotationType.Polygon when Points.Count >= 3:
                 case AnnotationType.FreePen when Points.Count >= 2:
                     {
                         var normPoints = Points.Select(p => $"{(p.X / imgW):F6} {(p.Y / imgH):F6}");
-                        return $"{classId} {string.Join(" ", normPoints)}";
+                        return $"{ClassId} {string.Join(" ", normPoints)}";
                     }
 
                 default:
