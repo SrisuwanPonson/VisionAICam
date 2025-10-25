@@ -46,114 +46,101 @@
                    Margin="0,0,0,20"
                    Grid.Row="0"/>
 
-        <!-- Scrollable Content -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Orientation="Vertical">
+        <!-- Tabbed Content -->
+        <TabControl Grid.Row="1">
+            <!-- 🎥 Camera Settings -->
+            <TabItem Header="Camera">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="180"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                <!-- CAMERA SETTINGS -->
-                <GroupBox Header="Camera Settings">
-                    <Grid Margin="10">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="180"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Camera:"/>
+                    <ComboBox x:Name="DefaultCameraComboBox"
+                              Grid.Row="0" Grid.Column="1"
+                              Width="260"/>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Camera:"/>
-                        <ComboBox x:Name="DefaultCameraComboBox"
-                                  Grid.Row="0" Grid.Column="1"
-                                  Width="260"
-                                  ToolTip="Select the primary camera device"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Brightness (0–255):"/>
+                    <Slider x:Name="BrightnessSlider"
+                            Grid.Row="1" Grid.Column="1"
+                            Minimum="0" Maximum="255"
+                            Width="260"/>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Brightness (0–255):"/>
-                        <Slider x:Name="BrightnessSlider"
-                                Grid.Row="1" Grid.Column="1"
-                                Minimum="0" Maximum="255"
-                                Width="260"
-                                ToolTip="Adjust image brightness"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Contrast (0–255):"/>
+                    <Slider x:Name="ContrastSlider"
+                            Grid.Row="2" Grid.Column="1"
+                            Minimum="0" Maximum="255"
+                            Width="260"/>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Contrast (0–255):"/>
-                        <Slider x:Name="ContrastSlider"
-                                Grid.Row="2" Grid.Column="1"
-                                Minimum="0" Maximum="255"
-                                Width="260"
-                                ToolTip="Adjust image contrast"/>
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Exposure (-10 to 10):"/>
+                    <Slider x:Name="ExposureSlider"
+                            Grid.Row="3" Grid.Column="1"
+                            Minimum="-10" Maximum="10"
+                            Width="260"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Exposure (-10 to 10):"/>
-                        <Slider x:Name="ExposureSlider"
-                                Grid.Row="3" Grid.Column="1"
-                                Minimum="-10" Maximum="10"
-                                Width="260"
-                                ToolTip="Adjust camera exposure level"/>
-
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Capture Folder:"/>
-                        <WrapPanel Grid.Row="4" Grid.Column="1" VerticalAlignment="Center">
-                            <TextBox x:Name="CaptureFolderPathText"
-                                     Text="(none selected)"
-                                     MinWidth="260"
-                                     IsReadOnly="True"
-                                     HorizontalScrollBarVisibility="Auto"/>
-                            <Button Content="Browse..." Margin="10,0" Click="BrowseCaptureFolderButton_Click"/>
-                        </WrapPanel>
-                    </Grid>
-                </GroupBox>
-
-                <!-- MODEL CONFIGURATION -->
-                <GroupBox Header="Model Configuration">
-                    <StackPanel Margin="10">
-                        <WrapPanel>
-                            <TextBlock Text="Default Model:" VerticalAlignment="Center"/>
-                            <TextBox x:Name="DefaultModelPathText"
-                                     Text="(none selected)"
-                                     MinWidth="320"
-                                     IsReadOnly="True"
-                                     Margin="10,0"
-                                     HorizontalScrollBarVisibility="Auto"/>
-                            <Button Content="Browse..." Margin="10,0" Click="BrowseModelButton_Click"/>
-                        </WrapPanel>
-                        <Button Content="Select from Model Management..."
-                                Margin="0,10,0,0"
-                                HorizontalAlignment="Left"
-                                Click="SelectFromModelManagementButton_Click"/>
-                    </StackPanel>
-                </GroupBox>
-
-                <!-- GENERAL PREFERENCES -->
-                <GroupBox Header="General Preferences">
-                    <WrapPanel Margin="10">
-                        <TextBlock Text="Theme:" VerticalAlignment="Center"/>
-                        <ComboBox x:Name="ThemeComboBox" Width="120" Margin="10,0">
-                            <ComboBoxItem Content="Light" IsSelected="True"/>
-                            <ComboBoxItem Content="Dark"/>
-                        </ComboBox>
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Capture Folder:"/>
+                    <WrapPanel Grid.Row="4" Grid.Column="1">
+                        <TextBox x:Name="CaptureFolderPathText"
+                                 MinWidth="260"
+                                 IsReadOnly="True"/>
+                        <Button Content="Browse..." Margin="10,0" Click="BrowseCaptureFolderButton_Click"/>
                     </WrapPanel>
-                </GroupBox>
+                </Grid>
+            </TabItem>
 
-                <!-- ABOUT SECTION -->
-                <GroupBox Header="About VisionAICam">
-                    <StackPanel Margin="10">
-                        <TextBlock Text="Version: 1.0"/>
-                        <TextBlock Text="© 2024 VisionAICam Team"/>
-                    </StackPanel>
-                </GroupBox>
+            <!-- 🧠 Model Configuration -->
+            <TabItem Header="Model">
+                <StackPanel Margin="12">
+                    <WrapPanel>
+                        <TextBlock Text="Default Model:" VerticalAlignment="Center"/>
+                        <TextBox x:Name="DefaultModelPathText"
+                                 MinWidth="320"
+                                 IsReadOnly="True"
+                                 Margin="10,0"/>
+                        <Button Content="Browse..." Margin="10,0" Click="BrowseModelButton_Click"/>
+                    </WrapPanel>
+                    <Button Content="Select from Model Management..."
+                            Margin="0,10,0,0"
+                            HorizontalAlignment="Left"
+                            Click="SelectFromModelManagementButton_Click"/>
+                </StackPanel>
+            </TabItem>
 
-            </StackPanel>
-        </ScrollViewer>
+            <!-- 🎨 General Preferences -->
+            <TabItem Header="Preferences">
+                <WrapPanel Margin="12">
+                    <TextBlock Text="Theme:" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="ThemeComboBox" Width="120" Margin="10,0">
+                        <ComboBoxItem Content="Light"/>
+                        <ComboBoxItem Content="Dark"/>
+                    </ComboBox>
+                </WrapPanel>
+            </TabItem>
 
-        <!-- SAVE BUTTON -->
+            <!-- ℹ️ About -->
+            <TabItem Header="About">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Version: 1.0"/>
+                    <TextBlock Text="© 2024 VisionAICam Team"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <!-- Save Button -->
         <Button Content="Save"
                 Width="120"
                 Height="36"
                 Margin="0,0,0,10"
                 Grid.Row="2"
                 HorizontalAlignment="Right"
-                ToolTip="Save all configuration changes"
                 Click="SaveButton_Click"/>
     </Grid>
 </Page>

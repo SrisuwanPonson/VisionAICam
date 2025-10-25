@@ -177,7 +177,8 @@ namespace VisionAICam.Pages
 
             _cameraLoopRunning = true;
 
-            string pythonDllPath = @"C:\Program Files\Python313\python313.dll";
+            //string pythonDllPath = @"C:\Program Files\Python313\python313.dll";
+            string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv","Python313", "python313.dll"); //*************************************************
 
             if (!File.Exists(pythonDllPath))
             {
@@ -220,7 +221,7 @@ namespace VisionAICam.Pages
                     Thread.Sleep(30);
                 }
 
-                var firstDetections = GetDetectionsFromPython(mat);
+                var firstDetections = GetDetectionsFromPython(mat);//***************************************************************************************************
 
                 Dispatcher.BeginInvoke(() =>
                 {
@@ -299,7 +300,7 @@ namespace VisionAICam.Pages
                     }
                     if (!pathExists) sys.path.append(pythonScriptDir);
 
-                    dynamic inference = Py.Import("inference");
+                    dynamic inference = Py.Import("inference");//**********************************************
                     string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
                     string logDir = Logger.Instance.GetLogDirectory();
                     dynamic results = inference.detect(buf, modelPath,logDir);

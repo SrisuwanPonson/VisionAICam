@@ -4,26 +4,22 @@
       Title="DataPage">
 
     <Page.Resources>
-        <!-- Light background gradient -->
         <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Color="#F5F5F5" Offset="0"/>
             <GradientStop Color="#E0E0E0" Offset="1"/>
         </LinearGradientBrush>
 
-        <!-- Text styling -->
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="#222"/>
             <Setter Property="FontSize" Value="14"/>
         </Style>
 
-        <!-- Border styling -->
         <Style TargetType="Border">
             <Setter Property="BorderBrush" Value="#CCCCCC"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Background" Value="#FAFAFA"/>
         </Style>
 
-        <!-- Button styling -->
         <Style TargetType="Button">
             <Setter Property="Background" Value="#E0E0E0"/>
             <Setter Property="Foreground" Value="#222"/>
@@ -32,7 +28,6 @@
             <Setter Property="Margin" Value="0,0,10,0"/>
         </Style>
 
-        <!-- DataGrid styling -->
         <Style TargetType="DataGrid">
             <Setter Property="Background" Value="White"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
@@ -46,60 +41,87 @@
     </Page.Background>
 
     <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="2*"/>
-            <ColumnDefinition Width="3*"/>
-        </Grid.ColumnDefinitions>
+        <TabControl>
 
-        <!-- Page Title -->
-        <TextBlock Text="Data Overview"
-                   FontSize="30"
-                   FontWeight="Bold"
-                   Margin="0,0,0,20"
-                   Grid.ColumnSpan="2"
-                   Grid.Row="0"/>
+            <!-- 📋 Tab 1: Records -->
+            <TabItem Header="Records">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Detection Records" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBox x:Name="SearchTextBox" Width="200" Margin="0,0,10,0"/>
+                        <Button Content="Filter" Width="80" Click="FilterButton_Click"/>
+                        <Button Content="Export" Width="80" Click="ExportButton_Click"/>
+                        <Button Content="Delete Selected" Width="120" Click="DeleteButton_Click"/>
+                    </StackPanel>
+                    <DataGrid x:Name="DataGrid"
+                              AutoGenerateColumns="False"
+                              SelectionMode="Single"
+                              HeadersVisibility="Column"
+                              IsReadOnly="True"
+                              Height="300">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="*"/>
+                            <DataGridTextColumn Header="File Name" Binding="{Binding FileName}" Width="*"/>
+                            <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="*"/>
+                            <DataGridTextColumn Header="Confidence" Binding="{Binding Confidence}" Width="*"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </StackPanel>
+            </TabItem>
 
-        <!-- Search/Filter Controls -->
-        <StackPanel Orientation="Horizontal" Grid.ColumnSpan="2" Grid.Row="1" Margin="0,0,0,20">
-            <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-            <TextBox x:Name="SearchTextBox" Width="200" Margin="0,0,10,0"/>
-            <Button Content="Filter" Width="80" Click="FilterButton_Click"/>
-            <Button Content="Export" Width="80" Click="ExportButton_Click"/>
-            <Button Content="Delete Selected" Width="120" Click="DeleteButton_Click"/>
-        </StackPanel>
+            <!-- 🔍 Tab 2: Preview -->
+            <TabItem Header="Preview">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Preview Details" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
+                    <Image x:Name="PreviewImage" Height="200" Stretch="Uniform" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="DetailsTextBlock"
+                               Text="Select a row to see details."
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </TabItem>
 
-        <!-- Data Table -->
-        <GroupBox Header="Detection Records" Grid.Row="2" Grid.Column="0" Margin="0,0,20,0">
-            <DataGrid x:Name="DataGrid"
-                      AutoGenerateColumns="False"
-                      SelectionMode="Single"
-                      HeadersVisibility="Column"
-                      IsReadOnly="True"
-                      Margin="10">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="*"/>
-                    <DataGridTextColumn Header="File Name" Binding="{Binding FileName}" Width="*"/>
-                    <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="*"/>
-                    <DataGridTextColumn Header="Confidence" Binding="{Binding Confidence}" Width="*"/>
-                </DataGrid.Columns>
-            </DataGrid>
-        </GroupBox>
+            <!-- ⚠️ Tab 3: Errors -->
+            <TabItem Header="Errors">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Error Events" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
+                    <ListView x:Name="ErrorListView" Height="300">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Timestamp" DisplayMemberBinding="{Binding Timestamp}" Width="150"/>
+                                <GridViewColumn Header="File Name" DisplayMemberBinding="{Binding FileName}" Width="200"/>
+                                <GridViewColumn Header="Error Type" DisplayMemberBinding="{Binding ErrorType}" Width="150"/>
+                                <GridViewColumn Header="Message" DisplayMemberBinding="{Binding Message}" Width="300"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </StackPanel>
+            </TabItem>
 
-        <!-- Preview Panel -->
-        <GroupBox Header="Preview Details" Grid.Row="2" Grid.Column="1">
-            <StackPanel Margin="10">
-                <Border Margin="0,0,0,10">
-                    <Image x:Name="PreviewImage" Height="200" Stretch="Uniform"/>
-                </Border>
-                <TextBlock x:Name="DetailsTextBlock"
-                           Text="Select a row to see details."
-                           TextWrapping="Wrap"/>
-            </StackPanel>
-        </GroupBox>
+            <!-- 📊 Tab 4: Statistics -->
+            <TabItem Header="Statistics">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Record Summary" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
+                    <TextBlock x:Name="TotalRecordsText" Text="Total Records: 0"/>
+                    <TextBlock x:Name="ErrorCountText" Text="Error Events: 0"/>
+                    <TextBlock x:Name="AverageConfidenceText" Text="Average Confidence: N/A"/>
+                    <TextBlock x:Name="ClassBreakdownText" Text="Detected Classes: None"/>
+                </StackPanel>
+            </TabItem>
+
+            <!-- 📈 Tab 5: Graph -->
+            <TabItem Header="Graph">
+                <StackPanel Margin="12">
+                    <TextBlock Text="Confidence Distribution" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
+                    <Border Background="White" BorderBrush="#CCC" BorderThickness="1" Height="300">
+                        <TextBlock Text="Graph placeholder (e.g., histogram or pie chart)"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Foreground="#999"/>
+                    </Border>
+                </StackPanel>
+            </TabItem>
+
+        </TabControl>
     </Grid>
 </Page>

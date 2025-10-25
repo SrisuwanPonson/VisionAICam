@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionAICam", "VisionAICam\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyApp.Core", "MyApp.Core\MyApp.Core.csproj", "{783CACB6-F53B-4202-BDF0-9F347D45A4DE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Devices.Camera", "VisionAICam.Devices.Camera\ClearEngine.Devices.Camera.csproj", "{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -31,8 +33,19 @@ Global
 		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|Any CPU.Build.0 = Release|Any CPU
 		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|x64.ActiveCfg = Release|Any CPU
 		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|x64.Build.0 = Release|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|x64.Build.0 = Debug|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Release|x64.ActiveCfg = Release|Any CPU
+		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {588AB7F7-BC0F-4DC5-84DA-26F537373854}
 	EndGlobalSection
 EndGlobal

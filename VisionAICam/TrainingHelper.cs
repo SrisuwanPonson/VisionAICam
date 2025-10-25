@@ -342,15 +342,21 @@ namespace VisionAICam.Utilities
                 throw new FileNotFoundException($"Python executable not found at {pythonPath}");
         }
 
+        //private static string ResolvePythonPath()
+        //{
+        //    string pythonPath = Environment.GetEnvironmentVariable("PYTHON_PATH") ??
+        //                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Python313", "python.exe");
+
+        //    ValidatePythonPath(pythonPath);
+        //    return pythonPath;
+        //}
         private static string ResolvePythonPath()
         {
-            string pythonPath = Environment.GetEnvironmentVariable("PYTHON_PATH") ??
-                                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Python313", "python.exe");
+            string pythonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python.exe");
 
             ValidatePythonPath(pythonPath);
             return pythonPath;
         }
-
         internal static bool LaunchYOLOv8SegmentationTraining(
     List<TrainingOption> datasetOptions,
     List<TrainingOption> modelOptions,
