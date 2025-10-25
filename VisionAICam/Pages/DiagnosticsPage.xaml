@@ -43,10 +43,47 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" x:Name="CameraListText"/>
-                        <Button Grid.Row="1" Content="Refresh Cameras" Width="150" HorizontalAlignment="Left" Click="RefreshCamerasButton_Click"/>
+
+                        <StackPanel Grid.Row="1" Orientation="Horizontal">
+                            <Button x:Name="RefreshCamerasButton"
+                                    Content="Refresh Cameras"
+                                    Width="150"
+                                    HorizontalAlignment="Left"
+                                    Click="RefreshCamerasButton_Click"/>
+
+                            <Button x:Name="LiveButton"
+                                    Content="Live"
+                                    Width="100"
+                                    HorizontalAlignment="Left"
+                                    Click="LiveButton_Click"/>
+
+                            <Button x:Name="StopButton"
+                                    Content="Stop"
+                                    Width="100"
+                                    HorizontalAlignment="Left"
+                                    Click="StopButton_Click"/>
+
+                            <Button x:Name="CaptureButton"
+                                    Content="Capture"
+                                    Width="100"
+                                    HorizontalAlignment="Left"
+                                    Click="CaptureButton_Click"/>
+                            
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="2" x:Name="CameraStatusText" Margin="0,8,0,0"/>
+
+                        <Border Grid.Row="3" Margin="0,8,0,0" BorderBrush="LightGray" BorderThickness="1" Padding="4">
+                            <Image x:Name="CameraPreviewImage"
+                                   Stretch="Uniform"
+                                   HorizontalAlignment="Stretch"
+                                   VerticalAlignment="Stretch" />
+                        </Border>
                     </Grid>
                 </GroupBox>
             </TabItem>
@@ -56,12 +93,44 @@
                 <GroupBox Header="Step 3: Model Diagnostics" Margin="10">
                     <Grid>
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/> <!-- Model info -->
+                            <RowDefinition Height="Auto"/> <!-- Selected model path -->
+                            <RowDefinition Height="Auto"/> <!-- Buttons -->
+                            <RowDefinition Height="*"/>    <!-- Image + canvas -->
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" x:Name="ModelInfoText"/>
-                        <Button Grid.Row="1" Content="Test Model Inference" Width="180" HorizontalAlignment="Left" Click="TestModelButton_Click"/>
+                        <!-- Model info (kept for LoadModelInfo) -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,8">
+                            <TextBlock Text="Model:" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ModelInfoText" Margin="8,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        </StackPanel>
+
+                        <!-- Selected model path -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,8">
+                            <TextBlock Text="Selected model:" FontWeight="Bold" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ModelPathText" Margin="8,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" Width="420"/>
+                        </StackPanel>
+
+                        <!-- Model buttons -->
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Select Model..." Width="120" Click="SelectModelButton_Click" />
+                            <Button Content="Save Model" Width="100" Margin="8,0,0,0" Click="SaveModelButton_Click" />
+                            <Button Content="Load Image..." Width="120" Margin="16,0,0,0" Click="LoadImageButton_Click" />
+                            <Button Content="Run Inference" Width="120" Margin="8,0,0,0" Click="RunInferenceButton_Click" />
+                            <Button Content="Test Model" Width="100" Margin="8,0,0,0" Click="TestModelButton_Click" />
+                        </StackPanel>
+
+                        <!-- Image + overlay canvas -->
+                        <Border Grid.Row="3" BorderBrush="LightGray" BorderThickness="1" Padding="4">
+                            <Grid>
+                                <Viewbox Stretch="Uniform">
+                                    <Grid>
+                                        <Image x:Name="ModelTestImage" Stretch="Uniform" />
+                                        <Canvas x:Name="ModelBoundingCanvas" IsHitTestVisible="False" Background="Transparent" />
+                                    </Grid>
+                                </Viewbox>
+                            </Grid>
+                        </Border>
                     </Grid>
                 </GroupBox>
             </TabItem>

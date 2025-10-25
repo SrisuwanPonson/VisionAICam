@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Text.Json;
 
 namespace VisionAICam
 {
@@ -15,7 +16,7 @@ namespace VisionAICam
         {
             logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log");
             Directory.CreateDirectory(logDirectory);
-            var logFileName = $"log_{DateTime.Now:yyyyMMdd_HHmmss}.txt";
+            var logFileName = $"log_{DateTime.Now:yyyyMMdd_HHmms}.txt";
             _logFilePath = Path.Combine(logDirectory, logFileName);
         }
 
@@ -50,14 +51,52 @@ namespace VisionAICam
             }
         }
 
+        // Serialize arbitrary object for logging; fall back to ToString() on failure.
         internal void LogInfo(object export, string v)
         {
-            throw new NotImplementedException();
+            try
+            {
+                string payload;
+                if (export == null)
+                {
+                    payload = "<null>";
+                }
+                else
+                {
+                    var options = new JsonSerializerOptions { WriteIndented = false, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+                    payload = JsonSerializer.Serialize(export, options);
+                }
+
+                LogInfo($"{v}: {payload}");
+            }
+            catch
+            {
+                try
+                {
+                    LogInfo($"{v}: {export?.ToString() ?? "<null>"}");
+                }
+                catch
+                {
+                    // swallow
+                }
+            }
         }
 
         internal string GetLogDirectory()
         {
             return logDirectory;
+        }
+
+        // Compatibility convenience: map to LogError
+        internal void Error(string v)
+        {
+            LogError(v);
+        }
+
+        // Compatibility convenience: map to LogInfo
+        internal void Info(string v)
+        {
+            LogInfo(v);
         }
     }
 }

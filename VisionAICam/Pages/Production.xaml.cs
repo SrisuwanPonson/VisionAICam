@@ -5,26 +5,23 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
 using VisionAICam;
 using Python.Runtime;
 using System.Diagnostics;
-
-
+using ClearEngine.Devices.Camera; // use camera class library
 
 namespace VisionAICam.Pages
 {
     public class DetectionResult
     {
-        
         public string ClassName { get; set; } = "";
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
         public string Task { get; set; } = ""; // "detect" or "obb"
-
-
     }
 
     public partial class Production : Page
@@ -32,43 +29,37 @@ namespace VisionAICam.Pages
         private bool _isRunning = false;
         private bool _isPaused = false;
         private Thread? _cameraThread;
-        private VideoCapture? _capture;
+        private ICamera? _camera;
         private AppSettings? _appSettings;
         private System.Timers.Timer? _timer;
         private bool frameTrigger = false;
+
         public Production()
         {
             InitializeComponent();
             InitializeTimer();
         }
+
         private void InitializeTimer()
         {
-            _timer = new System.Timers.Timer(20); // Set interval to 10 ms
+            _timer = new System.Timers.Timer(20); // Set interval to 20 ms
             _timer.Elapsed += OnTimerElapsed;
             _timer.AutoReset = true;
             _timer.Enabled = false; // Start disabled, enable when needed
         }
 
-        // Replace all occurrences of Dispatcher.Invoke with Application.Current.Dispatcher.Invoke
         private void StartTimer()
         {
             if (_timer != null && !_timer.Enabled)
-            {
                 _timer.Start();
-            }
 
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                // Add logic to execute every 10 ms here
-            });
+            Application.Current.Dispatcher.Invoke(() => { /* optional periodic UI work */ });
         }
 
         private void StopTimer()
         {
             if (_timer != null && _timer.Enabled)
-            {
                 _timer.Stop();
-            }
         }
 
         private void OnTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
@@ -82,15 +73,14 @@ namespace VisionAICam.Pages
                 dispatcher.Invoke(() =>
                 {
                     frameTrigger = true;
-                    // Add logic to execute every 10 ms here
                 });
             }
             catch (Exception ex)
             {
-                // Optional: log the error instead of rethrowing
                 Debug.WriteLine($"Timer error: {ex.Message}");
             }
         }
+
         public void StartProduction()
         {
             if (_isRunning) return;
@@ -103,20 +93,23 @@ namespace VisionAICam.Pages
             _appSettings = SettingsManager.Load();
             int cameraIndex = _appSettings?.CameraIndex ?? 0;
 
-            _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.DSHOW);
-            if (!_capture.IsOpened())
+            _camera = CameraFactory.Create(CameraBackend.OpenCv);
+            _camera.FrameReady += OnFrameReady;
+
+            var options = _appSettings != null
+                ? new CameraOptions { Brightness = _appSettings.Brightness, Contrast = _appSettings.Contrast, Exposure = _appSettings.Exposure }
+                : null;
+
+            _camera.Start(cameraIndex, options);
+            if (!_camera.IsOpened)
             {
                 StatusTextBlock.Text = "Could not open camera.";
                 LoadingOverlay.Visibility = Visibility.Collapsed;
+                _camera.FrameReady -= OnFrameReady;
+                _camera.Dispose();
+                _camera = null;
                 _isRunning = false;
                 return;
-            }
-
-            if (_appSettings != null)
-            {
-                _capture.Set(VideoCaptureProperties.Brightness, _appSettings.Brightness);
-                _capture.Set(VideoCaptureProperties.Contrast, _appSettings.Contrast);
-                _capture.Set(VideoCaptureProperties.Exposure, _appSettings.Exposure);
             }
 
             _cameraThread = new Thread(CameraLoop) { IsBackground = true };
@@ -132,10 +125,17 @@ namespace VisionAICam.Pages
             _isPaused = false;
             StatusTextBlock.Text = "Production stopped";
             LoadingOverlay.Visibility = Visibility.Collapsed;
+
             _cameraThread?.Join();
-            _capture?.Release();
-            _capture?.Dispose();
-            _capture = null;
+
+            if (_camera != null)
+            {
+                _camera.FrameReady -= OnFrameReady;
+                _camera.Stop();
+                _camera.Dispose();
+                _camera = null;
+            }
+
             _cameraThread = null;
             ProductionImage.Source = null;
             ClearBoundingBoxes();
@@ -177,8 +177,7 @@ namespace VisionAICam.Pages
 
             _cameraLoopRunning = true;
 
-            //string pythonDllPath = @"C:\Program Files\Python313\python313.dll";
-            string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv","Python313", "python313.dll"); //*************************************************
+            string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
 
             if (!File.Exists(pythonDllPath))
             {
@@ -198,17 +197,9 @@ namespace VisionAICam.Pages
             {
                 PythonEngine.Initialize();
 
-                using var mat = new Mat();
-
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusTextBlock.Text = "Loading model and running first inference...";
-                    ProductionImage.Source = null;
-                    ClearBoundingBoxes();
-                });
-
-                // Wait for first valid frame
-                while (_isRunning && _capture != null && _capture.IsOpened())
+                // Wait for first valid frame using the camera service
+                Mat? firstMat = null;
+                while (_isRunning && _camera != null && _camera.IsOpened)
                 {
                     if (_isPaused)
                     {
@@ -216,25 +207,46 @@ namespace VisionAICam.Pages
                         continue;
                     }
 
-                    _capture.Read(mat);
-                    if (!mat.Empty()) break;
+                    var mat = _camera.CaptureCurrentFrame();
+                    if (mat != null && !mat.Empty())
+                    {
+                        firstMat = mat;
+                        break;
+                    }
+                    mat?.Dispose();
                     Thread.Sleep(30);
                 }
 
-                var firstDetections = GetDetectionsFromPython(mat);//***************************************************************************************************
+                if (firstMat == null)
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        StatusTextBlock.Text = "No frames from camera.";
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                    });
+                    _cameraLoopRunning = false;
+                    return;
+                }
+
+                // run first inference BEFORE disposing mat
+                var firstDetections = GetDetectionsFromPython(firstMat);
+
+                // convert to BitmapSource on background thread and freeze BEFORE disposing Mat
+                var firstBitmap = firstMat.ToBitmapSource();
+                firstBitmap.Freeze();
 
                 Dispatcher.BeginInvoke(() =>
                 {
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                     StatusTextBlock.Text = "Production started";
-                    var bitmapSource = mat.ToBitmapSource();
-                    bitmapSource.Freeze();
-                    ProductionImage.Source = bitmapSource;
+                    ProductionImage.Source = firstBitmap;
                     DrawBoundingBoxes(firstDetections);
                 });
 
+                firstMat.Dispose();
+
                 // Main loop
-                while (_isRunning && _capture != null && _capture.IsOpened())
+                while (_isRunning && _camera != null && _camera.IsOpened)
                 {
                     if (_isPaused)
                     {
@@ -244,23 +256,41 @@ namespace VisionAICam.Pages
 
                     if (this.frameTrigger)
                     {
-                        _capture.Read(mat);
-                        if (!mat.Empty())
+                        // reset trigger
+                        frameTrigger = false;
+
+                        var mat = _camera.CaptureCurrentFrame();
+                        if (mat != null && !mat.Empty())
                         {
-                            var bitmapSource = mat.ToBitmapSource();
-                            bitmapSource.Freeze();
-
-                            var detections = GetDetectionsFromPython(mat);
-
-                            Dispatcher.BeginInvoke(() =>
+                            try
                             {
-                                ProductionImage.Source = bitmapSource;
-                                DrawBoundingBoxes(detections);
-                                FpsTextBlock.Text = "FPS: 30";
-                                InferenceTimeTextBlock.Text = "Inference: ~";
-                            });
-                        } 
+                                // run detection first (uses Mat)
+                                var detections = GetDetectionsFromPython(mat);
+
+                                // convert for UI and freeze while still on background thread
+                                var bitmapSource = mat.ToBitmapSource();
+                                bitmapSource.Freeze();
+
+                                Dispatcher.BeginInvoke(() =>
+                                {
+                                    ProductionImage.Source = bitmapSource;
+                                    DrawBoundingBoxes(detections);
+                                    FpsTextBlock.Text = "FPS: 30";
+                                    InferenceTimeTextBlock.Text = "Inference: ~";
+                                });
+                            }
+                            finally
+                            {
+                                // dispose Mat after conversion & freeze
+                                mat.Dispose();
+                            }
+                        }
+                        else
+                        {
+                            mat?.Dispose();
+                        }
                     }
+
                     Thread.Sleep(30);
                 }
             }
@@ -276,6 +306,15 @@ namespace VisionAICam.Pages
                 PythonEngine.Shutdown();
                 _cameraLoopRunning = false;
             }
+        }
+
+        private void OnFrameReady(BitmapSource bitmap)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!IsLoaded) return;
+                ProductionImage.Source = bitmap;
+            });
         }
 
         private DetectionResult[] GetDetectionsFromPython(Mat mat)
@@ -300,11 +339,10 @@ namespace VisionAICam.Pages
                     }
                     if (!pathExists) sys.path.append(pythonScriptDir);
 
-                    dynamic inference = Py.Import("inference");//**********************************************
+                    dynamic inference = Py.Import("inference");
                     string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
                     string logDir = Logger.Instance.GetLogDirectory();
-                    dynamic results = inference.detect(buf, modelPath,logDir);
-
+                    dynamic results = inference.detect(buf, modelPath, logDir);
 
                     var detections = new Collection<DetectionResult>();
                     foreach (dynamic det in results)
@@ -323,7 +361,7 @@ namespace VisionAICam.Pages
                                     ClassName = className,
                                     Confidence = confidence,
                                     Box = $"{box[0]},{box[1]},{box[2]},{box[3]}",
-                                    Task= "detect"
+                                    Task = "detect"
                                 });
                             }
                         }
@@ -337,8 +375,7 @@ namespace VisionAICam.Pages
                                     ClassName = className,
                                     Confidence = confidence,
                                     Box = $"{rotateBox[0]},{rotateBox[1]},{rotateBox[2]},{rotateBox[3]},{rotateBox[4]}",
-                                    Task= "obb"
-
+                                    Task = "obb"
                                 });
                             }
                         }
@@ -437,7 +474,39 @@ namespace VisionAICam.Pages
 
         private void SnapshotButton_Click(object sender, RoutedEventArgs e)
         {
-            // TODO: Implement snapshot logic
+            var mat = _camera?.CaptureCurrentFrame();
+            if (mat != null)
+            {
+                try
+                {
+                    string basePath = _appSettings?.DefaultImagePath ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                    string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
+                    string savePath = System.IO.Path.Combine(basePath, folderName);
+
+                    if (!System.IO.Directory.Exists(savePath))
+                        System.IO.Directory.CreateDirectory(savePath);
+
+                    string ClassName = ""; // adapt if you have class/category controls here
+                    string Category = "";
+                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                    string filePath = System.IO.Path.Combine(savePath, fileName);
+
+                    mat.SaveImage(filePath);
+                    MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                finally
+                {
+                    mat.Dispose();
+                }
+            }
+            else
+            {
+                MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 }

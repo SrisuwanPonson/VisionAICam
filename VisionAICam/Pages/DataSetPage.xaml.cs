@@ -12,6 +12,7 @@ using System.Windows.Shapes;
 using Ookii.Dialogs.Wpf;
 
 
+
 namespace VisionAICam.Pages
 {
     public class ShapeMetadata
@@ -485,7 +486,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         {
             // Use a hash of the class name to pick a hue, but also vary saturation and lightness for more variety
             int hash = Math.Abs(className.GetHashCode());
-
+            
             // Vary hue, saturation, and lightness for more distinct colors
             double hue = (hash % 360);
             double saturation = 0.7 + ((hash / 360) % 30) / 100.0; // 0.7 - 1.0
