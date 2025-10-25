@@ -204,7 +204,7 @@ namespace ClearEngine.Model.Inference
                         return Array.Empty<DetectionResult>();
                     }
 
-                    // Parse results
+                    // Parse results (robust: do not use .Length on Python sequences)
                     var detections = new Collection<DetectionResult>();
                     try
                     {
@@ -212,36 +212,74 @@ namespace ClearEngine.Model.Inference
                         {
                             foreach (dynamic det in results)
                             {
-                                string task = det["Task"]?.ToString();
-                                string className = det["class"]?.ToString();
-                                double confidence = (double)det["confidence"];
+                                string task = null;
+                                string className = null;
+                                double confidence = 0.0;
+
+                                try { task = det["Task"]?.ToString(); } catch { task = det.GetAttr("Task")?.ToString(); }
+                                try { className = det["class"]?.ToString(); } catch { className = det.GetAttr("class")?.ToString(); }
+
+                                // parse confidence defensively
+                                try
+                                {
+                                    confidence = (double)det["confidence"];
+                                }
+                                catch
+                                {
+                                    double.TryParse(det["confidence"]?.ToString(), out confidence);
+                                }
 
                                 if (task == "detect")
                                 {
                                     var box = det["box"];
-                                    if (box != null && box.Length == 4)
+                                    if (box != null)
                                     {
-                                        detections.Add(new DetectionResult
+                                        try
                                         {
-                                            ClassName = className,
-                                            Confidence = confidence,
-                                            Box = $"{box[0]},{box[1]},{box[2]},{box[3]}",
-                                            Task = "detect"
-                                        });
+                                            double b0 = Convert.ToDouble(box[0]);
+                                            double b1 = Convert.ToDouble(box[1]);
+                                            double b2 = Convert.ToDouble(box[2]);
+                                            double b3 = Convert.ToDouble(box[3]);
+
+                                            detections.Add(new DetectionResult
+                                            {
+                                                ClassName = className ?? "",
+                                                Confidence = confidence,
+                                                Box = $"{b0},{b1},{b2},{b3}",
+                                                Task = "detect"
+                                            });
+                                        }
+                                        catch (Exception)
+                                        {
+                                            Logger.LogWarning($"Skipping malformed 'box' for class '{className}'");
+                                        }
                                     }
                                 }
                                 else if (task == "obb")
                                 {
                                     var rotateBox = det["rotate_box"];
-                                    if (rotateBox != null && rotateBox.Length == 5)
+                                    if (rotateBox != null)
                                     {
-                                        detections.Add(new DetectionResult
+                                        try
                                         {
-                                            ClassName = className,
-                                            Confidence = confidence,
-                                            Box = $"{rotateBox[0]},{rotateBox[1]},{rotateBox[2]},{rotateBox[3]},{rotateBox[4]}",
-                                            Task = "obb"
-                                        });
+                                            double r0 = Convert.ToDouble(rotateBox[0]);
+                                            double r1 = Convert.ToDouble(rotateBox[1]);
+                                            double r2 = Convert.ToDouble(rotateBox[2]);
+                                            double r3 = Convert.ToDouble(rotateBox[3]);
+                                            double r4 = Convert.ToDouble(rotateBox[4]);
+
+                                            detections.Add(new DetectionResult
+                                            {
+                                                ClassName = className ?? "",
+                                                Confidence = confidence,
+                                                Box = $"{r0},{r1},{r2},{r3},{r4}",
+                                                Task = "obb"
+                                            });
+                                        }
+                                        catch (Exception)
+                                        {
+                                            Logger.LogWarning($"Skipping malformed 'rotate_box' for class '{className}'");
+                                        }
                                     }
                                 }
                             }

@@ -13,6 +13,8 @@ using VisionAICam;
 using Python.Runtime;
 using System.Diagnostics;
 using ClearEngine.Devices.Camera; // use camera class library
+using ClearEngine.Logging; // <- use the new logger library
+using ClearEngine.Model.Inference;
 
 namespace VisionAICam.Pages
 {
@@ -33,7 +35,12 @@ namespace VisionAICam.Pages
         private AppSettings? _appSettings;
         private System.Timers.Timer? _timer;
         private bool frameTrigger = false;
-
+        // declare initError once
+        string initError;
+        // Use the shared logger from ClearEngine.Logging
+        private readonly ILogger _logger = ClearEngine.Logging.Logger.Instance;
+        // Add this field inside the Production class (near the other private fields)
+        private ClearEngine.Model.Inference.InferenceEngine? _inferenceEngine;
         public Production()
         {
             InitializeComponent();
@@ -177,8 +184,8 @@ namespace VisionAICam.Pages
 
             _cameraLoopRunning = true;
 
+            // AFTER (new integration using ClearEngine.Model.Inference)
             string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
-
             if (!File.Exists(pythonDllPath))
             {
                 Dispatcher.BeginInvoke(() =>
@@ -190,13 +197,85 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            Python.Runtime.Runtime.PythonDLL = pythonDllPath;
+            // Preferred: let ClearEngine.Model.Inference manage Python init
+            if (!ClearEngine.Model.Inference.InferenceEngine.Initialize(pythonDllPath, _logger, out initError))
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = $"Failed to initialize inference: {initError}";
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                });
+                _cameraLoopRunning = false;
+                return;
+            }
+
+            // create instance and attach logger
+            _inferenceEngine = new ClearEngine.Model.Inference.InferenceEngine { Logger = _logger };
             Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}");
+
+            #region New Inference Engine - simplified (old toggle removed)
+            try
+            {
+                // Log some runtime info
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? ".";
+                try { _logger.LogInfo($"New inference engine created. PythonDLL='{Python.Runtime.Runtime.PythonDLL}', PythonEngine.IsInitialized={PythonEngine.IsInitialized}"); } catch { }
+
+                // quick self-test: create a tiny Mat and call Detect to surface errors now
+                var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
+                var logDir = _logger.GetLogDirectory();
+                Mat probe = new Mat(8, 8, MatType.CV_8UC3, Scalar.All(0));
+                try
+                {
+                    try
+                    {
+                        var probeResults = _inferenceEngine.Detect(probe, modelPath, logDir);
+                        try { _logger.LogInfo($"Inference self-test returned {probeResults?.Length ?? 0} results."); } catch { }
+                    }
+                    catch (Exception detEx)
+                    {
+                        // Try to capture Python traceback if available
+                        try
+                        {
+                            using (Py.GIL())
+                            {
+                                dynamic tb = Py.Import("traceback");
+                                string trace = tb.format_exc();
+                                string tracePath = System.IO.Path.Combine(baseDir, "new_inference_error.log");
+                                File.WriteAllText(tracePath, trace);
+                                try { _logger.LogError($"Detect threw: {detEx}. Python traceback saved to {tracePath}"); } catch { }
+                            }
+                        }
+                        catch (Exception tbEx)
+                        {
+                            // Fallback: write exception text
+                            string tracePath = System.IO.Path.Combine(baseDir, "new_inference_error.log");
+                            File.WriteAllText(tracePath, detEx.ToString() + Environment.NewLine + tbEx.ToString());
+                            try { _logger.LogError($"Detect threw: {detEx}. Failed to get Python traceback: {tbEx}. See {tracePath}"); } catch { }
+                        }
+
+                        // Surface short message in UI
+                        Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Inference self-test failed: {detEx.Message} (see new_inference_error.log)");
+                        // stop startup so you can inspect logs
+                        _cameraLoopRunning = false;
+                        probe.Dispose();
+                        return;
+                    }
+                }
+                finally
+                {
+                    probe.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                try { _logger.LogError($"Unexpected error during inference self-test: {ex}"); } catch { }
+                Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Inference init error: {ex.Message}");
+                _cameraLoopRunning = false;
+                return;
+            }
 
             try
             {
-                PythonEngine.Initialize();
-
                 // Wait for first valid frame using the camera service
                 Mat? firstMat = null;
                 while (_isRunning && _camera != null && _camera.IsOpened)
@@ -229,7 +308,25 @@ namespace VisionAICam.Pages
                 }
 
                 // run first inference BEFORE disposing mat
-                var firstDetections = GetDetectionsFromPython(firstMat);
+                var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
+                var logDir = _logger.GetLogDirectory();
+                var remoteFirst = _inferenceEngine.Detect(firstMat, modelPath, logDir);
+
+                // Map to local DTOs
+                var firstDetections = new Collection<DetectionResult>();
+                if (remoteFirst != null)
+                {
+                    foreach (var r in remoteFirst)
+                    {
+                        firstDetections.Add(new DetectionResult
+                        {
+                            ClassName = r.ClassName ?? string.Empty,
+                            Confidence = r.Confidence,
+                            Box = r.Box ?? string.Empty,
+                            Task = r.Task ?? string.Empty
+                        });
+                    }
+                }
 
                 // convert to BitmapSource on background thread and freeze BEFORE disposing Mat
                 var firstBitmap = firstMat.ToBitmapSource();
@@ -264,8 +361,23 @@ namespace VisionAICam.Pages
                         {
                             try
                             {
-                                // run detection first (uses Mat)
-                                var detections = GetDetectionsFromPython(mat);
+                                // run detection using inference engine
+                                var remoteResults = _inferenceEngine.Detect(mat, modelPath, logDir);
+
+                                var mapped = new Collection<DetectionResult>();
+                                if (remoteResults != null)
+                                {
+                                    foreach (var r in remoteResults)
+                                    {
+                                        mapped.Add(new DetectionResult
+                                        {
+                                            ClassName = r.ClassName ?? string.Empty,
+                                            Confidence = r.Confidence,
+                                            Box = r.Box ?? string.Empty,
+                                            Task = r.Task ?? string.Empty
+                                        });
+                                    }
+                                }
 
                                 // convert for UI and freeze while still on background thread
                                 var bitmapSource = mat.ToBitmapSource();
@@ -274,7 +386,7 @@ namespace VisionAICam.Pages
                                 Dispatcher.BeginInvoke(() =>
                                 {
                                     ProductionImage.Source = bitmapSource;
-                                    DrawBoundingBoxes(detections);
+                                    DrawBoundingBoxes(mapped);
                                     FpsTextBlock.Text = "FPS: 30";
                                     InferenceTimeTextBlock.Text = "Inference: ~";
                                 });
@@ -296,6 +408,7 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
+                _logger?.LogError($"CameraLoop (new engine) error: {ex}");
                 Dispatcher.BeginInvoke(() =>
                 {
                     StatusTextBlock.Text = $"Error: {ex.Message}";
@@ -303,9 +416,17 @@ namespace VisionAICam.Pages
             }
             finally
             {
-                PythonEngine.Shutdown();
+                try
+                {
+                    PythonEngine.Shutdown();
+                }
+                catch (Exception ex)
+                {
+                    try { _logger.LogError($"PythonEngine.Shutdown threw: {ex}"); } catch { }
+                }
                 _cameraLoopRunning = false;
             }
+            #endregion
         }
 
         private void OnFrameReady(BitmapSource bitmap)
@@ -341,7 +462,8 @@ namespace VisionAICam.Pages
 
                     dynamic inference = Py.Import("inference");
                     string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-                    string logDir = Logger.Instance.GetLogDirectory();
+                    // use ClearEngine.Logging logger for python log directory
+                    string logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
                     dynamic results = inference.detect(buf, modelPath, logDir);
 
                     var detections = new Collection<DetectionResult>();
@@ -385,6 +507,8 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
+                // log to new logger as well as write python_error.log for compatibility
+                try { ClearEngine.Logging.Logger.Instance.LogError($"GetDetectionsFromPython error: {ex}"); } catch { }
                 string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error.log");
                 File.WriteAllText(logPath, ex.ToString());
                 string errorMsg = $"Detection error: {ex.Message} (see python_error.log)";

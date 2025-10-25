@@ -33,6 +33,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ClearEngine.Inference\ClearEngine.Model.Inference.csproj" />
+    <ProjectReference Include="..\ClearEngine.Logging\ClearEngine.Logging.csproj" />
     <ProjectReference Include="..\VisionAICam.Devices.Camera\ClearEngine.Devices.Camera.csproj" />
   </ItemGroup>
 
