@@ -1221,7 +1221,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             {
                 string outputFolder = System.IO.Path.Combine(
                     dialog.SelectedPath,
-                    $"Yolo5Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+                    $"Yolo5Export_{DateTime.Now:yyyyMMdd}"
                 );
 
                 YoloExporter.ExportWithSplit(
@@ -1272,7 +1272,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             {
                 string outputFolder = System.IO.Path.Combine(
                     dialog.SelectedPath,
-                    $"Yolo8Export_{DateTime.Now:yyyyMMdd_HHmmss}"
+                    $"Yolo8Export_{DateTime.Now:yyyyMMdd}"
                 );
 
                 YoloExporter.ExportWithSplit(

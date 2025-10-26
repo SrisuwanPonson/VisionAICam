@@ -16,14 +16,24 @@ namespace ClearEngine.Model.Inference
         public string Task { get; set; } = ""; // "detect" or "obb"
     }
 
-    public sealed class InferenceEngine
+    // InferenceEngine: thread-safe Singleton with factory helpers and IDisposable.
+    public sealed class InferenceEngine : IDisposable
     {
         private static readonly object _initLock = new();
         private static bool _initialized = false;
 
+        // Singleton instance (null until created via Create/TryCreate)
+        public static InferenceEngine? Instance { get; private set; }
+
         // Instance logger used by instance methods. Host should set this to supply logging.
         // Use fully-qualified Logger.Instance to avoid any ambiguity with the property name.
         public ILogger Logger { get; set; } = ClearEngine.Logging.Logger.Instance;
+
+        // Track disposal state for the singleton instance
+        private bool _disposed;
+
+        // Private ctor - enforce controlled creation (singleton/factory)
+        private InferenceEngine() { }
 
         // Backward-compatible Initialize: uses the global ClearEngine.Logging.Logger.Instance
         public static bool Initialize(string? pythonDllPath, out string error)
@@ -64,6 +74,62 @@ namespace ClearEngine.Model.Inference
                     return false;
                 }
             }
+        }
+
+        // New: factory that initializes Python and returns a ready-to-use engine singleton instance.
+        // If an Instance already exists it will be returned (logger updated if provided).
+        public static bool TryCreate(string? pythonDllPath, ILogger? logger, out InferenceEngine? engine, out string? error)
+        {
+            engine = null;
+            error = null;
+
+            lock (_initLock)
+            {
+                // If singleton already exists, return it (update logger if requested)
+                if (Instance != null)
+                {
+                    if (logger != null)
+                    {
+                        Instance.Logger = logger;
+                        logger.LogInfo("InferenceEngine.Instance logger updated by TryCreate().");
+                    }
+                    engine = Instance;
+                    return true;
+                }
+
+                if (!Initialize(pythonDllPath, logger, out var initError))
+                {
+                    error = initError;
+                    return false;
+                }
+
+                try
+                {
+                    var created = new InferenceEngine
+                    {
+                        Logger = logger ?? ClearEngine.Logging.Logger.Instance
+                    };
+
+                    Instance = created;
+                    engine = created;
+                    logger?.LogInfo("InferenceEngine singleton instance created via TryCreate().");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    error = ex.Message;
+                    logger?.LogError($"Failed to create InferenceEngine instance: {ex}");
+                    return false;
+                }
+            }
+        }
+
+        // Convenience Create that throws on failure and returns the singleton.
+        public static InferenceEngine Create(string? pythonDllPath = null, ILogger? logger = null)
+        {
+            if (!TryCreate(pythonDllPath, logger, out var engine, out var error))
+                throw new InvalidOperationException($"Failed to create InferenceEngine: {error}");
+            return engine!;
         }
 
         // Detect using an OpenCv Mat
@@ -109,7 +175,7 @@ namespace ClearEngine.Model.Inference
                     }
                     else
                     {
-                        Logger.LogInfo($"Python sys.path already contains '{pythonScriptDir}'");
+                        //Logger.LogInfo($"Python sys.path already contains '{pythonScriptDir}'");
                     }
 
                     // Import inference module
@@ -117,7 +183,7 @@ namespace ClearEngine.Model.Inference
                     try
                     {
                         inference = Py.Import("inference");
-                        Logger.LogInfo("Imported Python module 'inference'.");
+                        //Logger.LogInfo("Imported Python module 'inference'.");
                     }
                     catch (PythonException pex)
                     {
@@ -127,7 +193,7 @@ namespace ClearEngine.Model.Inference
                             string trace = tb.format_exc();
                             string logPath = Path.Combine(baseDir, "python_error_inference_import.log");
                             File.WriteAllText(logPath, trace);
-                            Logger.LogError($"Failed to import 'inference'. Trace saved to {logPath}");
+                            //Logger.LogError($"Failed to import 'inference'. Trace saved to {logPath}");
                         }
                         catch
                         {
@@ -143,7 +209,7 @@ namespace ClearEngine.Model.Inference
 
                     try
                     {
-                        Logger.LogInfo("Calling inference.detect with in-memory buffer");
+                        //Logger.LogInfo("Calling inference.detect with in-memory buffer");
                         results = inference.detect(jpegBuffer, modelPath, logDir);
                     }
                     catch (PythonException firstEx)
@@ -154,7 +220,7 @@ namespace ClearEngine.Model.Inference
                             string trace = tb.format_exc();
                             string logPath = Path.Combine(baseDir, "python_error_inference_detect_first.log");
                             File.WriteAllText(logPath, trace);
-                            Logger.LogError($"detect(buf, ...) failed. Trace saved to {logPath}");
+                            //Logger.LogError($"detect(buf, ...) failed. Trace saved to {logPath}");
                         }
                         catch
                         {
@@ -167,7 +233,7 @@ namespace ClearEngine.Model.Inference
                             tempFile = Path.Combine(Path.GetTempPath(), $"inference_fallback_{Guid.NewGuid():N}.jpg");
                             File.WriteAllBytes(tempFile, jpegBuffer);
                             usedFallbackFile = true;
-                            Logger.LogInfo($"Retrying detect with temp file {tempFile}");
+                            //Logger.LogInfo($"Retrying detect with temp file {tempFile}");
                             results = inference.detect(tempFile, modelPath, logDir);
                         }
                         catch (PythonException secondEx)
@@ -178,7 +244,7 @@ namespace ClearEngine.Model.Inference
                                 string trace = tb.format_exc();
                                 string logPath = Path.Combine(baseDir, "python_error_inference_detect_second.log");
                                 File.WriteAllText(logPath, trace);
-                                Logger.LogError($"detect(tempFile, ...) failed. Trace saved to {logPath}");
+                                //Logger.LogError($"detect(tempFile, ...) failed. Trace saved to {logPath}");
                             }
                             catch
                             {
@@ -297,7 +363,7 @@ namespace ClearEngine.Model.Inference
                     // cleanup fallback
                     try { if (usedFallbackFile && File.Exists(tempFile)) File.Delete(tempFile); } catch { }
 
-                    Logger.LogInfo($"detect returned {detections.Count} results (usedFallbackFile={usedFallbackFile})");
+                    //Logger.LogInfo($"detect returned {detections.Count} results (usedFallbackFile={usedFallbackFile})");
                     return detections.ToArray();
                 }
             }
@@ -309,6 +375,47 @@ namespace ClearEngine.Model.Inference
             }
 
             return Array.Empty<DetectionResult>();
+        }
+
+        // Dispose pattern: shuts down Python engine and clears singleton safely.
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        private void Dispose(bool disposing)
+        {
+            if (_disposed) return;
+
+            lock (_initLock)
+            {
+                try
+                {
+                    // Call Python shutdown only if initialized.
+                    if (_initialized)
+                    {
+                        try
+                        {
+                            PythonEngine.Shutdown();
+                            Logger?.LogInfo("PythonEngine.Shutdown() called by InferenceEngine.Dispose().");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger?.LogError($"PythonEngine.Shutdown threw: {ex}");
+                        }
+                        _initialized = false;
+                    }
+                }
+                finally
+                {
+                    // Clear singleton reference when disposed
+                    if (ReferenceEquals(Instance, this))
+                        Instance = null;
+                }
+            }
+
+            _disposed = true;
         }
 
         // Default no-op logger so engine works even if host doesn't wire a logger

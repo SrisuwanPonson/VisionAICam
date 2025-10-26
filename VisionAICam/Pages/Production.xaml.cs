@@ -197,8 +197,8 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            // Preferred: let ClearEngine.Model.Inference manage Python init
-            if (!ClearEngine.Model.Inference.InferenceEngine.Initialize(pythonDllPath, _logger, out initError))
+            // Let the inference library handle initialization + instance creation
+            if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(pythonDllPath, _logger, out _inferenceEngine, out initError))
             {
                 Dispatcher.BeginInvoke(() =>
                 {
@@ -209,16 +209,15 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            // create instance and attach logger
-            _inferenceEngine = new ClearEngine.Model.Inference.InferenceEngine { Logger = _logger };
             Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}");
 
-            #region New Inference Engine - simplified (old toggle removed)
+            #region New Inference Engine - simplified (initialization moved into TryCreate)
             try
             {
                 // Log some runtime info
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? ".";
-                try { _logger.LogInfo($"New inference engine created. PythonDLL='{Python.Runtime.Runtime.PythonDLL}', PythonEngine.IsInitialized={PythonEngine.IsInitialized}"); } catch { }
+                // commented out logger call to avoid log file creation during camera loop
+                // try { _logger.LogInfo($"New inference engine created. PythonDLL='{Python.Runtime.Runtime.PythonDLL}', PythonEngine.IsInitialized={PythonEngine.IsInitialized}"); } catch { }
 
                 // quick self-test: create a tiny Mat and call Detect to surface errors now
                 var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
@@ -228,8 +227,12 @@ namespace VisionAICam.Pages
                 {
                     try
                     {
-                        var probeResults = _inferenceEngine.Detect(probe, modelPath, logDir);
-                        try { _logger.LogInfo($"Inference self-test returned {probeResults?.Length ?? 0} results."); } catch { }
+                        if (_inferenceEngine!=null)
+                        {
+                            var probeResults = _inferenceEngine.Detect(probe, modelPath, logDir);
+                            // self-test result intentionally not logged here
+                            // try { _logger.LogInfo($"Inference self-test returned {probeResults?.Length ?? 0} results."); } catch { } 
+                        }
                     }
                     catch (Exception detEx)
                     {
@@ -242,7 +245,8 @@ namespace VisionAICam.Pages
                                 string trace = tb.format_exc();
                                 string tracePath = System.IO.Path.Combine(baseDir, "new_inference_error.log");
                                 File.WriteAllText(tracePath, trace);
-                                try { _logger.LogError($"Detect threw: {detEx}. Python traceback saved to {tracePath}"); } catch { }
+                                // logging commented out to avoid creating empty log entries
+                                // try { _logger.LogError($"Detect threw: {detEx}. Python traceback saved to {tracePath}"); } catch { }
                             }
                         }
                         catch (Exception tbEx)
@@ -250,7 +254,8 @@ namespace VisionAICam.Pages
                             // Fallback: write exception text
                             string tracePath = System.IO.Path.Combine(baseDir, "new_inference_error.log");
                             File.WriteAllText(tracePath, detEx.ToString() + Environment.NewLine + tbEx.ToString());
-                            try { _logger.LogError($"Detect threw: {detEx}. Failed to get Python traceback: {tbEx}. See {tracePath}"); } catch { }
+                            // logging commented out
+                            // try { _logger.LogError($"Detect threw: {detEx}. Failed to get Python traceback: {tbEx}. See {tracePath}"); } catch { }
                         }
 
                         // Surface short message in UI
@@ -268,7 +273,8 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                try { _logger.LogError($"Unexpected error during inference self-test: {ex}"); } catch { }
+                // logging commented out to avoid duplicate logs
+                // try { _logger.LogError($"Unexpected error during inference self-test: {ex}"); } catch { }
                 Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Inference init error: {ex.Message}");
                 _cameraLoopRunning = false;
                 return;
@@ -408,7 +414,8 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                _logger?.LogError($"CameraLoop (new engine) error: {ex}");
+                // logging commented out to minimize log activity during camera loop
+                // _logger?.LogError($"CameraLoop (new engine) error: {ex}");
                 Dispatcher.BeginInvoke(() =>
                 {
                     StatusTextBlock.Text = $"Error: {ex.Message}";
@@ -422,7 +429,7 @@ namespace VisionAICam.Pages
                 }
                 catch (Exception ex)
                 {
-                    try { _logger.LogError($"PythonEngine.Shutdown threw: {ex}"); } catch { }
+                    try { /* _logger.LogError($"PythonEngine.Shutdown threw: {ex}"); */ } catch { }
                 }
                 _cameraLoopRunning = false;
             }
@@ -508,7 +515,7 @@ namespace VisionAICam.Pages
             catch (Exception ex)
             {
                 // log to new logger as well as write python_error.log for compatibility
-                try { ClearEngine.Logging.Logger.Instance.LogError($"GetDetectionsFromPython error: {ex}"); } catch { }
+                try { /* ClearEngine.Logging.Logger.Instance.LogError($"GetDetectionsFromPython error: {ex}"); */ } catch { }
                 string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error.log");
                 File.WriteAllText(logPath, ex.ToString());
                 string errorMsg = $"Detection error: {ex.Message} (see python_error.log)";
@@ -612,7 +619,7 @@ namespace VisionAICam.Pages
 
                     string ClassName = ""; // adapt if you have class/category controls here
                     string Category = "";
-                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd}.png";
                     string filePath = System.IO.Path.Combine(savePath, fileName);
 
                     mat.SaveImage(filePath);

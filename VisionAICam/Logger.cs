@@ -16,7 +16,7 @@ namespace VisionAICam
         {
             logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log");
             Directory.CreateDirectory(logDirectory);
-            var logFileName = $"log_{DateTime.Now:yyyyMMdd_HHmms}.txt";
+            var logFileName = $"log_{DateTime.Now:yyyyMMdd}.txt";
             _logFilePath = Path.Combine(logDirectory, logFileName);
         }
 
@@ -40,7 +40,7 @@ namespace VisionAICam
 
         private void Log(string level, string message)
         {
-            var logEntry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level}] {message}";
+            var logEntry = $"{DateTime.Now:yyyy-MM-dd} [{level}] {message}";
             try
             {
                 File.AppendAllText(_logFilePath, logEntry + Environment.NewLine);

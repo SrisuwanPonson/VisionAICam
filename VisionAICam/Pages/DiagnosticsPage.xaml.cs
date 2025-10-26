@@ -15,6 +15,11 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using OpenCvSharp.WpfExtensions;
 using Python.Runtime;
+using ClearEngine.Model.Inference; // <-- already present
+using System.Threading;
+using System.Threading.Tasks;
+using System.ComponentModel;
+using System.Reflection; // <-- add this
 
 namespace VisionAICam.Pages
 {
@@ -32,33 +37,114 @@ namespace VisionAICam.Pages
         private int _fpsFrameCount = 0;
 
         // App settings (for capture folder, etc.)
-        private AppSettings? _appSettings;
+        private AppSettings? _app_settings;
 
         // Python init tracking
         private static readonly object _pythonInitLock = new();
         private static bool _pythonInitialized = false;
 
-        // Small detection DTO (same shape as Production)
-        private class DetectionResult
-        {
-            public string ClassName { get; set; } = "";
-            public double Confidence { get; set; }
-            public string Box { get; set; } = ""; // "x1,y1,x2,y2" or "cx,cy,w,h,angle"
-            public string Task { get; set; } = ""; // "detect" or "obb"
-        }
+        // Inference/cancellation tracking
+        private CancellationTokenSource? _inferenceCts;
+        private Task? _runningInferenceTask;
+        private bool _isCleaningUp = false;
+
+        // add to DiagnosticsPage fields near other fields
+        private ClearEngine.Model.Inference.InferenceEngine? _cachedEngine;
 
         public DiagnosticsPage()
         {
             InitializeComponent();
-            _appSettings = SettingsManager.Load();
+            _app_settings = SettingsManager.Load();
             LoadSystemInfo();
             LoadCameraInfo();
             LoadModelInfo();
             LoadPerformanceMetrics();
 
             // Populate model path UI
-            ModelPathText.Text = string.IsNullOrEmpty(_appSettings?.DefaultModelPath) ? "(none)" : _appSettings!.DefaultModelPath!;
+            ModelPathText.Text = string.IsNullOrEmpty(_app_settings?.DefaultModelPath) ? "(none)" : _app_settings!.DefaultModelPath!;
+            UpdateModelControlsVisibility();
             Log("Diagnostics page initialized.");
+
+            // Lifecycle hooks: subscribe so we can clean up when the page is unloaded or host window closes
+            this.Loaded += DiagnosticsPage_Loaded;
+            this.Unloaded += DiagnosticsPage_Unloaded;
+        }
+
+        // update DiagnosticsPage_Loaded to pre-warm engine in background
+        private void DiagnosticsPage_Loaded(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var win = System.Windows.Window.GetWindow(this);
+                if (win != null)
+                {
+                    // safe to use win (e.g., subscribe to Closing)
+                    win.Closing += HostWindow_Closing;
+                }
+                else
+                {
+                    Log("Host window not found.");
+                }
+
+                // Pre-warm the inference engine in background so first inference is fast afterwards.
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        // only attempt once
+                        if (_cachedEngine != null) return;
+
+                        string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                        if (InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out var engine, out var initError))
+                        {
+                            // keep engine cached for reuse
+                            _cachedEngine = engine;
+                            lock (_pythonInitLock) { _pythonInitialized = true; }
+                            Log("Inference engine pre-warmed.");
+                        }
+                        else
+                        {
+                            Log($"Inference engine pre-warm failed: {initError}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Engine pre-warm error: {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"DiagnosticsPage_Loaded failed: {ex.Message}");
+            }
+        }
+
+        private void DiagnosticsPage_Unloaded(object? sender, RoutedEventArgs e)
+        {
+            // When page is unloaded (navigation away / window closed) ensure resources are released.
+            CleanupResources();
+        }
+
+        private void HostWindow_Closing(object? sender, CancelEventArgs e)
+        {
+            // Called when host window is closing - perform cleanup.
+            CleanupResources();
+        }
+
+        // New: update Save button and toggle label depending on whether a model is selected
+        private void UpdateModelControlsVisibility()
+        {
+            SafeInvokeOnUi(() =>
+            {
+                bool hasModel = !string.IsNullOrWhiteSpace(ModelPathText.Text) && ModelPathText.Text != "(none)";
+                SaveModelButton.Visibility = hasModel ? Visibility.Collapsed : Visibility.Visible;
+                ToggleModelDetailsButton.IsEnabled = hasModel;
+                if (!hasModel)
+                {
+                    ModelDetailsTextBox.Visibility = Visibility.Collapsed;
+                    ToggleModelDetailsButton.Content = "Show Model Details";
+                }
+            });
         }
 
         // 🖥️ Step 1: System Info
@@ -87,12 +173,6 @@ namespace VisionAICam.Pages
         }
         #endregion
 
-        // 🧠 Step 3: Model Info
-        private void LoadModelInfo()
-        {
-            ModelInfoText.Text = "Model: YOLOv5s (Ultralytics)";
-        }
-
         private void TestModelButton_Click(object sender, RoutedEventArgs e)
         {
             Log("Model inference test triggered.");
@@ -106,24 +186,18 @@ namespace VisionAICam.Pages
             InferenceTimeText.Text = "42 ms";
         }
 
-        // 📜 Step 5: Thread-safe Logging
+        // 📜 Thread-safe Logging
         private void Log(string message)
         {
             var line = $"{DateTime.Now:HH:mm:ss} - {message}\n";
-
-            // Use existing SafeInvokeOnUi helper so background threads can log safely.
             SafeInvokeOnUi(() =>
             {
                 try
                 {
-                    // Use AppendText instead of reading/writing Text to avoid cross-thread property reads.
                     LogTextBox.AppendText(line);
                     LogTextBox.ScrollToEnd();
                 }
-                catch
-                {
-                    // Swallow exceptions to avoid crashing during shutdown/cleanup.
-                }
+                catch { }
             });
         }
 
@@ -138,7 +212,7 @@ namespace VisionAICam.Pages
         {
             using var searcher = new ManagementObjectSearcher("SELECT TotalVisibleMemorySize FROM Win32_OperatingSystem");
             var memKb = Convert.ToDouble(searcher.Get().Cast<ManagementObject>().FirstOrDefault()?["TotalVisibleMemorySize"] ?? 0);
-            return Math.Round(memKb / 1024 / 1024, 1); // Convert KB to GB
+            return Math.Round(memKb / 1024 / 1024, 1);
         }
 
         private string[] GetCameraNames()
@@ -149,19 +223,14 @@ namespace VisionAICam.Pages
                     "SELECT Name, PNPClass FROM Win32_PnPEntity " +
                     "WHERE Name LIKE '%Camera%' OR Name LIKE '%Image%' OR PNPClass = 'Image' OR PNPClass = 'Camera'");
 
-                // Dispose the collection returned by Get() to avoid resource leaks and satisfy analyzers.
                 using var results = searcher.Get();
-
                 return results.Cast<ManagementBaseObject>()
                               .Select(m => m["Name"]?.ToString())
                               .Where(n => !string.IsNullOrEmpty(n))
                               .Distinct()
                               .ToArray();
             }
-            catch (Exception)
-            {
-                return Array.Empty<string>();
-            }
+            catch { return Array.Empty<string>(); }
         }
 
         private void LiveButton_Click(object sender, RoutedEventArgs e)
@@ -170,18 +239,12 @@ namespace VisionAICam.Pages
             {
                 try
                 {
-                    // Create camera via factory (uses OpenCv backend by default)
                     _camera = CameraFactory.Create();
-
-                    // Subscribe to frame events
                     _camera.FrameReady += OnFrameReady;
-
-                    // Start the first camera (index 0). You can extend UI to choose index.
                     _camera.Start(0);
 
                     if (!_camera.IsOpened)
                     {
-                        // failed to open
                         _camera.FrameReady -= OnFrameReady;
                         _camera.Dispose();
                         _camera = null;
@@ -208,17 +271,13 @@ namespace VisionAICam.Pages
             }
             else
             {
-                // Stop live preview
                 StopCamera();
             }
         }
 
         private void OnFrameReady(BitmapSource bitmap)
         {
-            // FrameReady is invoked from the camera backend thread. Bitmap is frozen by OpenCvCamera.
             _lastBitmap = bitmap;
-
-            // Update FPS counter
             _fpsFrameCount++;
             var elapsed = _fpsWatch.Elapsed.TotalSeconds;
             if (elapsed >= 1.0)
@@ -226,21 +285,14 @@ namespace VisionAICam.Pages
                 var fps = _fpsFrameCount / elapsed;
                 _fpsFrameCount = 0;
                 _fpsWatch.Restart();
-
-                SafeInvokeOnUi(() =>
-                {
-                    FpsText.Text = $"{fps:F1}";
-                });
+                SafeInvokeOnUi(() => FpsText.Text = $"{fps:F1}");
             }
 
-            // Update status & optionally show preview if an Image named "CameraPreviewImage" exists in XAML
             SafeInvokeOnUi(() =>
             {
                 CameraStatusText.Text = "Live";
                 if (this.FindName("CameraPreviewImage") is System.Windows.Controls.Image img)
-                {
                     img.Source = bitmap;
-                }
             });
         }
 
@@ -255,7 +307,6 @@ namespace VisionAICam.Pages
                     return;
                 }
 
-                // Use backend method to capture the current OpenCV Mat (if supported)
                 var mat = _camera.CaptureCurrentFrame();
                 if (mat == null)
                 {
@@ -266,25 +317,21 @@ namespace VisionAICam.Pages
 
                 try
                 {
-                    // Use app setting DefaultImagePath if provided, otherwise fallback to My Pictures
-                    string basePath = !string.IsNullOrWhiteSpace(_appSettings?.DefaultImagePath)
-                        ? _appSettings!.DefaultImagePath!
+                    string basePath = !string.IsNullOrWhiteSpace(_app_settings?.DefaultImagePath)
+                        ? _app_settings!.DefaultImagePath!
                         : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
 
                     string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
                     string savePath = System.IO.Path.Combine(basePath, folderName);
 
-                    if (!Directory.Exists(savePath))
-                        Directory.CreateDirectory(savePath);
+                    if (!Directory.Exists(savePath)) Directory.CreateDirectory(savePath);
 
-                    string ClassName = ""; // adapt if you have UI controls to set class/category
+                    string ClassName = "";
                     string Category = "";
                     string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
                     string filePath = System.IO.Path.Combine(savePath, fileName);
 
-                    // Prefer Mat.SaveImage to ensure Mat encoding/format correctness
                     mat.SaveImage(filePath);
-
                     CameraStatusText.Text = $"Saved: {filePath}";
                     Log($"Captured image saved to {filePath}");
                 }
@@ -303,7 +350,6 @@ namespace VisionAICam.Pages
         private void StopCamera()
         {
             if (_camera == null) return;
-
             try
             {
                 _camera.FrameReady -= OnFrameReady;
@@ -318,59 +364,13 @@ namespace VisionAICam.Pages
             {
                 _camera = null;
                 _isLive = false;
-
-                // Use safe UI invoke to avoid exceptions if dispatcher is shutting down
                 SafeInvokeOnUi(() =>
                 {
                     FpsText.Text = "0";
                     CameraStatusText.Text = "Stopped";
-                    if (this.FindName("CameraPreviewImage") is System.Windows.Controls.Image img)
-                    {
-                        img.Source = null;
-                    }
+                    if (this.FindName("CameraPreviewImage") is System.Windows.Controls.Image img) img.Source = null;
                 });
-
                 Log("Live preview stopped.");
-            }
-        }
-
-        // Safe helper to update UI without throwing during application shutdown.
-        private void SafeInvokeOnUi(Action action)
-        {
-            try
-            {
-                if (Dispatcher == null || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
-                {
-                    // Dispatcher unavailable or shutting down; skip UI update.
-                    return;
-                }
-
-                if (Dispatcher.CheckAccess())
-                {
-                    action();
-                }
-                else
-                {
-                    Dispatcher.BeginInvoke(action);
-                }
-            }
-            catch
-            {
-                // Swallow exceptions to avoid crashing during shutdown/cleanup.
-            }
-        }
-
-        private void StopButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                StopCamera();
-                Log("Stop button clicked - camera stopped.");
-            }
-            catch (Exception ex)
-            {
-                CameraStatusText.Text = $"Stop failed: {ex.Message}";
-                Log($"StopButton_Click failed: {ex.Message}");
             }
         }
 
@@ -388,6 +388,8 @@ namespace VisionAICam.Pages
             {
                 ModelPathText.Text = dlg.FileName;
                 Log($"Model selected: {dlg.FileName}");
+                UpdateModelControlsVisibility();
+                LoadModelDetails(dlg.FileName);
             }
         }
 
@@ -395,11 +397,12 @@ namespace VisionAICam.Pages
         {
             try
             {
-                if (_appSettings == null) _appSettings = new AppSettings();
-                _appSettings.DefaultModelPath = ModelPathText.Text;
-                SettingsManager.Save(_appSettings);
-                Log($"Model path saved to settings: {_appSettings.DefaultModelPath}");
+                if (_app_settings == null) _app_settings = new AppSettings();
+                _app_settings.DefaultModelPath = ModelPathText.Text;
+                SettingsManager.Save(_app_settings);
+                Log($"Model path saved to settings: {_app_settings.DefaultModelPath}");
                 MessageBox.Show("Model saved to settings.", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+                UpdateModelControlsVisibility();
             }
             catch (Exception ex)
             {
@@ -408,13 +411,86 @@ namespace VisionAICam.Pages
             }
         }
 
+        private void ToggleModelDetailsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                bool showingDetails = ModelDetailsTextBox.Visibility == Visibility.Visible;
+                if (showingDetails)
+                {
+                    // Hide details -> show image and overlay (only if image is loaded)
+                    ModelDetailsTextBox.Visibility = Visibility.Collapsed;
+                    ModelTestImage.Visibility = Visibility.Visible;
+                    if (ModelBoundingCanvas != null)
+                        ModelBoundingCanvas.Visibility = ModelTestImage?.Source != null ? Visibility.Visible : Visibility.Collapsed;
+                    ToggleModelDetailsButton.Content = "Show Model Details";
+                }
+                else
+                {
+                    // Show details -> hide image and overlay
+                    ModelTestImage.Visibility = Visibility.Collapsed;
+                    if (ModelBoundingCanvas != null)
+                        ModelBoundingCanvas.Visibility = Visibility.Collapsed;
+                    ModelDetailsTextBox.Visibility = Visibility.Visible;
+                    ToggleModelDetailsButton.Content = "Hide Model Details";
+
+                    var path = ModelPathText.Text;
+                    if (!string.IsNullOrWhiteSpace(path) && path != "(none)")
+                        LoadModelDetails(path);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"ToggleModelDetailsButton_Click failed: {ex.Message}");
+            }
+        }
+
+        private void LoadModelDetails(string modelPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(modelPath) || !File.Exists(modelPath))
+                {
+                    SafeInvokeOnUi(() => ModelDetailsTextBox.Text = "Model file not found.");
+                    return;
+                }
+
+                var fi = new FileInfo(modelPath);
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Path: {fi.FullName}");
+                sb.AppendLine($"Size: {fi.Length:N0} bytes");
+                sb.AppendLine($"LastModified: {fi.LastWriteTimeUtc:O}");
+                sb.AppendLine($"Created: {fi.CreationTimeUtc:O}");
+                sb.AppendLine();
+
+                if (fi.Length <= 16 * 1024 && (modelPath.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) || modelPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
+                {
+                    try
+                    {
+                        sb.AppendLine("Content Preview:");
+                        sb.AppendLine(File.ReadAllText(modelPath));
+                    }
+                    catch { sb.AppendLine("Failed to read textual model content."); }
+                }
+                else
+                {
+                    sb.AppendLine("Content preview skipped for large/binary model file.");
+                }
+
+                SafeInvokeOnUi(() => ModelDetailsTextBox.Text = sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                SafeInvokeOnUi(() => ModelDetailsTextBox.Text = $"Failed to load model details: {ex.Message}");
+            }
+        }
+
         private void LoadImageButton_Click(object sender, RoutedEventArgs e)
         {
-            // Prefer the saved capture folder from settings if it exists, otherwise fall back to My Pictures.
             string initialDir = null;
-            if (!string.IsNullOrWhiteSpace(_appSettings?.DefaultImagePath) && Directory.Exists(_appSettings.DefaultImagePath))
+            if (!string.IsNullOrWhiteSpace(_app_settings?.DefaultImagePath) && Directory.Exists(_app_settings.DefaultImagePath))
             {
-                initialDir = _appSettings.DefaultImagePath;
+                initialDir = _app_settings.DefaultImagePath;
             }
             else
             {
@@ -456,410 +532,537 @@ namespace VisionAICam.Pages
 
         private async void RunInferenceButton_Click(object sender, RoutedEventArgs e)
         {
+            // Prevent concurrent runs
+            if (_runningInferenceTask != null && !_runningInferenceTask.IsCompleted)
+            {
+                MessageBox.Show("An inference task is already running. Please wait until it finishes.", "Inference Running", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
             if (ModelTestImage.Source is not BitmapSource bitmap)
             {
                 MessageBox.Show("Load an image before running inference.", "No Image", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_appSettings?.DefaultModelPath))
+            if (string.IsNullOrWhiteSpace(_app_settings?.DefaultModelPath))
             {
                 MessageBox.Show("No model selected. Please select and save a model path in settings.", "No Model", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
-            // Ensure Python.NET is initialized (will attempt to locate an embedded python dll under Script\NewEnv if present)
-            if (!EnsurePythonInitialized(out var initError))
+            // Disable UI controls while inference runs and show status
+            SafeInvokeOnUi(() =>
             {
-                Log($"Python initialization failed: {initError}");
-                MessageBox.Show($"Python initialization failed: {initError}\nMake sure Python and pythonnet are configured correctly.", "Python Init Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-            
-            // Convert BitmapSource to Mat on UI thread then run inference in threadpool
-            Mat mat = null!;
+                RunInferenceButton.IsEnabled = false;
+                LoadImageButton.IsEnabled = false;
+                ToggleModelDetailsButton.IsEnabled = false;
+                InferenceTimeText.Text = "Running...";
+                CameraStatusText.Text = "Running inference...";
+            });
+
+            var sw = Stopwatch.StartNew();
+
+            // Do not auto-cancel an existing run here; create a fresh CTS for this run.
             try
             {
-                mat = bitmap.ToMat();
+                _inferenceCts?.Dispose();
+                _inferenceCts = new CancellationTokenSource();
+                var token = _inferenceCts.Token;
 
-                // Ensure mat is 640x480 (resize if necessary)
-                var targetSize = new OpenCvSharp.Size(640, 480);
-
-                // Convert 4-channel BGRA -> 3-channel BGR if needed (Python model usually expects 3 channels)
-                if (mat.Channels() == 4)
-                {
-                    var tmp = new Mat();
-                    Cv2.CvtColor(mat, tmp, ColorConversionCodes.BGRA2BGR);
-                    mat.Dispose();
-                    mat = tmp;
-                }
-
-                if (mat.Width != targetSize.Width || mat.Height != targetSize.Height)
-                {
-                    var resized = new Mat();
-                    Cv2.Resize(mat, resized, targetSize, 0, 0, InterpolationFlags.Linear);
-                    mat.Dispose();
-                    mat = resized;
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Failed to convert/resize image to Mat: {ex.Message}");
-                MessageBox.Show($"Failed to convert image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-
-            DetectionResult[] detections = Array.Empty<DetectionResult>();
-            try
-            {
-                // Run inference on threadpool to avoid blocking UI. GetDetectionsFromPython expects PythonEngine initialized.
-                detections = await System.Threading.Tasks.Task.Run(() => GetDetectionsFromPython(mat));
-            }
-            catch (Exception ex)
-            {
-                Log($"Inference error: {ex.Message}");
-                MessageBox.Show($"Inference error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                mat.Dispose();
-            }
-
-            // Draw results
-            DrawModelBoundingBoxes(detections, bitmap);
-        }
-
-        // Reuses approach in Production.GetDetectionsFromPython
-        private DetectionResult[] GetDetectionsFromPython(Mat mat)
-        {
-            try
-            {
-                Cv2.ImEncode(".jpg", mat, out var buf);
-
-                using (Py.GIL())
-                {
-                    // Ensure script folder on sys.path
-                    string pythonScriptDir = AppDomain.CurrentDomain.BaseDirectory;
-                    pythonScriptDir = System.IO.Path.Combine(pythonScriptDir, "Script");
-                    dynamic sys = Py.Import("sys");
-
-                    bool pathExists = false;
-                    foreach (dynamic p in sys.path)
-                    {
-                        if (pythonScriptDir.Equals((string)p.ToString(), StringComparison.OrdinalIgnoreCase))
-                        {
-                            pathExists = true;
-                            break;
-                        }
-                    }
-                    if (!pathExists) sys.path.append(pythonScriptDir);
-
-                    // Instrumentation: write progress to log to help debugging
-                    Log($"Python: importing inference module from '{pythonScriptDir}'");
-
-                    dynamic inference;
-                    try
-                    {
-                        inference = Py.Import("inference");
-                    }
-                    catch (PythonException pex)
-                    {
-                        // Capture Python traceback
-                        try
-                        {
-                            dynamic tb = Py.Import("traceback");
-                            string trace = tb.format_exc();
-                            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error_inference_import.log");
-                            File.WriteAllText(logPath, trace);
-                            Log($"Failed to import 'inference' module. Trace saved to {logPath}");
-                        }
-                        catch
-                        {
-                            // fallback
-                            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error_inference_import.log");
-                            File.WriteAllText(logPath, pex.ToString());
-                            Log($"Failed to import 'inference' module. See {logPath}");
-                        }
-
-                        return Array.Empty<DetectionResult>();
-                    }
-
-                    string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-                    string logDir = Logger.Instance.GetLogDirectory();
-
-                    // Call detect and capture Python-level exceptions with traceback
-                    dynamic results;
-                    try
-                    {
-                        Log("Python: calling inference.detect(...)");
-                        Logger.Instance.Info("Python: calling inference.detect(...)");
-                        results = inference.detect(buf, modelPath, logDir);
-                    }
-                    catch (PythonException pex)
-                    {
-                        try
-                        {
-                            dynamic tb = Py.Import("traceback");
-                            string trace = tb.format_exc();
-                            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error_inference_detect.log");
-                            File.WriteAllText(logPath, trace);
-                            Logger.Instance.Error($"Python detect() failed. Trace saved to {logPath}\n{trace}");
-                            SafeInvokeOnUi(() => Log($"Python detect() failed. See {logPath}"));
-                        }
-                        catch
-                        {
-                            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error_inference_detect.log");
-                            File.WriteAllText(logPath, pex.ToString());
-                            Logger.Instance.Error($"Python detect() failed. See {logPath}\n{pex}");
-                            SafeInvokeOnUi(() => Log($"Python detect() failed. See {logPath}"));
-                        }
-
-                        return Array.Empty<DetectionResult>();
-                    }
-                    catch (Exception ex)
-                    {
-                        // non-Python errors
-                        string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error_inference_detect.log");
-                        File.WriteAllText(logPath, ex.ToString());
-                        Log($"Error calling detect(): {ex.Message} (see {logPath})");
-                        return Array.Empty<DetectionResult>();
-                    }
-
-                    // Parse results
-                    var detections = new Collection<DetectionResult>();
-                    try
-                    {
-                        foreach (dynamic det in results)
-                        {
-                            string task = det["Task"]?.ToString();
-                            string className = det["class"]?.ToString();
-                            double confidence = (double)det["confidence"];
-
-                            if (task == "detect")
-                            {
-                                var box = det["box"];
-                                if (box != null && box.Length() == 4)
-                                {
-                                    detections.Add(new DetectionResult
-                                    {
-                                        ClassName = className,
-                                        Confidence = confidence,
-                                        Box = $"{box[0]},{box[1]},{box[2]},{box[3]}",
-                                        Task = "detect"
-                                    });
-                                }
-                            }
-                            else if (task == "obb")
-                            {
-                                var rotateBox = det["rotate_box"];
-                                if (rotateBox != null && rotateBox.Length() == 5)
-                                {
-                                    detections.Add(new DetectionResult
-                                    {
-                                        ClassName = className,
-                                        Confidence = confidence,
-                                        Box = $"{rotateBox[0]},{rotateBox[1]},{rotateBox[2]},{rotateBox[3]},{rotateBox[4]}",
-                                        Task = "obb"
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_parse_results.log");
-                        File.WriteAllText(logPath, ex.ToString());
-                        Log($"Failed to parse inference results: {ex.Message} (see {logPath})");
-                        return Array.Empty<DetectionResult>();
-                    }
-
-                    Log($"Python: detect returned {detections.Count} results");
-                    return detections.ToArray();
-                }
-            }
-            catch (Exception ex)
-            {
-                string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error.log");
-                File.WriteAllText(logPath, ex.ToString());
-                string errorMsg = $"Detection error: {ex.Message} (see python_error.log)";
-                Dispatcher.BeginInvoke(() =>
-                {
-                    try
-                    {
-                        if (this.FindName("ModelInfoText") is TextBlock tb)
-                            tb.Text = errorMsg;
-                        Log(errorMsg);
-                    }
-                    catch
-                    {
-                        // swallow
-                    }
-                });
-            }
-            return Array.Empty<DetectionResult>();
-        }
-
-        // Ensure Python.NET is initialized. Tries to set PythonDLL if an embedded distribution exists under Script\NewEnv\Python313\python313.dll
-        private bool EnsurePythonInitialized(out string errorMessage)
-        {
-            errorMessage = "";
-            lock (_pythonInitLock)
-            {
-                if (_pythonInitialized) return true;
-
+                Mat mat = null!;
                 try
                 {
-                    // If a bundled python DLL exists in Script\NewEnv, prefer it.
-                    var baseDir = AppDomain.CurrentDomain.BaseDirectory ?? "";
-                    var bundled = System.IO.Path.Combine(baseDir, "Script", "NewEnv", "Python313", "python313.dll");
-                    if (File.Exists(bundled))
+                    mat = bitmap.ToMat();
+                    var targetSize = new OpenCvSharp.Size(640, 480);
+
+                    if (mat.Channels() == 4)
                     {
-                        try
-                        {
-                            Python.Runtime.Runtime.PythonDLL = bundled;
-                        }
-                        catch
-                        {
-                            // ignore - Runtime may throw if set twice, we'll try initialization below
-                        }
+                        var tmp = new Mat();
+                        Cv2.CvtColor(mat, tmp, ColorConversionCodes.BGRA2BGR);
+                        mat.Dispose();
+                        mat = tmp;
                     }
 
-                    // Initialize Python engine (no-op if already initialized)
-                    PythonEngine.Initialize();
-                    _pythonInitialized = true;
-                    return true;
+                    if (mat.Width != targetSize.Width || mat.Height != targetSize.Height)
+                    {
+                        var resized = new Mat();
+                        Cv2.Resize(mat, resized, targetSize, 0, 0, InterpolationFlags.Linear);
+                        mat.Dispose();
+                        mat = resized;
+                    }
                 }
                 catch (Exception ex)
                 {
-                    errorMessage = ex.Message;
-                    return false;
+                    Log($"Failed to convert/resize image to Mat: {ex.Message}");
+                    MessageBox.Show($"Failed to convert image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    mat?.Dispose();
+                    return;
                 }
+
+                ClearEngine.Model.Inference.DetectionResult[] detections = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+
+                // Run inference on a background thread and track the task so we can cancel/wait during cleanup.
+                _runningInferenceTask = Task.Run(() =>
+                {
+                    ClearEngine.Model.Inference.InferenceEngine? engine = null;
+                    bool engineIsCached = false;
+                    try
+                    {
+                        token.ThrowIfCancellationRequested();
+
+                        // Prefer cached engine when available
+                        if (_cachedEngine != null)
+                        {
+                            engine = _cachedEngine;
+                            engineIsCached = true;
+                        }
+                        else
+                        {
+                            string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                            if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
+                            {
+                                Log($"Inference engine initialization failed: {initError}");
+                                return;
+                            }
+
+                            // if we created it here, don't mark _pythonInitialized globally unless you want to persist it
+                            lock (_pythonInitLock) { _pythonInitialized = true; }
+                        }
+
+                        token.ThrowIfCancellationRequested();
+
+                        var modelPath = _app_settings?.DefaultModelPath ?? "model.pt";
+                        var logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
+
+                        ClearEngine.Model.Inference.DetectionResult[] remoteResults = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+                        try
+                        {
+                            if (engine != null)
+                                remoteResults = engine.Detect(mat, modelPath, logDir) ?? Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+                        }
+                        catch (Exception ex)
+                        {
+                            string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "python_error_inference_detect.log");
+                            File.WriteAllText(logPath, ex.ToString());
+                            Log($"Engine.Detect threw: {ex.Message} (see {logPath})");
+                            return;
+                        }
+
+                        token.ThrowIfCancellationRequested();
+
+                        detections = remoteResults;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Log("Inference cancelled.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Inference task error: {ex.Message}");
+                    }
+                    finally
+                    {
+                        // Dispose only if engine was created locally (not the cached one)
+                        try
+                        {
+                            if (!engineIsCached)
+                            {
+                                engine?.Dispose();
+                                engine = null;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Failed to dispose inference engine: {ex.Message}");
+                        }
+                    }
+                }, token);
+
+                try
+                {
+                    // await the task but honor cancellation
+                    await _runningInferenceTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    Log("RunInferenceButton_Click: inference awaited cancelled.");
+                }
+                catch (Exception ex)
+                {
+                    Log($"RunInferenceButton_Click task error: {ex.Message}");
+                }
+                finally
+                {
+                    _runningInferenceTask = null;
+                    try { _inferenceCts?.Dispose(); } catch { }
+                    _inferenceCts = null;
+                    mat.Dispose();
+                }
+
+                // Update UI from main thread
+                DrawModelBoundingBoxes(detections, bitmap);
+            }
+            finally
+            {
+                sw.Stop();
+                SafeInvokeOnUi(() =>
+                {
+                    // Show elapsed time or cancellation state
+                    if (InferenceTimeText != null)
+                    {
+                        InferenceTimeText.Text = sw.ElapsedMilliseconds > 0 ? $"{sw.ElapsedMilliseconds} ms" : "Done";
+                    }
+                    CameraStatusText.Text = "Idle";
+                    RunInferenceButton.IsEnabled = true;
+                    LoadImageButton.IsEnabled = true;
+                    ToggleModelDetailsButton.IsEnabled = true;
+                });
             }
         }
 
-        // ---------------------------
-        // Drawing helpers (unchanged)
-        // ---------------------------
-        // Draw detection boxes onto ModelBoundingCanvas. Coordinates are expected to be in image pixel space.
-        private void DrawModelBoundingBoxes(DetectionResult[] detections, BitmapSource bitmap)
+        // Drawing helpers
+        private void DrawModelBoundingBoxes(ClearEngine.Model.Inference.DetectionResult[] detections, BitmapSource bitmap)
         {
             Dispatcher.BeginInvoke(() =>
             {
-                ClearModelBoundingBoxes();
-
-                if (ModelTestImage.Source == null) return;
-
-                // Ensure canvas matches displayed image size
-                double dispW = ModelTestImage.ActualWidth;
-                double dispH = ModelTestImage.ActualHeight;
-                if (dispW <= 0 || dispH <= 0)
+                try
                 {
-                    // fallback to bitmap pixel size
-                    dispW = bitmap.PixelWidth;
-                    dispH = bitmap.PixelHeight;
-                    ModelBoundingCanvas.Width = dispW;
-                    ModelBoundingCanvas.Height = dispH;
-                }
-                else
-                {
-                    ModelBoundingCanvas.Width = dispW;
-                    ModelBoundingCanvas.Height = dispH;
-                }
+                    ClearModelBoundingBoxes();
 
-                double scaleX = dispW / bitmap.PixelWidth;
-                double scaleY = dispH / bitmap.PixelHeight;
+                    if (ModelTestImage.Source == null) return;
 
-                foreach (var det in detections)
-                {
-                    var parts = det.Box.Split(',');
-                    if (det.Task == "detect" && parts.Length == 4 &&
-                        double.TryParse(parts[0], out double x1) &&
-                        double.TryParse(parts[1], out double y1) &&
-                        double.TryParse(parts[2], out double x2) &&
-                        double.TryParse(parts[3], out double y2))
+                    double dispW = ModelTestImage.ActualWidth;
+                    double dispH = ModelTestImage.ActualHeight;
+                    if (dispW <= 0 || dispH <= 0)
                     {
-                        double left = x1 * scaleX;
-                        double top = y1 * scaleY;
-                        double width = Math.Abs(x2 - x1) * scaleX;
-                        double height = Math.Abs(y2 - y1) * scaleY;
-
-                        var rect = new Rectangle
-                        {
-                            Stroke = Brushes.Red,
-                            StrokeThickness = 2,
-                            Width = Math.Max(1, width),
-                            Height = Math.Max(1, height),
-                            Fill = Brushes.Transparent
-                        };
-                        Canvas.SetLeft(rect, left);
-                        Canvas.SetTop(rect, top);
-                        ModelBoundingCanvas.Children.Add(rect);
-
-                        var label = new TextBlock
-                        {
-                            Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                            Foreground = Brushes.Yellow,
-                            Background = Brushes.Black,
-                            FontSize = 12,
-                            Padding = new Thickness(2, 0, 2, 0)
-                        };
-                        Canvas.SetLeft(label, left + 2);
-                        Canvas.SetTop(label, Math.Max(0, top - 18));
-                        ModelBoundingCanvas.Children.Add(label);
+                        dispW = bitmap.PixelWidth;
+                        dispH = bitmap.PixelHeight;
+                        ModelBoundingCanvas.Width = dispW;
+                        ModelBoundingCanvas.Height = dispH;
                     }
-                    else if (det.Task == "obb" && parts.Length == 5 &&
-                        double.TryParse(parts[0], out double cx) &&
-                        double.TryParse(parts[1], out double cy) &&
-                        double.TryParse(parts[2], out double w) &&
-                        double.TryParse(parts[3], out double h) &&
-                        double.TryParse(parts[4], out double angle))
+                    else
                     {
-                        double left = (cx - w / 2) * scaleX;
-                        double top = (cy - h / 2) * scaleY;
-                        var rect = new Rectangle
-                        {
-                            Stroke = Brushes.Lime,
-                            StrokeThickness = 2,
-                            Width = Math.Max(1, w * scaleX),
-                            Height = Math.Max(1, h * scaleY),
-                            Fill = Brushes.Transparent,
-                            RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
-                            RenderTransform = new RotateTransform(angle)
-                        };
-                        Canvas.SetLeft(rect, left);
-                        Canvas.SetTop(rect, top);
-                        ModelBoundingCanvas.Children.Add(rect);
-
-                        var label = new TextBlock
-                        {
-                            Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                            Foreground = Brushes.Cyan,
-                            Background = Brushes.Black,
-                            FontSize = 12,
-                            Padding = new Thickness(2, 0, 2, 0)
-                        };
-                        Canvas.SetLeft(label, left + 2);
-                        Canvas.SetTop(label, Math.Max(0, top - 18));
-                        ModelBoundingCanvas.Children.Add(label);
+                        ModelBoundingCanvas.Width = dispW;
+                        ModelBoundingCanvas.Height = dispH;
                     }
+
+                    double scaleX = dispW / bitmap.PixelWidth;
+                    double scaleY = dispH / bitmap.PixelHeight;
+
+                    foreach (var det in detections)
+                    {
+                        var parts = det.Box.Split(',');
+                        if (det.Task == "detect" && parts.Length == 4 &&
+                            double.TryParse(parts[0], out double x1) &&
+                            double.TryParse(parts[1], out double y1) &&
+                            double.TryParse(parts[2], out double x2) &&
+                            double.TryParse(parts[3], out double y2))
+                        {
+                            double left = x1 * scaleX;
+                            double top = y1 * scaleY;
+                            double width = Math.Abs(x2 - x1) * scaleX;
+                            double height = Math.Abs(y2 - y1) * scaleY;
+
+                            var rect = new Rectangle
+                            {
+                                Stroke = Brushes.Red,
+                                StrokeThickness = 2,
+                                Width = Math.Max(1, width),
+                                Height = Math.Max(1, height),
+                                Fill = Brushes.Transparent
+                            };
+                            Canvas.SetLeft(rect, left);
+                            Canvas.SetTop(rect, top);
+                            ModelBoundingCanvas.Children.Add(rect);
+
+                            var label = new TextBlock
+                            {
+                                Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
+                                Foreground = Brushes.Yellow,
+                                Background = Brushes.Black,
+                                FontSize = 12,
+                                Padding = new Thickness(2, 0, 2, 0)
+                            };
+                            Canvas.SetLeft(label, left + 2);
+                            Canvas.SetTop(label, Math.Max(0, top - 18));
+                            ModelBoundingCanvas.Children.Add(label);
+                        }
+                        else if (det.Task == "obb" && parts.Length == 5 &&
+                            double.TryParse(parts[0], out double cx) &&
+                            double.TryParse(parts[1], out double cy) &&
+                            double.TryParse(parts[2], out double w) &&
+                            double.TryParse(parts[3], out double h) &&
+                            double.TryParse(parts[4], out double angle))
+                        {
+                            double left = (cx - w / 2) * scaleX;
+                            double top = (cy - h / 2) * scaleY;
+                            var rect = new Rectangle
+                            {
+                                Stroke = Brushes.Lime,
+                                StrokeThickness = 2,
+                                Width = Math.Max(1, w * scaleX),
+                                Height = Math.Max(1, h * scaleY),
+                                Fill = Brushes.Transparent,
+                                RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
+                                RenderTransform = new RotateTransform(angle)
+                            };
+                            Canvas.SetLeft(rect, left);
+                            Canvas.SetTop(rect, top);
+                            ModelBoundingCanvas.Children.Add(rect);
+
+                            var label = new TextBlock
+                            {
+                                Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
+                                Foreground = Brushes.Cyan,
+                                Background = Brushes.Black,
+                                FontSize = 12,
+                                Padding = new Thickness(2, 0, 2, 0)
+                            };
+                            Canvas.SetLeft(label, left + 2);
+                            Canvas.SetTop(label, Math.Max(0, top - 18));
+                            ModelBoundingCanvas.Children.Add(label);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"DrawModelBoundingBoxes failed: {ex.Message}");
                 }
             });
         }
 
-        // Ensure this method exists to clear any overlayed bounding boxes on the model test canvas.
         private void ClearModelBoundingBoxes()
         {
             try
             {
                 if (ModelBoundingCanvas != null)
-                {
                     ModelBoundingCanvas.Children.Clear();
-                }
             }
             catch (Exception ex)
             {
-                // Log but don't throw — keep UI responsive.
                 try { Log($"ClearModelBoundingBoxes failed: {ex.Message}"); } catch { }
+            }
+        }
+
+        // Helper to avoid invalid UI access during shutdown
+        private void SafeInvokeOnUi(Action action)
+        {
+            try
+            {
+                if (Dispatcher == null || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+                if (Dispatcher.CheckAccess()) action(); else Dispatcher.BeginInvoke(action);
+            }
+            catch { }
+        }
+
+        private void LoadModelInfo()
+        {
+            try
+            {
+                var path = _app_settings?.DefaultModelPath;
+                SafeInvokeOnUi(() =>
+                {
+                    if (string.IsNullOrWhiteSpace(path))
+                    {
+                        ModelPathText.Text = "(none)";
+                        ModelDetailsTextBox.Text = "No model configured.";
+                        ToggleModelDetailsButton.IsEnabled = false;
+                        ModelTestImage.Visibility = Visibility.Visible;
+                        ModelDetailsTextBox.Visibility = Visibility.Collapsed;
+                    }
+                    else
+                    {
+                        ModelPathText.Text = path;
+                        ToggleModelDetailsButton.IsEnabled = true;
+                        ModelTestImage.Visibility = Visibility.Visible;
+                        ModelDetailsTextBox.Visibility = Visibility.Collapsed;
+
+                        if (File.Exists(path))
+                        {
+                            // Populate details but don't auto-show details panel
+                            LoadModelDetails(path);
+                        }
+                        else
+                        {
+                            ModelDetailsTextBox.Text = "Configured model file not found.";
+                        }
+                    }
+
+                    UpdateModelControlsVisibility();
+                });
+            }
+            catch (Exception ex)
+            {
+                Log($"LoadModelInfo failed: {ex.Message}");
+            }
+        }
+
+        private void StopButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                StopCamera();
+            }
+            catch (Exception ex)
+            {
+                Log($"StopButton_Click failed: {ex.Message}");
+                MessageBox.Show($"Failed to stop camera: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// Clean up any background work, stop camera, cancel inference and release native resources.
+        /// Called on Unloaded or host window Closing.
+        /// </summary>
+        private async void CleanupResources()
+        {
+            if (_isCleaningUp) return;
+            _isCleaningUp = true;
+
+            Log("Cleaning up resources...");
+
+            try
+            {
+                // Stop camera first (safe to call multiple times)
+                try
+                {
+                    StopCamera();
+                }
+                catch (Exception ex)
+                {
+                    Log($"CleanupResources StopCamera: {ex.Message}");
+                }
+
+                // Cancel inference task and wait briefly for it to finish
+                try
+                {
+                    _inferenceCts?.Cancel();
+                }
+                catch { }
+
+                if (_runningInferenceTask != null)
+                {
+                    try
+                    {
+                        await Task.WhenAny(_runningInferenceTask, Task.Delay(2000));
+                    }
+                    catch { }
+                }
+
+                // Dispose/clear UI images and overlays
+                SafeInvokeOnUi(() =>
+                {
+                    try
+                    {
+                        if (this.FindName("ModelTestImage") is System.Windows.Controls.Image mimg) mimg.Source = null;
+                        if (this.FindName("CameraPreviewImage") is System.Windows.Controls.Image cimg) cimg.Source = null;
+                        ClearModelBoundingBoxes();
+
+                        // Clear last bitmap reference
+                        _lastBitmap = null;
+                    }
+                    catch { }
+                });
+
+                // Dispose any inference engine singleton if present (best-effort)
+                try
+                {
+                    var engineType = typeof(ClearEngine.Model.Inference.InferenceEngine);
+                    var instanceProp = engineType.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    object? engineInstance = null;
+                    if (instanceProp != null)
+                    {
+                        try { engineInstance = instanceProp.GetValue(null); } catch { engineInstance = null; }
+                    }
+
+                    if (engineInstance is ClearEngine.Model.Inference.InferenceEngine engine)
+                    {
+                        try { engine.Dispose(); } catch (Exception ex) { Log($"CleanupResources dispose engine: {ex.Message}"); }
+                    }
+
+                    // Try to clear backing field if property is read-only
+                    if (instanceProp != null && !instanceProp.CanWrite)
+                    {
+                        var field = engineType.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)
+                                    ?? engineType.GetField("s_instance", BindingFlags.Static | BindingFlags.NonPublic)
+                                    ?? engineType.GetField("instance", BindingFlags.Static | BindingFlags.NonPublic);
+                        if (field != null)
+                        {
+                            try { field.SetValue(null, null); } catch { }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"CleanupResources engine disposal error: {ex.Message}");
+                }
+
+                // Shutdown Python runtime if we previously initialized it
+                try
+                {
+                    lock (_pythonInitLock)
+                    {
+                        if (_pythonInitialized)
+                        {
+                            try
+                            {
+                                if (PythonEngine.IsInitialized)
+                                    PythonEngine.Shutdown();
+                            }
+                            catch (Exception ex)
+                            {
+                                Log($"PythonEngine.Shutdown failed: {ex.Message}");
+                            }
+                            _pythonInitialized = false;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"CleanupResources python shutdown error: {ex.Message}");
+                }
+
+                // dispose cached engine in CleanupResources
+                try
+                {
+                    if (_cachedEngine != null)
+                    {
+                        try { _cachedEngine.Dispose(); } catch (Exception ex) { Log($"Failed to dispose cached engine: {ex.Message}"); }
+                        _cachedEngine = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"Error disposing cached engine: {ex.Message}");
+                }
+
+                // Give final chance to dispose any remaining objects
+                try
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                catch { }
+            }
+            finally
+            {
+                _isCleaningUp = false;
+                Log("Cleanup finished.");
+            }
+        }
+
+        // Add this public forwarding method inside the DiagnosticsPage class
+        public void CleanupResourcesPublic()
+        {
+            try
+            {
+                // Call the existing private cleanup routine (fire-and-forget)
+                CleanupResources();
+            }
+            catch
+            {
+                try { Log("CleanupResourcesPublic: failed to invoke CleanupResources."); } catch { }
             }
         }
     }
