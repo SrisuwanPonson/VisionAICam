@@ -70,6 +70,10 @@ namespace VisionAICam
             Directory.CreateDirectory(outputFolder);
 
             var (train, val, test) = DatasetSplitter.Split(project.ImagePaths, trainRatio, valRatio, testRatio);
+
+            ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize, exportFormat);
+            ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
+            ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
             TaskType taskType = exportFormat switch
             {
                 YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => TaskType.Detection,
@@ -77,88 +81,15 @@ namespace VisionAICam
                 YoloExportFormat.YoloV8_SEG => TaskType.Detection,
                 _ => TaskType.Detection
             };
-
-            // if ( annotations type=polygon and tasktype=obb convert rotated box before export)  
-            if ((exportFormat == YoloExportFormat.YoloV5_OBB || exportFormat == YoloExportFormat.YoloV8_OBB))
-            {
-                for (int i = 0; i < project.Annotations.Count; i++)
-                {
-                    var ann = project.Annotations[i];
-                    if (ann.AnnotationType == AnnotationType.Polygon)
-                    {
-                        var rotatedBox = ConvertPolygonToRotatedBox(ann.Points);
-                        if (rotatedBox != null)
-                        {
-                            project.Annotations[i] = new AnnotationRecord
-                            {
-                                ImageName = ann.ImageName,
-                                Label = ann.Label,
-                                AnnotationType = AnnotationType.RotatedBox,
-                                Points = rotatedBox
-                            };
-                        }
-                    }
-                }
-            }
-
-            ExportSet(project, train, Path.Combine(outputFolder, "train"), getImageSize, exportFormat);
-            ExportSet(project, val, Path.Combine(outputFolder, "valid"), getImageSize, exportFormat);
-            ExportSet(project, test, Path.Combine(outputFolder, "test"), getImageSize, exportFormat);
-          
             WriteDataYaml(outputFolder, project.ClassLabels, project.ProjectName,taskType);
         }
 
-        /// <summary>
-        /// Converts a polygon to a rotated rectangle (OBB) represented as 4 points.
-        /// </summary>
-        // This is a simplified placeholder. For production, use a proper minimum-area rectangle algorithm.
-        private static List<Point>? ConvertPolygonToRotatedBox(List<Point> polygon)
-        {
-            if (polygon == null || polygon.Count < 3)
-                return null;
-
-            // TODO: Implement minimum-area rectangle (rotating calipers or similar).
-            // For now, return axis-aligned bounding box as fallback.
-            double minX = polygon.Min(p => p.X);
-            double minY = polygon.Min(p => p.Y);
-            double maxX = polygon.Max(p => p.X);
-            double maxY = polygon.Max(p => p.Y);
-
-            return new List<Point>
-            {
-                new Point(minX, minY),
-                new Point(maxX, minY),
-                new Point(maxX, maxY),
-                new Point(minX, maxY)
-            };
-        }
-
-        public static List<float>? ConvertPolygonToObbData(List<Point> polygon)
-        {
-            if (polygon == null || polygon.Count < 3)
-                return null;
-
-            // Convert WPF Point to OpenCvSharp.Point2f and scale for precision
-            var points = polygon.Select(p => new OpenCvSharp.Point2f((float)p.X * 1000f, (float)p.Y * 1000f)).ToArray();
-            var rect = OpenCvSharp.Cv2.MinAreaRect(points);
-            var box = rect.Points(); // 4 points in consistent order
-
-            // Convert back to float and scale down, flatten to [x1, y1, ..., x4, y4]
-            var obbData = new List<float>(8);
-            foreach (var p in box)
-            {
-                obbData.Add(p.X / 1000f);
-                obbData.Add(p.Y / 1000f);
-            }
-            return obbData;
-        }
-
         private static void ExportSet(
-            AnnotationProject project,
-            List<string> imagePaths,
-            string setFolder,
-            Func<string, Size> getImageSize,
-            YoloExportFormat exportFormat)
+    AnnotationProject project,
+    List<string> imagePaths,
+    string setFolder,
+    Func<string, Size> getImageSize,
+    YoloExportFormat exportFormat)
         {
             var imagesFolder = Path.Combine(setFolder, "images");
             var labelsFolder = Path.Combine(setFolder, "labels");
@@ -170,27 +101,71 @@ namespace VisionAICam
                 StringComparer.OrdinalIgnoreCase);
 
             var supportedTypes = GetSupportedAnnotationTypes(exportFormat);
+            var readableTypes = string.Join(", ", supportedTypes.Select(t => t.ToString()));
+            Logger.Instance.LogInfo($"Supported types: {readableTypes}");
 
-            var annotations = project.Annotations
+            var annotationsByImage = project.Annotations
                 .Where(a => imageFileNames.Contains(a.ImageName))
-                .Where(a => supportedTypes.Contains(a.AnnotationType))
                 .GroupBy(a => a.ImageName);
 
-            foreach (var group in annotations)
+            foreach (var group in annotationsByImage)
             {
                 var imageSize = getImageSize(group.Key);
                 if (imageSize.Width == 0 || imageSize.Height == 0)
+                {
+                    Logger.Instance.LogWarning($"Skipped image '{group.Key}' due to invalid size: {imageSize.Width}x{imageSize.Height}");
                     continue;
-
-                var lines = group
-                    .Select(a => a.ToYoloFormat(imageSize, project.ClassLabels, exportFormat))
-                    .Where(line => !string.IsNullOrEmpty(line))
-                    .ToList();
+                }
 
                 var imageFileName = Path.GetFileName(group.Key);
                 var labelFileName = Path.ChangeExtension(imageFileName, ".txt");
                 var labelFile = Path.Combine(labelsFolder, labelFileName);
-                File.WriteAllLines(labelFile, lines);
+
+                var lines = new List<string>();
+
+                foreach (var a in group)
+                {
+                    if (!supportedTypes.Contains(a.AnnotationType))
+                    {
+                        Logger.Instance.LogWarning($"Skipped annotation in '{a.ImageName}' due to unsupported type: {a.AnnotationType}");
+                        continue;
+                    }
+
+                    var line = a.ToYoloFormat(imageSize, project.ClassLabels, exportFormat);
+                    if (string.IsNullOrEmpty(line))
+                    {
+                        string labelText = (a.ClassId >= 0 && a.ClassId < project.ClassLabels.Count)
+                            ? project.ClassLabels[a.ClassId]
+                            : "(unknown)";
+
+                        Logger.Instance.LogWarning(
+                            $"Skipped empty annotation output in '{a.ImageName}' for Annotation ID: {a.Id}, ClassId: {a.ClassId}, Label: {labelText}, Type: {a.AnnotationType}"
+                        );
+                        continue;
+                    }
+
+                    lines.Add(line);
+
+                    if ((exportFormat == YoloExportFormat.YoloV5_OBB || exportFormat == YoloExportFormat.YoloV8_OBB)
+                        && a.AnnotationType == AnnotationType.RotatedBox)
+                    {
+                        string labelText = (a.ClassId >= 0 && a.ClassId < project.ClassLabels.Count)
+                            ? project.ClassLabels[a.ClassId]
+                            : "(unknown)";
+
+                        Logger.Instance.LogInfo($"ClassId: {a.ClassId}, Label: {labelText}, OBB 8-Data: {line}");
+                    }
+                }
+
+                if (lines.Count > 0)
+                {
+                    File.WriteAllLines(labelFile, lines);
+                    Logger.Instance.LogInfo($"Label file written: {labelFile} with {lines.Count} annotations");
+                }
+                else
+                {
+                    Logger.Instance.LogInfo($"Processed 0 annotations for {imageFileName}, skipped writing label file: {labelFile}");
+                }
 
                 var srcImagePath = project.ImagePaths.FirstOrDefault(p => Path.GetFileName(p) == imageFileName);
                 if (!string.IsNullOrEmpty(srcImagePath))
@@ -207,7 +182,7 @@ namespace VisionAICam
             return format switch
             {
                 YoloExportFormat.YoloV5 or YoloExportFormat.YoloV8 => new List<AnnotationType> { AnnotationType.Rectangle },
-                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon, AnnotationType.RotatedBox },
+                YoloExportFormat.YoloV5_OBB or YoloExportFormat.YoloV8_OBB => new List<AnnotationType> { AnnotationType.Polygon,AnnotationType.RotatedBox },
                 YoloExportFormat.YoloV8_SEG => new List<AnnotationType> { AnnotationType.Polygon, AnnotationType.FreePen },
                 _ => new List<AnnotationType>()
             };

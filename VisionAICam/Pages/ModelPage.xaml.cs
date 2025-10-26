@@ -38,7 +38,7 @@ namespace VisionAICam.Pages
             public string TrainingMode { get; set; }
             public Dictionary<string, string> AdditionalOptions { get; set; }
             public List<BlockState> Blocks { get; set; } = new();
-           
+
             public Project()
             {
                 Name = string.Empty;
@@ -94,8 +94,8 @@ namespace VisionAICam.Pages
 
         private void SaveBlockStates()
         {
-            
-         
+
+
             var blocks = new List<BlockState>();
             if (TrainingCanvas == null)
                 return;
@@ -206,9 +206,8 @@ namespace VisionAICam.Pages
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             // Restore block states on load
-         
-            RestoreBlockStates();
 
+            RestoreBlockStates();
             PopulateProjectTypeComboBox();
         }
 
@@ -284,7 +283,7 @@ namespace VisionAICam.Pages
 
 
         #region Block
-        
+
         private Border CreateBlock(UIElement content, double left, double top, string tag)
         {
             var block = new Border
@@ -309,23 +308,11 @@ namespace VisionAICam.Pages
             return block;
         }
 
-        private UIElement CreateModelDetailGrid(
-    List<TrainingOption> modelOptions,
-    string blockLabel,
-    Dictionary<string, string[]> optionSources)
+        private UIElement CreateModelDetailGrid(List<TrainingOption> modelOptions, string blockLabel, Dictionary<string, string[]> optionSources)
         {
-            // 🧼 Filter out internal-use-only options
-            var visibleOptions = modelOptions
-                .Where(opt =>
-                    !string.Equals(opt.Name, "Input Size", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(opt.Name, "Backbone", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(opt.Name, "Pretrained Weights", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            // 🧩 Create DataGrid for visible model options
             var modelGrid = new DataGrid
             {
-                ItemsSource = visibleOptions,
+                ItemsSource = modelOptions,
                 AutoGenerateColumns = false,
                 CanUserAddRows = false,
                 CanUserDeleteRows = false,
@@ -334,7 +321,7 @@ namespace VisionAICam.Pages
                 RowHeight = 28
             };
 
-            // 📌 Static column for option name
+            // Static column for option name
             modelGrid.Columns.Add(new DataGridTextColumn
             {
                 Header = "Model Option",
@@ -343,7 +330,7 @@ namespace VisionAICam.Pages
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star)
             });
 
-            // 🎛️ Dynamic column for value (ComboBox or TextBlock)
+            // Dynamic column for value (ComboBox or TextBlock)
             modelGrid.Columns.Add(new DataGridTemplateColumn
             {
                 Header = "Value",
@@ -351,9 +338,8 @@ namespace VisionAICam.Pages
                 CellTemplateSelector = new ModelOptionTemplateSelector(optionSources)
             });
 
-            // 🧱 Compose layout panel
+            // Layout panel
             var panel = new StackPanel();
-
             panel.Children.Add(new TextBlock
             {
                 Text = blockLabel,
@@ -363,17 +349,14 @@ namespace VisionAICam.Pages
                 Margin = new Thickness(0, 0, 0, 8),
                 HorizontalAlignment = HorizontalAlignment.Center
             });
-
             panel.Children.Add(new TextBlock
             {
                 Text = "Model Options",
                 Foreground = Brushes.LightGray,
                 FontWeight = FontWeights.SemiBold,
-                FontSize = 14,
                 Margin = new Thickness(0, 0, 0, 2),
-                HorizontalAlignment = HorizontalAlignment.Left
+                FontSize = 14
             });
-
             panel.Children.Add(modelGrid);
 
             return panel;
@@ -707,9 +690,9 @@ namespace VisionAICam.Pages
             TrainingCanvas.Children.Remove(trainBlock);
             modelBlock = null;
             trainBlock = null;
-            
+
             string selectedArch = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
-            var (modelOptions, modelSources) = 
+            var (modelOptions, modelSources) =
                 BuildModelOptions(selectedArch);
             var trainingSources = BuildTrainingSources();
 
@@ -746,7 +729,7 @@ namespace VisionAICam.Pages
             TrainingStatusText.Text = $"🧠 Mode: {mode}";
             UpdateModelBlockPerTrainingMode(mode);
             SaveBlockStates();
-      
+
         }
         private string GetDefaultWeight(string mode, string variant)
         {
@@ -867,7 +850,7 @@ namespace VisionAICam.Pages
 
 
 
-           
+
 
 
             // Inject missing options
@@ -876,11 +859,11 @@ namespace VisionAICam.Pages
             string weight = GetDefaultWeight(trainingMode, variant);
             string backbone = GetDefaultBackbone(architecture, trainingMode);
 
-TrainingStatusText.Text += $"[Inject] Pretrained Weights = {weight}\n";
-TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
+            TrainingStatusText.Text += $"[Inject] Pretrained Weights = {weight}\n";
+            TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
-//EnsureOption("Pretrained Weights", weight ?? "N/A");
-//EnsureOption("Backbone", backbone ?? "N/A");
+            //EnsureOption("Pretrained Weights", weight ?? "N/A");
+            //EnsureOption("Backbone", backbone ?? "N/A");
 
             // Determine block position
             double modelBlockX = 50;
@@ -902,7 +885,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 TrainingStatusText.Text += $"[Option] {opt.Name} = {opt.Value}\n";
             }
 
-           
+
             modelBlock = CreateBlock(modelPanel, modelBlockX, modelBlockY, "Model");
             TrainingStatusText.Text += "[Debug] modelPanel is " + (modelPanel != null ? "valid" : "null") + "\n";
             TrainingStatusText.Text += "[Debug] Attempting to add modelBlock to canvas...\n";
@@ -920,7 +903,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
         private Dictionary<string, string[]> BuildTrainingSources()
         {
-                    return new()
+            return new()
             {
                 { "Epochs", new[] { "1","10", "20", "50", "100", "200", "300" } },
                 { "Batch Size", new[] { "8", "16", "32", "64", "128" } },
@@ -1108,19 +1091,55 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
         private static string DetectYoloSubtype(string datasetPath)
         {
             string lblDir = System.IO.Path.Combine(datasetPath, "train", "labels");
-            if (!Directory.Exists(lblDir)) return "normal";
+            if (!Directory.Exists(lblDir))
+            {
+                Logger.Instance.LogWarning($"Label directory not found: {lblDir}");
+                return "normal";
+            }
 
-            var sampleFile = Directory.GetFiles(lblDir, "*.txt").FirstOrDefault();
-            if (sampleFile == null) return "normal";
+            var labelFiles = Directory.GetFiles(lblDir, "*.txt");
+            if (labelFiles.Length == 0)
+            {
+                Logger.Instance.LogWarning($"No label files found in: {lblDir}");
+                return "normal";
+            }
 
-            var lines = File.ReadAllLines(sampleFile);
-            if (lines.Any(l => l.Split(' ').Length == 9)) return "_obb";
-            if (lines.Any(l => l.Split(' ').Length == 5)) return "normal";
-            if (lines.Any(l => l.Split(' ').Length > 5)) return "seg";
+            foreach (var file in labelFiles)
+            {
+                var lines = File.ReadAllLines(file);
+                Logger.Instance.LogInfo($"Scanning label file: {System.IO.Path.GetFileName(file)}");
 
+                foreach (var line in lines)
+                {
+                    var tokens = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    int count = tokens.Length;
+
+                    if (count == 9)
+                    {
+                        Logger.Instance.LogInfo($"Detected YOLOv5_OBB format in: {file}");
+                        return "obb"; // 8-value rotated box + classId
+                    }
+                    if (count == 6)
+                    {
+                        Logger.Instance.LogInfo($"Detected YOLOv8_OBB format in: {file}");
+                        return "_obb"; // cx cy w h angle
+                    }
+                    if (count > 6)
+                    {
+                        Logger.Instance.LogInfo($"Detected segmentation format in: {file}");
+                        return "seg"; // polygon or freehand
+                    }
+                    if (count == 5)
+                    {
+                        Logger.Instance.LogInfo($"Detected normal YOLO format in: {file}");
+                        return "normal"; // cx cy w h
+                    }
+                }
+            }
+
+            Logger.Instance.LogWarning("No recognizable label format found. Defaulting to 'normal'.");
             return "normal";
         }
-
 
         private void Block_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -1129,7 +1148,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             isDragging = false;
             selectedBlock.CaptureMouse();
         }
-      
+
 
         private void Block_MouseMove(object sender, MouseEventArgs e)
         {
@@ -1193,54 +1212,69 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
                             Task.Run(() =>
                             {
-                                bool isValid = ValidateYoloDatasetStructure(datasetPath, out datasetType);
-
-                                Dispatcher.Invoke(() =>
+                                try
                                 {
-                                    if (!isValid)
+                                    bool isValid = ValidateYoloDatasetStructure(datasetPath, out datasetType);
+
+                                    Dispatcher.Invoke(() =>
                                     {
-                                        MessageBox.Show(
-                                            "⚠️ Invalid dataset structure.\nExpected folders: train/valid/test with images/labels subfolders and a data.yaml file.",
-                                            "Validation Failed",
-                                            MessageBoxButton.OK,
-                                            MessageBoxImage.Warning
-                                        );
-                                        TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
-                                        return;
-                                    }
+                                        try
+                                        {
+                                            if (!isValid)
+                                            {
+                                                MessageBox.Show(
+                                                    "⚠️ Invalid dataset structure.\nExpected folders: train/valid/test with images/labels subfolders and a data.yaml file.",
+                                                    "Validation Failed",
+                                                    MessageBoxButton.OK,
+                                                    MessageBoxImage.Warning
+                                                );
+                                                TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
+                                                return;
+                                            }
 
-                                    AddOrSelectDataset(datasetPath);
+                                            AddOrSelectDataset(datasetPath);
 
-                                    // Remove previous dataset block if it exists
-                                    if (datasetBlock != null)
+                                            if (datasetBlock != null)
+                                            {
+                                                TrainingCanvas.Children.Remove(datasetBlock);
+                                                datasetBlock = null;
+                                            }
+
+                                            var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
+                                            datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
+                                            TrainingCanvas.Children.Add(datasetBlock);
+
+                                            switch (datasetType)
+                                            {
+                                                case "Segmentation":
+                                                    TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
+                                                    break;
+                                                case "YOLO_OBB":
+                                                    TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
+                                                    break;
+                                                case "YOLO":
+                                                    TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
+                                                    break;
+                                                default:
+                                                    TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
+                                                    break;
+                                            }
+
+                                            SaveBlockStates();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            MessageBox.Show($"Dispatcher error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                        }
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    Dispatcher.Invoke(() =>
                                     {
-                                        TrainingCanvas.Children.Remove(datasetBlock);
-                                        datasetBlock = null;
-                                    }
-
-                                    var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
-                                    datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
-                                    TrainingCanvas.Children.Add(datasetBlock);
-
-                                    // Show dataset type in status
-                                    switch (datasetType)
-                                    {
-                                        case "Segmentation":
-                                            TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
-                                            break;
-                                        case "YOLO_OBB":
-                                            TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
-                                            break;
-                                        case "YOLO":
-                                            TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
-                                            break;
-                                        default:
-                                            TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
-                                            break;
-                                    }
-
-                                    SaveBlockStates();
-                                });
+                                        MessageBox.Show($"Task error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                    });
+                                }
                             });
                         }
                         break;
@@ -1367,7 +1401,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             string yamlPath = System.IO.Path.Combine(rootPath, "data.yaml");
             if (!File.Exists(yamlPath))
                 return false;
-            
+
             //try
             //{
             //    // Get desired TaskType from ProjectTypeComboBox
@@ -1469,6 +1503,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 _ => type.ToString().ToLower()
             };
         }
+
         private List<(string ImagePath, string LabelPath, bool LabelExists)> SyncYoloAnnotations(string rootPath)
         {
             string imageDir = System.IO.Path.Combine(rootPath, "train", "images");
@@ -1503,9 +1538,9 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             ConfigPanelGrid.Visibility = Visibility.Visible;
             TrainingStatusText.Text = "New project created. Configure your model and dataset.";
             // Optionally reset blocks and ComboBoxes here
-            if (TrainingCanvas!=null)
+            if (TrainingCanvas != null)
             {
-                TrainingCanvas.Children.Clear(); 
+                TrainingCanvas.Children.Clear();
             }
             modelBlock = null;
             trainBlock = null;
@@ -1513,7 +1548,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
            
             ModelArchComboBox.SelectedIndex = -1;
         }
-       
+
         private void OpenModel_Click(object sender, RoutedEventArgs e)
         {
             // Implement your open project logic here
@@ -1583,25 +1618,24 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             TrainingStatusText.Text = "🚀 Training started...";
             TrainModelButton.IsEnabled = false;
 
-            // 🧩 Extract options from UI blocks
+            // Extract selected options from UI blocks
             var datasetOptions = ExtractOptionsFromBlock(datasetBlock);
             var modelOptions = ExtractOptionsFromBlock(modelBlock);
             var trainingOptions = ExtractOptionsFromBlock(trainBlock);
 
-            // ✅ Validate dataset options only
-            if (datasetOptions.Count == 0)
+            // Validate required options
+            if (datasetOptions.Count == 0 || modelOptions.Count == 0)
             {
-                MessageBox.Show("❌ Dataset configuration is missing.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                TrainingStatusText.Text = "Training aborted due to missing dataset.";
+                MessageBox.Show("❌ Missing dataset or model configuration.", "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TrainingStatusText.Text = "Training aborted due to missing configuration.";
                 TrainModelButton.IsEnabled = true;
                 return;
             }
 
-            // 🧠 Resolve training mode
+            // Resolve training mode from model options
             string selectedMode = modelOptions.FirstOrDefault(opt => opt.Name == "Training mode")?.Value?.ToLower() ?? "scratch";
             trainingOptions.RemoveAll(opt => opt.Name == "Training Mode");
             trainingOptions.Add(new TrainingOption { Name = "Training Mode", Value = selectedMode });
-
             // 🐍 Resolve Python path
             string pythonPath;
             try
@@ -1630,16 +1664,58 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
 
                 try
                 {
-                    trainingSuccess = (architecture, format) switch
+                    Logger.Instance.LogInfo($"Launching training: architecture={architecture}, format={format}");
+
+                    trainingSuccess = architecture switch
                     {
-                        ("YOLOv8", "seg") => Launch(() => TrainingHelper.LaunchYOLOv8SegmentationTraining(datasetOptions, trainingOptions)),
-                        ("YOLOv8", "_obb") => Launch(() => TrainingHelper.LaunchYOLOv8OBBTraining(datasetOptions, trainingOptions)),
-                        ("YOLOv8", "normal") => Launch(() => TrainingHelper.LaunchYOLOv8Training(datasetOptions, trainingOptions)),
+                        "YOLOv8" => format switch
+                        {
+                            "seg" => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo("Starting YOLOv8 segmentation training...");
+                                return TrainingHelper.LaunchYOLOv8SegmentationTraining(datasetOptions, modelOptions, trainingOptions);
+                            }),
+                            "obb" => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo("Starting YOLOv8 OBB training...");
+                                return TrainingHelper.LaunchYOLOv8OBBTraining(datasetOptions, modelOptions, trainingOptions);
+                            }),
+                            "normal" => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo("Starting YOLOv8 standard training...");
+                                return TrainingHelper.LaunchYOLOv8Training(datasetOptions, modelOptions, trainingOptions);
+                            }),
+                            _ => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo($"Unknown YOLOv8 format '{format}', launching fallback...");
+                                return LaunchFallback(architecture, modelOptions, trainingOptions);
+                            })
+                        },
 
-                        ("YOLOv5", "_obb") => Launch(() => TrainingHelper.LaunchYOLOv5OBBTraining(datasetOptions, trainingOptions)),
-                        ("YOLOv5", "normal") => Launch(() => TrainingHelper.LaunchYOLOv5Training(datasetOptions, trainingOptions)),
+                        "YOLOv5" => format switch
+                        {
+                            "_obb" => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo("Starting YOLOv5 OBB training...");
+                                return TrainingHelper.LaunchYOLOv5OBBTraining(datasetOptions, modelOptions, trainingOptions);
+                            }),
+                            "normal" => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo("Starting YOLOv5 standard training...");
+                                return TrainingHelper.LaunchYOLOv5Training(datasetOptions, modelOptions, trainingOptions);
+                            }),
+                            _ => SafeLaunch(() =>
+                            {
+                                Logger.Instance.LogInfo($"Unknown YOLOv5 format '{format}', launching fallback...");
+                                return LaunchFallback(architecture, modelOptions, trainingOptions);
+                            })
+                        },
 
-                        _ => LaunchFallback(architecture, modelOptions, trainingOptions)
+                        _ => SafeLaunch(() =>
+                        {
+                            Logger.Instance.LogInfo($"Unknown architecture '{architecture}', launching fallback...");
+                            return LaunchFallback(architecture, modelOptions, trainingOptions);
+                        })
                     };
 
                     Dispatcher.Invoke(() =>
@@ -1661,7 +1737,6 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 }
             });
 
-            // 🔧 Local helpers
             bool Launch(Action launchAction)
             {
                 launchAction();
@@ -1674,6 +1749,18 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 Console.WriteLine($"Executing: {cmd}");
                 // TODO: Replace with actual fallback logic
                 return true;
+            }
+        }
+        private static bool SafeLaunch(Func<bool> launcher)
+        {
+            try
+            {
+                return launcher();
+            }
+            catch (Exception ex)
+            {
+                Logger.Instance.LogError($"Training launcher failed: {ex}");
+                return false;
             }
         }
         private string BuildTrainingCommand(string arch, List<TrainingOption> modelOpts, List<TrainingOption> trainOpts)
@@ -1699,7 +1786,6 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
             // Compose the command string
             return $"train_model --arch=\"{arch}\" {string.Join(" ", args)}";
         }
-
         private List<TrainingOption> ExtractOptionsFromBlock(UIElement? block)
         {
             var options = new List<TrainingOption>();
@@ -1817,7 +1903,7 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 logCallback?.Invoke($"❌ Failed to run Python: {ex.Message}");
                 exitCallback?.Invoke(-1);
             }
-        } 
+        }
         #endregion
 
 
@@ -1830,8 +1916,8 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 TrainingStatusText.Text = statusText;
             });
         }
-   
-        
+
+
 
         private void AddOrSelectDataset(string datasetPath)
         {
@@ -1864,83 +1950,95 @@ TrainingStatusText.Text += $"[Inject] Backbone = {backbone}\n";
                 // Run validation and UI update asynchronously
                 Task.Run(() =>
                 {
-                    bool isValid;
-                    string detectedType;
                     try
                     {
-                        isValid = ValidateYoloDatasetStructure(datasetPath, out detectedType);
+                        Logger.Instance.LogInfo($"Starting dataset validation for: {datasetPath}");
+
+                        bool isValid = ValidateYoloDatasetStructure(datasetPath, out datasetType);
+
+                        Logger.Instance.LogInfo($"Validation result: {isValid}, Type: {datasetType}");
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            try
+                            {
+                                Logger.Instance.LogInfo("Entered Dispatcher.Invoke block");
+
+                                if (!isValid)
+                                {
+                                    Logger.Instance.LogWarning("Dataset structure invalid — showing warning dialog");
+                                    MessageBox.Show(
+                                        "⚠️ Invalid dataset structure.\nExpected folders: train/valid/test with images/labels subfolders and a data.yaml file.",
+                                        "Validation Failed",
+                                        MessageBoxButton.OK,
+                                        MessageBoxImage.Warning
+                                    );
+                                    TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
+                                    return;
+                                }
+
+                                AddOrSelectDataset(datasetPath);
+                                Logger.Instance.LogInfo("Dataset added to UI");
+
+                                if (datasetBlock != null)
+                                {
+                                    TrainingCanvas.Children.Remove(datasetBlock);
+                                    datasetBlock = null;
+                                }
+
+                                var detailsGrid = CreateDatasetDetailsGrid(datasetPath);
+                                datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
+                                TrainingCanvas.Children.Add(datasetBlock);
+
+                                switch (datasetType)
+                                {
+                                    case "Segmentation":
+                                        TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
+                                        break;
+                                    case "YOLO_OBB":
+                                        TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
+                                        break;
+                                    case "YOLO":
+                                        TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
+                                        break;
+                                    default:
+                                        TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
+                                        break;
+                                }
+
+                                SaveBlockStates();
+                                Logger.Instance.LogInfo("Dataset block saved and UI updated");
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Instance.LogError($"Dispatcher error: {ex}");
+                                MessageBox.Show($"Dispatcher error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            }
+                        });
                     }
                     catch (Exception ex)
                     {
-                        isValid = false;
-                        detectedType = "Unknown";
+                        Logger.Instance.LogError($"Task error: {ex}");
                         Dispatcher.Invoke(() =>
                         {
-                            MessageBox.Show($"Error validating dataset: {ex.Message}", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            TrainingStatusText.Text = "Dataset validation failed due to an error.";
+                            MessageBox.Show($"Task error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         });
-                        return;
                     }
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (!isValid)
-                        {
-                            MessageBox.Show(
-                                "⚠️ Invalid dataset structure.\nExpected folders: train/valid/test with images/labels subfolders and a data.yaml file.",
-                                "Validation Failed",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Warning
-                            );
-                            TrainingStatusText.Text = "Dataset validation failed. Please select a valid dataset.";
-                            return;
-                        }
-
-                        // Remove previous dataset block if it exists
-                        if (datasetBlock != null)
-                        {
-                            TrainingCanvas.Children.Remove(datasetBlock);
-                            datasetBlock = null;
-                        }
-
-                        var detailsPanel = CreateDatasetDetailsGrid(datasetPath);
-                        datasetBlock = CreateBlock(detailsPanel, 10, 10, "Dataset");
-                        TrainingCanvas.Children.Add(datasetBlock);
-
-                        // Show dataset type in status
-                        switch (detectedType)
-                        {
-                            case "Segmentation":
-                                TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
-                                break;
-                            case "YOLO_OBB":
-                                TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
-                                break;
-                            case "YOLO":
-                                TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
-                                break;
-                            default:
-                                TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
-                                break;
-                        }
-
-                        // Save state only after the block is added
-                        SaveBlockStates();
-                    });
                 });
             }
         }
 
 
 
+
         private void ProjectTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (ProjectTypeComboBox.SelectedItem is ComboBoxItem selectedItem && selectedItem.Tag is TaskType selectedTask)
-    {
-        desiredTaskType = selectedTask;
-        TrainingStatusText.Text = $"Project type set to: {GetEnumDescription(selectedTask)}";
-        SaveBlockStates();
-    }
+            {
+                desiredTaskType = selectedTask;
+                TrainingStatusText.Text = $"Project type set to: {GetEnumDescription(selectedTask)}";
+                SaveBlockStates();
+            }
         }
 
         private void PopulateProjectTypeComboBox()

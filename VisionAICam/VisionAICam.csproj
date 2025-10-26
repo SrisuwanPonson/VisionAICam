@@ -1,4 +1,5 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -30,6 +31,12 @@
     <PackageReference Include="OpenCvSharp4.WpfExtensions" Version="4.11.0.20250507" />
     <PackageReference Include="pythonnet" Version="3.0.5" />
     <PackageReference Include="System.Management" Version="9.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ClearEngine.Inference\ClearEngine.Model.Inference.csproj" />
+    <ProjectReference Include="..\ClearEngine.Logging\ClearEngine.Logging.csproj" />
+    <ProjectReference Include="..\VisionAICam.Devices.Camera\ClearEngine.Devices.Camera.csproj" />
   </ItemGroup>
 
   <ItemGroup>

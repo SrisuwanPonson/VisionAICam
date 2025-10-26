@@ -3,141 +3,237 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Title="DiagnosticsPage">
 
-    <Page.Resources>
-        <!-- Light background gradient -->
-        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#F5F5F5" Offset="0"/>
-            <GradientStop Color="#E0E0E0" Offset="1"/>
-        </LinearGradientBrush>
+    <Grid>
+        <TabControl Margin="10">
 
-        <!-- Text styling -->
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#222"/>
-            <Setter Property="FontSize" Value="14"/>
-        </Style>
+            <!-- 🖥️ System Info Tab -->
+            <TabItem Header="System Info">
+                <GroupBox Header="Step 1: System Information" Margin="10">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-        <!-- GroupBox styling -->
-        <Style TargetType="GroupBox">
-            <Setter Property="BorderBrush" Value="#CCCCCC"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="#FAFAFA"/>
-            <Setter Property="Padding" Value="10"/>
-            <Setter Property="Margin" Value="0,0,0,20"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-        </Style>
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="OS:" FontWeight="Bold"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="OsVersionText"/>
 
-        <!-- Button styling -->
-        <Style TargetType="Button">
-            <Setter Property="Background" Value="#E0E0E0"/>
-            <Setter Property="Foreground" Value="#222"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="Margin" Value="0,10,0,0"/>
-        </Style>
-    </Page.Resources>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text=".NET:" FontWeight="Bold"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="DotNetVersionText"/>
 
-    <Page.Background>
-        <StaticResource ResourceKey="PageBackgroundBrush"/>
-    </Page.Background>
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Memory:" FontWeight="Bold"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="MemoryText"/>
 
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="CPU:" FontWeight="Bold"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="CpuText"/>
+                    </Grid>
+                </GroupBox>
+            </TabItem>
 
-        <!-- Page Title -->
-        <TextBlock Text="Diagnostics"
-                   FontSize="30"
-                   FontWeight="Bold"
-                   Margin="0,0,0,20"
-                   Grid.Row="0"/>
+            <!-- 📷 Camera Diagnostics Tab -->
+            <TabItem Header="Camera">
+                <GroupBox Header="Step 2: Camera Diagnostics" Margin="10">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-        <!-- Diagnostic Sections -->
-        <StackPanel Grid.Row="1" Orientation="Vertical">
+                        <TextBlock Grid.Row="0" x:Name="CameraListText"/>
 
-            <!-- Step 1: System Info -->
-            <GroupBox Header="Step 1: System Information">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="120"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal">
+                            <Button x:Name="RefreshCamerasButton"
+                                    Content="Refresh Cameras"
+                                    Width="150"
+                                    HorizontalAlignment="Left"
+                                    Click="RefreshCamerasButton_Click"/>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="OS:" FontWeight="Bold"/>
-                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="OsVersionText" Text="Windows 11"/>
+                            <Button x:Name="LiveButton"
+                                    Content="Live"
+                                    Width="100"
+                                    HorizontalAlignment="Left"
+                                    Click="LiveButton_Click"/>
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text=".NET:" FontWeight="Bold"/>
-                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="DotNetVersionText" Text="8.0"/>
+                            <Button x:Name="StopButton"
+                                    Content="Stop"
+                                    Width="100"
+                                    HorizontalAlignment="Left"
+                                    Click="StopButton_Click"/>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Memory:" FontWeight="Bold"/>
-                    <TextBlock Grid.Row="2" Grid.Column="1" x:Name="MemoryText" Text="16 GB"/>
+                            <Button x:Name="CaptureButton"
+                                    Content="Capture"
+                                    Width="100"
+                                    HorizontalAlignment="Left"
+                                    Click="CaptureButton_Click"/>
 
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="CPU:" FontWeight="Bold"/>
-                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="CpuText" Text="Intel Core i7"/>
-                </Grid>
-            </GroupBox>
+                        </StackPanel>
 
-            <!-- Step 2: Camera Diagnostics -->
-            <GroupBox Header="Step 2: Camera Diagnostics">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="2" x:Name="CameraStatusText" Margin="0,8,0,0"/>
 
-                    <TextBlock Grid.Row="0" x:Name="CameraListText" Text="Detected Cameras: HD Pro Webcam C920"/>
-                    <Button Grid.Row="1" Content="Refresh Cameras" Width="150" HorizontalAlignment="Left" Click="RefreshCamerasButton_Click"/>
-                </Grid>
-            </GroupBox>
+                        <Border Grid.Row="3" Margin="0,8,0,0" BorderBrush="LightGray" BorderThickness="1" Padding="4">
+                            <Image x:Name="CameraPreviewImage"
+                                   Stretch="Uniform"
+                                   HorizontalAlignment="Stretch"
+                                   VerticalAlignment="Stretch" />
+                        </Border>
+                    </Grid>
+                </GroupBox>
+            </TabItem>
 
-            <!-- Step 3: Model Diagnostics -->
-            <GroupBox Header="Step 3: Model Diagnostics">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
+            <!-- 🧠 Model Diagnostics Tab -->
+            <TabItem Header="Model">
+                <GroupBox Header="Step 3: Model Diagnostics" Margin="10">
+                    <Grid Margin="8">
+                        <Grid.Resources>
+                            <!-- Simple, reusable button style for a cleaner, consistent look -->
+                            <Style x:Key="ActionButton" TargetType="Button">
+                                <Setter Property="MinWidth" Value="110"/>
+                                <Setter Property="Padding" Value="6,4"/>
+                                <Setter Property="Margin" Value="0,0,8,0"/>
+                                <Setter Property="FontSize" Value="13"/>
+                            </Style>
+                        </Grid.Resources>
 
-                    <TextBlock Grid.Row="0" x:Name="ModelInfoText" Text="Model: YOLOv5s (Ultralytics)"/>
-                    <Button Grid.Row="1" Content="Test Model Inference" Width="180" HorizontalAlignment="Left" Click="TestModelButton_Click"/>
-                </Grid>
-            </GroupBox>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <!-- Selected model -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Action bar (model actions left, image actions right) -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Model details textbox -->
+                            <RowDefinition Height="*"/>
+                            <!-- Image / overlay -->
+                        </Grid.RowDefinitions>
 
-            <!-- Step 4: Performance Metrics -->
-            <GroupBox Header="Step 4: Performance Metrics">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="120"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                        <!-- Selected model label -->
+                        <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
+                            <TextBlock Text="Selected model:" FontWeight="Bold" VerticalAlignment="Center" />
+                            <TextBlock x:Name="ModelPathText"
+                                       Text="(none)"
+                                       Margin="8,0,0,0"
+                                       TextTrimming="CharacterEllipsis"
+                                       DockPanel.Dock="Right"
+                                       Width="559"/>
+                        </DockPanel>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="FPS:" FontWeight="Bold"/>
-                    <TextBlock Grid.Row="0" Grid.Column="1" x:Name="FpsText" Text="30.2"/>
+                        <!-- Action bar: left = model actions, right = image/inference actions -->
+                        <Grid Grid.Row="1" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Inference Time:" FontWeight="Bold"/>
-                    <TextBlock Grid.Row="1" Grid.Column="1" x:Name="InferenceTimeText" Text="42 ms"/>
-                </Grid>
-            </GroupBox>
+                            <!-- Model actions (left) -->
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
+                                <Button x:Name="SelectModelButton"
+                                        Style="{StaticResource ActionButton}"
+                                        Content="Select Model..."
+                                        Click="SelectModelButton_Click"
+                                        ToolTip="Choose a model file for inference" />
+                                <Button x:Name="SaveModelButton"
+                                        Style="{StaticResource ActionButton}"
+                                        Content="Save Model"
+                                        Click="SaveModelButton_Click"
+                                        ToolTip="Save current model path to settings" />
+                                <Button x:Name="ToggleModelDetailsButton"
+                                        Style="{StaticResource ActionButton}"
+                                        Content="Show Model Details"
+                                        Click="ToggleModelDetailsButton_Click"
+                                        ToolTip="Show or hide model metadata/details" />
+                            </StackPanel>
 
-            <!-- Step 5: Logs -->
-            <GroupBox Header="Step 5: Logs">
-                <TextBox x:Name="LogTextBox"
-                         Height="80"
-                         IsReadOnly="True"
-                         TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto"/>
-            </GroupBox>
-        </StackPanel>
+                            <!-- Image / inference actions (right) -->
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="LoadImageButton"
+                                        Style="{StaticResource ActionButton}"
+                                        Content="Load Image..."
+                                        Click="LoadImageButton_Click"
+                                        ToolTip="Load an image to run inference on" />
+                                <Button x:Name="RunInferenceButton"
+                                        Style="{StaticResource ActionButton}"
+                                        Content="Run Inference"
+                                        Click="RunInferenceButton_Click"
+                                        ToolTip="Run the model on the currently loaded image" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Model detail textbox, collapsed by default -->
+                        <TextBox Grid.Row="2"
+                                 x:Name="ModelDetailsTextBox"
+                                 Visibility="Collapsed"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Height="200"
+                                 IsReadOnly="True"
+                                 FontFamily="Consolas"
+                                 Margin="0,0,0,8" />
+
+                        <!-- Image box for test input (visible by default) -->
+                        <Border Grid.Row="3" BorderBrush="Gray" BorderThickness="1" Padding="6" Background="White">
+                            <Grid>
+                                <!-- Test image -->
+                                <Viewbox Stretch="Uniform">
+                                    <Grid Width="640" Height="480">
+                                        <Image x:Name="ModelTestImage"
+                                               Stretch="Uniform"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" />
+                                        <!-- Overlay canvas for bounding boxes -->
+                                        <Canvas x:Name="ModelBoundingCanvas"
+                                                Background="Transparent"
+                                                IsHitTestVisible="False"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch" />
+                                    </Grid>
+                                </Viewbox>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </GroupBox>
+            </TabItem>
+
+            <!-- 📊 Performance Metrics Tab -->
+            <TabItem Header="Performance">
+                <GroupBox Header="Step 4: Performance Metrics" Margin="10">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="FPS:" FontWeight="Bold"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="FpsText"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Inference Time:" FontWeight="Bold"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="InferenceTimeText"/>
+                    </Grid>
+                </GroupBox>
+            </TabItem>
+
+            <!-- 📜 Logs Tab -->
+            <TabItem Header="Logs">
+                <GroupBox Header="Step 5: Logs" Margin="10">
+                    <TextBox x:Name="LogTextBox"
+                             Height="120"
+                             IsReadOnly="True"
+                             TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto"/>
+                </GroupBox>
+            </TabItem>
+
+        </TabControl>
     </Grid>
 </Page>

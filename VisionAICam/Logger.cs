@@ -1,0 +1,102 @@
+﻿using System;
+using System.IO;
+using System.Text.Json;
+
+namespace VisionAICam
+{
+    // Singleton Logger design pattern
+    internal sealed class Logger
+    {
+        private static readonly Lazy<Logger> _instance = new(() => new Logger());
+        private readonly string _logFilePath;
+        private readonly string logDirectory;
+
+        // Private constructor to prevent instantiation
+        private Logger()
+        {
+            logDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log");
+            Directory.CreateDirectory(logDirectory);
+            var logFileName = $"log_{DateTime.Now:yyyyMMdd}.txt";
+            _logFilePath = Path.Combine(logDirectory, logFileName);
+        }
+
+        public static Logger Instance => _instance.Value;
+
+
+        public void LogInfo(string message)
+        {
+            Log("INFO", message);
+        }
+
+        public void LogWarning(string message)
+        {
+            Log("WARNING", message);
+        }
+
+        public void LogError(string message)
+        {
+            Log("ERROR", message);
+        }
+
+        private void Log(string level, string message)
+        {
+            var logEntry = $"{DateTime.Now:yyyy-MM-dd} [{level}] {message}";
+            try
+            {
+                File.AppendAllText(_logFilePath, logEntry + Environment.NewLine);
+            }
+            catch
+            {
+                // Optionally handle logging errors (e.g., write to event log)
+            }
+        }
+
+        // Serialize arbitrary object for logging; fall back to ToString() on failure.
+        internal void LogInfo(object export, string v)
+        {
+            try
+            {
+                string payload;
+                if (export == null)
+                {
+                    payload = "<null>";
+                }
+                else
+                {
+                    var options = new JsonSerializerOptions { WriteIndented = false, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
+                    payload = JsonSerializer.Serialize(export, options);
+                }
+
+                LogInfo($"{v}: {payload}");
+            }
+            catch
+            {
+                try
+                {
+                    LogInfo($"{v}: {export?.ToString() ?? "<null>"}");
+                }
+                catch
+                {
+                    // swallow
+                }
+            }
+        }
+
+        internal string GetLogDirectory()
+        {
+            return logDirectory;
+        }
+
+        // Compatibility convenience: map to LogError
+        internal void Error(string v)
+        {
+            LogError(v);
+        }
+
+        // Compatibility convenience: map to LogInfo
+        internal void Info(string v)
+        {
+            LogInfo(v);
+        }
+    }
+}
