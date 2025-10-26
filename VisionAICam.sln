@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Model.Inference
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Logging", "ClearEngine.Logging\ClearEngine.Logging.csproj", "{6F9A67B5-89C1-4CB5-A091-258E95E27F3E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.SessionManagement", "ClearEngine.SessionManagement\ClearEngine.SessionManagement.csproj", "{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -61,6 +63,14 @@ Global
 		{6F9A67B5-89C1-4CB5-A091-258E95E27F3E}.Release|Any CPU.Build.0 = Release|Any CPU
 		{6F9A67B5-89C1-4CB5-A091-258E95E27F3E}.Release|x64.ActiveCfg = Release|Any CPU
 		{6F9A67B5-89C1-4CB5-A091-258E95E27F3E}.Release|x64.Build.0 = Release|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Debug|x64.Build.0 = Debug|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|x64.ActiveCfg = Release|Any CPU
+		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
