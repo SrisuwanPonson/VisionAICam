@@ -20,6 +20,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.ComponentModel;
 using System.Reflection; // <-- add this
+using ClearEngine.Logging;
 
 namespace VisionAICam.Pages
 {
@@ -50,6 +51,9 @@ namespace VisionAICam.Pages
 
         // add to DiagnosticsPage fields near other fields
         private ClearEngine.Model.Inference.InferenceEngine? _cachedEngine;
+        // Use the shared logger from ClearEngine.Logging
+        private readonly ILogger _logger = ClearEngine.Logging.Logger.Instance;
+        public int InitCount { get; private set; } = 0;
 
         public DiagnosticsPage()
         {
@@ -63,11 +67,24 @@ namespace VisionAICam.Pages
             // Populate model path UI
             ModelPathText.Text = string.IsNullOrEmpty(_app_settings?.DefaultModelPath) ? "(none)" : _app_settings!.DefaultModelPath!;
             UpdateModelControlsVisibility();
-            Log("Diagnostics page initialized.");
+            _logger.LogInfo("Diagnostics page initialized.");
 
             // Lifecycle hooks: subscribe so we can clean up when the page is unloaded or host window closes
             this.Loaded += DiagnosticsPage_Loaded;
             this.Unloaded += DiagnosticsPage_Unloaded;
+            this.IsVisibleChanged += DiagnosticsPage_IsVisibleChanged;
+        }
+
+        private void DiagnosticsPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (this.IsVisible)
+            {
+                _logger.LogInfo("Diagnostics page is now visible.");
+            }
+            else
+            {
+                _logger.LogInfo("Diagnostics page is now hidden.");
+            }
         }
 
         // update DiagnosticsPage_Loaded to pre-warm engine in background
@@ -83,39 +100,14 @@ namespace VisionAICam.Pages
                 }
                 else
                 {
-                    Log("Host window not found.");
+                    _logger.LogInfo("Host window not found.");
                 }
 
-                // Pre-warm the inference engine in background so first inference is fast afterwards.
-                _ = Task.Run(() =>
-                {
-                    try
-                    {
-                        // only attempt once
-                        if (_cachedEngine != null) return;
-
-                        string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
-                        if (InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out var engine, out var initError))
-                        {
-                            // keep engine cached for reuse
-                            _cachedEngine = engine;
-                            lock (_pythonInitLock) { _pythonInitialized = true; }
-                            Log("Inference engine pre-warmed.");
-                        }
-                        else
-                        {
-                            Log($"Inference engine pre-warm failed: {initError}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"Engine pre-warm error: {ex.Message}");
-                    }
-                });
+                // Pre-warm removed: do not initialize Python/inference engine automatically on page load.
             }
             catch (Exception ex)
             {
-                Log($"DiagnosticsPage_Loaded failed: {ex.Message}");
+                _logger.LogInfo($"DiagnosticsPage_Loaded failed: {ex.Message}");
             }
         }
 
@@ -169,13 +161,13 @@ namespace VisionAICam.Pages
         private void RefreshCamerasButton_Click(object sender, RoutedEventArgs e)
         {
             LoadCameraInfo();
-            Log("Camera list refreshed.");
+            _logger.LogInfo("Camera list refreshed.");
         }
         #endregion
 
         private void TestModelButton_Click(object sender, RoutedEventArgs e)
         {
-            Log("Model inference test triggered.");
+            _logger.LogInfo("Model inference test triggered.");
             MessageBox.Show("Model inference test completed.", "YOLO Diagnostics", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -186,20 +178,7 @@ namespace VisionAICam.Pages
             InferenceTimeText.Text = "42 ms";
         }
 
-        // 📜 Thread-safe Logging
-        private void Log(string message)
-        {
-            var line = $"{DateTime.Now:HH:mm:ss} - {message}\n";
-            SafeInvokeOnUi(() =>
-            {
-                try
-                {
-                    LogTextBox.AppendText(line);
-                    LogTextBox.ScrollToEnd();
-                }
-                catch { }
-            });
-        }
+       
 
         // 🔧 Helpers
         private string GetCpuName()
@@ -249,7 +228,7 @@ namespace VisionAICam.Pages
                         _camera.Dispose();
                         _camera = null;
                         CameraStatusText.Text = "No camera available or failed to open camera.";
-                        Log("Failed to open camera.");
+                        _logger.LogInfo("Failed to open camera.");
                         return;
                     }
 
@@ -258,12 +237,12 @@ namespace VisionAICam.Pages
                     _fpsFrameCount = 0;
 
                     CameraStatusText.Text = "Live";
-                    Log("Live preview started (ClearEngine.Devices.Camera).");
+                    _logger.LogInfo("Live preview started (ClearEngine.Devices.Camera).");
                 }
                 catch (Exception ex)
                 {
                     CameraStatusText.Text = $"Failed to start live: {ex.Message}";
-                    Log($"Failed to start live preview: {ex.Message}");
+                    _logger.LogInfo($"Failed to start live preview: {ex.Message}");
                     try { _camera?.Dispose(); } catch { }
                     _camera = null;
                     _isLive = false;
@@ -303,7 +282,7 @@ namespace VisionAICam.Pages
                 if (_camera == null || !_camera.IsOpened)
                 {
                     CameraStatusText.Text = "Camera not running.";
-                    Log("Capture requested but camera is not running.");
+                    _logger.LogInfo("Capture requested but camera is not running.");
                     return;
                 }
 
@@ -311,7 +290,7 @@ namespace VisionAICam.Pages
                 if (mat == null)
                 {
                     CameraStatusText.Text = "No frame available to capture.";
-                    Log("Capture requested but no frame available.");
+                    _logger.LogInfo("Capture requested but no frame available.");
                     return;
                 }
 
@@ -333,7 +312,7 @@ namespace VisionAICam.Pages
 
                     mat.SaveImage(filePath);
                     CameraStatusText.Text = $"Saved: {filePath}";
-                    Log($"Captured image saved to {filePath}");
+                    _logger.LogInfo($"Captured image saved to {filePath}");
                 }
                 finally
                 {
@@ -343,7 +322,7 @@ namespace VisionAICam.Pages
             catch (Exception ex)
             {
                 CameraStatusText.Text = $"Capture failed: {ex.Message}";
-                Log($"Capture failed: {ex.Message}");
+                _logger.LogInfo($"Capture failed: {ex.Message}");
             }
         }
 
@@ -358,7 +337,7 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                Log($"Error stopping camera: {ex.Message}");
+                _logger.LogInfo($"Error stopping camera: {ex.Message}");
             }
             finally
             {
@@ -370,7 +349,7 @@ namespace VisionAICam.Pages
                     CameraStatusText.Text = "Stopped";
                     if (this.FindName("CameraPreviewImage") is System.Windows.Controls.Image img) img.Source = null;
                 });
-                Log("Live preview stopped.");
+                _logger.LogInfo("Live preview stopped.");
             }
         }
 
@@ -387,7 +366,7 @@ namespace VisionAICam.Pages
             if (dlg.ShowDialog() == true)
             {
                 ModelPathText.Text = dlg.FileName;
-                Log($"Model selected: {dlg.FileName}");
+                _logger.LogInfo($"Model selected: {dlg.FileName}");
                 UpdateModelControlsVisibility();
                 LoadModelDetails(dlg.FileName);
             }
@@ -400,13 +379,13 @@ namespace VisionAICam.Pages
                 if (_app_settings == null) _app_settings = new AppSettings();
                 _app_settings.DefaultModelPath = ModelPathText.Text;
                 SettingsManager.Save(_app_settings);
-                Log($"Model path saved to settings: {_app_settings.DefaultModelPath}");
+                _logger.LogInfo($"Model path saved to settings: {_app_settings.DefaultModelPath}");
                 MessageBox.Show("Model saved to settings.", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
                 UpdateModelControlsVisibility();
             }
             catch (Exception ex)
             {
-                Log($"Failed to save model: {ex.Message}");
+                _logger.LogInfo($"Failed to save model: {ex.Message}");
                 MessageBox.Show($"Failed to save model: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -441,7 +420,7 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                Log($"ToggleModelDetailsButton_Click failed: {ex.Message}");
+                _logger.LogInfo($"ToggleModelDetailsButton_Click failed: {ex.Message}");
             }
         }
 
@@ -520,11 +499,11 @@ namespace VisionAICam.Pages
 
                     ModelTestImage.Source = bmp;
                     ClearModelBoundingBoxes();
-                    Log($"Loaded test image: {dlg.FileName}");
+                    _logger.LogInfo($"Loaded test image: {dlg.FileName}");
                 }
                 catch (Exception ex)
                 {
-                    Log($"Failed to load image: {ex.Message}");
+                    _logger.LogInfo($"Failed to load image: {ex.Message}");
                     MessageBox.Show($"Failed to load image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
@@ -571,33 +550,36 @@ namespace VisionAICam.Pages
                 var token = _inferenceCts.Token;
 
                 Mat mat = null!;
-                try
+                if (/*InitCount==0*/true)
                 {
-                    mat = bitmap.ToMat();
-                    var targetSize = new OpenCvSharp.Size(640, 480);
-
-                    if (mat.Channels() == 4)
+                    try
                     {
-                        var tmp = new Mat();
-                        Cv2.CvtColor(mat, tmp, ColorConversionCodes.BGRA2BGR);
-                        mat.Dispose();
-                        mat = tmp;
-                    }
+                        mat = bitmap.ToMat();
+                        var targetSize = new OpenCvSharp.Size(640, 480);
 
-                    if (mat.Width != targetSize.Width || mat.Height != targetSize.Height)
-                    {
-                        var resized = new Mat();
-                        Cv2.Resize(mat, resized, targetSize, 0, 0, InterpolationFlags.Linear);
-                        mat.Dispose();
-                        mat = resized;
+                        if (mat.Channels() == 4)
+                        {
+                            var tmp = new Mat();
+                            Cv2.CvtColor(mat, tmp, ColorConversionCodes.BGRA2BGR);
+                            mat.Dispose();
+                            mat = tmp;
+                        }
+
+                        if (mat.Width != targetSize.Width || mat.Height != targetSize.Height)
+                        {
+                            var resized = new Mat();
+                            Cv2.Resize(mat, resized, targetSize, 0, 0, InterpolationFlags.Linear);
+                            mat.Dispose();
+                            mat = resized;
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    Log($"Failed to convert/resize image to Mat: {ex.Message}");
-                    MessageBox.Show($"Failed to convert image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    mat?.Dispose();
-                    return;
+                    catch (Exception ex)
+                    {
+                        _logger.LogInfo($"Failed to convert/resize image to Mat: {ex.Message}");
+                        MessageBox.Show($"Failed to convert image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        mat?.Dispose();
+                        return;
+                    } 
                 }
 
                 ClearEngine.Model.Inference.DetectionResult[] detections = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
@@ -606,34 +588,39 @@ namespace VisionAICam.Pages
                 _runningInferenceTask = Task.Run(() =>
                 {
                     ClearEngine.Model.Inference.InferenceEngine? engine = null;
+                    var modelPath = _app_settings?.DefaultModelPath ?? "model.pt";
+                    var logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
                     bool engineIsCached = false;
                     try
                     {
-                        token.ThrowIfCancellationRequested();
+                        if (/*InitCount==0*/true)
+                        {
+                            InitCount++;
+                            token.ThrowIfCancellationRequested();
 
-                        // Prefer cached engine when available
-                        if (_cachedEngine != null)
-                        {
-                            engine = _cachedEngine;
-                            engineIsCached = true;
-                        }
-                        else
-                        {
-                            string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
-                            if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
+                            // Prefer cached engine when available
+                            if (_cachedEngine != null)
                             {
-                                Log($"Inference engine initialization failed: {initError}");
-                                return;
+                                engine = _cachedEngine;
+                                engineIsCached = true;
+                            }
+                            else
+                            {
+                                string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                                if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
+                                {
+                                    _logger.LogInfo($"Inference engine initialization failed: {initError}");
+                                    return;
+                                }
+
+                                // if we created it here, don't mark _pythonInitialized globally unless you want to persist it
+                                lock (_pythonInitLock) { _pythonInitialized = true; }
                             }
 
-                            // if we created it here, don't mark _pythonInitialized globally unless you want to persist it
-                            lock (_pythonInitLock) { _pythonInitialized = true; }
+                            token.ThrowIfCancellationRequested();
+
+                           
                         }
-
-                        token.ThrowIfCancellationRequested();
-
-                        var modelPath = _app_settings?.DefaultModelPath ?? "model.pt";
-                        var logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
 
                         ClearEngine.Model.Inference.DetectionResult[] remoteResults = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
                         try
@@ -645,7 +632,7 @@ namespace VisionAICam.Pages
                         {
                             string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "python_error_inference_detect.log");
                             File.WriteAllText(logPath, ex.ToString());
-                            Log($"Engine.Detect threw: {ex.Message} (see {logPath})");
+                            _logger.LogInfo($"Engine.Detect threw: {ex.Message} (see {logPath})");
                             return;
                         }
 
@@ -655,11 +642,11 @@ namespace VisionAICam.Pages
                     }
                     catch (OperationCanceledException)
                     {
-                        Log("Inference cancelled.");
+                        _logger.LogInfo("Inference cancelled.");
                     }
                     catch (Exception ex)
                     {
-                        Log($"Inference task error: {ex.Message}");
+                        _logger.LogInfo($"Inference task error: {ex.Message}");
                     }
                     finally
                     {
@@ -674,7 +661,7 @@ namespace VisionAICam.Pages
                         }
                         catch (Exception ex)
                         {
-                            Log($"Failed to dispose inference engine: {ex.Message}");
+                            _logger.LogInfo($"Failed to dispose inference engine: {ex.Message}");
                         }
                     }
                 }, token);
@@ -686,18 +673,21 @@ namespace VisionAICam.Pages
                 }
                 catch (OperationCanceledException)
                 {
-                    Log("RunInferenceButton_Click: inference awaited cancelled.");
+                    _logger.LogInfo("RunInferenceButton_Click: inference awaited cancelled.");
                 }
                 catch (Exception ex)
                 {
-                    Log($"RunInferenceButton_Click task error: {ex.Message}");
+                    _logger.LogInfo($"RunInferenceButton_Click task error: {ex.Message}");
                 }
                 finally
                 {
                     _runningInferenceTask = null;
                     try { _inferenceCts?.Dispose(); } catch { }
                     _inferenceCts = null;
-                    mat.Dispose();
+                    if (mat!=null)
+                    {
+                        mat.Dispose(); 
+                    }
                 }
 
                 // Update UI from main thread
@@ -827,7 +817,7 @@ namespace VisionAICam.Pages
                 }
                 catch (Exception ex)
                 {
-                    Log($"DrawModelBoundingBoxes failed: {ex.Message}");
+                    _logger.LogInfo($"DrawModelBoundingBoxes failed: {ex.Message}");
                 }
             });
         }
@@ -841,7 +831,7 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                try { Log($"ClearModelBoundingBoxes failed: {ex.Message}"); } catch { }
+                try { _logger.LogInfo($"ClearModelBoundingBoxes failed: {ex.Message}"); } catch { }
             }
         }
 
@@ -894,7 +884,7 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                Log($"LoadModelInfo failed: {ex.Message}");
+                _logger.LogInfo($"LoadModelInfo failed: {ex.Message}");
             }
         }
 
@@ -906,7 +896,7 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                Log($"StopButton_Click failed: {ex.Message}");
+                _logger.LogInfo($"StopButton_Click failed: {ex.Message}");
                 MessageBox.Show($"Failed to stop camera: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -920,7 +910,7 @@ namespace VisionAICam.Pages
             if (_isCleaningUp) return;
             _isCleaningUp = true;
 
-            Log("Cleaning up resources...");
+            _logger.LogInfo("Cleaning up resources...");
 
             try
             {
@@ -931,8 +921,8 @@ namespace VisionAICam.Pages
                 }
                 catch (Exception ex)
                 {
-                    Log($"CleanupResources StopCamera: {ex.Message}");
-                }
+                    _logger.LogInfo($"CleanupResources StopCamera: {ex.Message}");
+                }   
 
                 // Cancel inference task and wait briefly for it to finish
                 try
@@ -978,7 +968,7 @@ namespace VisionAICam.Pages
 
                     if (engineInstance is ClearEngine.Model.Inference.InferenceEngine engine)
                     {
-                        try { engine.Dispose(); } catch (Exception ex) { Log($"CleanupResources dispose engine: {ex.Message}"); }
+                        try { engine.Dispose(); } catch (Exception ex) { _logger.LogInfo($"CleanupResources dispose engine: {ex.Message}"); }
                     }
 
                     // Try to clear backing field if property is read-only
@@ -995,7 +985,7 @@ namespace VisionAICam.Pages
                 }
                 catch (Exception ex)
                 {
-                    Log($"CleanupResources engine disposal error: {ex.Message}");
+                    _logger.LogInfo($"CleanupResources engine disposal error: {ex.Message}");
                 }
 
                 // Shutdown Python runtime if we previously initialized it
@@ -1012,7 +1002,7 @@ namespace VisionAICam.Pages
                             }
                             catch (Exception ex)
                             {
-                                Log($"PythonEngine.Shutdown failed: {ex.Message}");
+                                _logger.LogInfo($"PythonEngine.Shutdown failed: {ex.Message}");
                             }
                             _pythonInitialized = false;
                         }
@@ -1020,7 +1010,7 @@ namespace VisionAICam.Pages
                 }
                 catch (Exception ex)
                 {
-                    Log($"CleanupResources python shutdown error: {ex.Message}");
+                    _logger.LogInfo($"CleanupResources python shutdown error: {ex.Message}");
                 }
 
                 // dispose cached engine in CleanupResources
@@ -1028,13 +1018,13 @@ namespace VisionAICam.Pages
                 {
                     if (_cachedEngine != null)
                     {
-                        try { _cachedEngine.Dispose(); } catch (Exception ex) { Log($"Failed to dispose cached engine: {ex.Message}"); }
+                        try { _cachedEngine.Dispose(); } catch (Exception ex) { _logger.LogInfo($"Failed to dispose cached engine: {ex.Message}"); }
                         _cachedEngine = null;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log($"Error disposing cached engine: {ex.Message}");
+                    _logger.LogInfo($"Error disposing cached engine: {ex.Message}");
                 }
 
                 // Give final chance to dispose any remaining objects
@@ -1048,7 +1038,7 @@ namespace VisionAICam.Pages
             finally
             {
                 _isCleaningUp = false;
-                Log("Cleanup finished.");
+                _logger.LogInfo("Cleanup finished.");
             }
         }
 
@@ -1062,7 +1052,7 @@ namespace VisionAICam.Pages
             }
             catch
             {
-                try { Log("CleanupResourcesPublic: failed to invoke CleanupResources."); } catch { }
+                try { _logger.LogInfo("CleanupResourcesPublic: failed to invoke CleanupResources."); } catch { }
             }
         }
     }
