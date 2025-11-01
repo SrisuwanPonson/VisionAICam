@@ -21,7 +21,8 @@ namespace ClearEngine.Model.Inference
     {
         private static readonly object _initLock = new();
         private static bool _initialized = false;
-
+        public string modelPath { get; set; }///////////////////////////////////////////////////////////
+        public string logDir { get; set; }
         // Singleton instance (null until created via Create/TryCreate)
         public static InferenceEngine? Instance { get; private set; }
 
@@ -122,6 +123,7 @@ namespace ClearEngine.Model.Inference
                     return false;
                 }
             }
+            
         }
 
         // Convenience Create that throws on failure and returns the singleton.
@@ -132,6 +134,51 @@ namespace ClearEngine.Model.Inference
             return engine!;
         }
 
+        // Replace the existing PrewarmFirstFrame with this inside the InferenceEngine class
+        public void PrewarmFirstFrameAsync(string modelPath, string logDir)
+        {
+            
+            Mat? firstMat2 = null;
+            try
+            {
+                // Create a safe default dummy image (640x480, 3-channel black)
+                firstMat2 = new Mat(480, 640, MatType.CV_8UC3, Scalar.All(0));
+                Logger?.LogInfo("PrewarmFirstFrameAsync: created dummy black frame as firstMat2.");
+
+                // Call Detect to prewarm. Detect will handle null/empty defensively but we provide a valid Mat.
+                this.Detect(firstMat2!, modelPath, logDir);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError($"PrewarmFirstFrameAsync error: {ex}");
+            }
+            finally
+            {
+                try { firstMat2?.Dispose(); } catch { }
+            }
+        }
+        public void PrewarmFirstFrameAsync()
+        {
+
+            Mat? firstMat2 = null;
+            try
+            {
+                // Create a safe default dummy image (640x480, 3-channel black)
+                firstMat2 = new Mat(480, 640, MatType.CV_8UC3, Scalar.All(0));
+                Logger?.LogInfo("PrewarmFirstFrameAsync: created dummy black frame as firstMat2.");
+
+                // Call Detect to prewarm. Detect will handle null/empty defensively but we provide a valid Mat.
+                this.Detect(firstMat2!, this.modelPath, this.logDir);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogError($"PrewarmFirstFrameAsync error: {ex}");
+            }
+            finally
+            {
+                try { firstMat2?.Dispose(); } catch { }
+            }
+        }
         // Detect using an OpenCv Mat
         public DetectionResult[] Detect(Mat mat, string modelPath, string? logDir = null)
         {
@@ -145,6 +192,24 @@ namespace ClearEngine.Model.Inference
         public DetectionResult[] Detect(byte[] jpegBuffer, string modelPath, string? logDir = null)
         {
             if (jpegBuffer == null) return Array.Empty<DetectionResult>();
+
+            // Defensive: ensure Python runtime is initialized (in case it was never initialized
+            // or was shutdown externally). Use the same Initialize helper so logger/PythonDLL
+            // handling is consistent.
+            if (!_initialized || !PythonEngine.IsInitialized)
+            {
+                lock (_initLock)
+                {
+                    if (!_initialized || !PythonEngine.IsInitialized)
+                    {
+                        if (!Initialize(null, Logger, out var initError))
+                        {
+                            Logger?.LogError($"Detect aborted: PythonEngine not initialized: {initError}");
+                            return Array.Empty<DetectionResult>();
+                        }
+                    }
+                }
+            }
 
             try
             {

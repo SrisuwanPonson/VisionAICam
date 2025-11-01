@@ -101,7 +101,8 @@ namespace VisionAICam.Pages
             int cameraIndex = _appSettings?.CameraIndex ?? 0;
 
             _camera = CameraFactory.Create(CameraBackend.OpenCv);
-            _camera.FrameReady += OnFrameReady;
+            // Removed per-frame UI subscription; camera loop will capture frames on timer trigger
+            // _camera.FrameReady += OnFrameReady;
 
             var options = _appSettings != null
                 ? new CameraOptions { Brightness = _appSettings.Brightness, Contrast = _appSettings.Contrast, Exposure = _appSettings.Exposure }
@@ -112,7 +113,7 @@ namespace VisionAICam.Pages
             {
                 StatusTextBlock.Text = "Could not open camera.";
                 LoadingOverlay.Visibility = Visibility.Collapsed;
-                _camera.FrameReady -= OnFrameReady;
+                // _camera.FrameReady -= OnFrameReady;
                 _camera.Dispose();
                 _camera = null;
                 _isRunning = false;
@@ -137,7 +138,8 @@ namespace VisionAICam.Pages
 
             if (_camera != null)
             {
-                _camera.FrameReady -= OnFrameReady;
+                // Removed per-frame UI unsubscribe since we never subscribe now
+                // _camera.FrameReady -= OnFrameReady;
                 _camera.Stop();
                 _camera.Dispose();
                 _camera = null;
@@ -210,7 +212,61 @@ namespace VisionAICam.Pages
             }
 
             Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}");
+            #region Prewarm
+            // Wait for first valid frame using the camera service
+            Mat? firstMat = null;
+            while (_isRunning && _camera != null && _camera.IsOpened)
+            {
+                if (_isPaused)
+                {
+                    Thread.Sleep(100);
+                    continue;
+                }
 
+                var mat = _camera.CaptureCurrentFrame();
+                if (mat != null && !mat.Empty())
+                {
+                    firstMat = mat;
+                    break;
+                }
+                mat?.Dispose();
+                Thread.Sleep(30);
+            }
+
+            if (firstMat == null)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = "No frames from camera.";
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                });
+                _cameraLoopRunning = false;
+                return;
+            }
+            //// run first inference BEFORE disposing mat
+            var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
+            var logDir = _logger.GetLogDirectory();
+            _inferenceEngine.modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
+            _inferenceEngine.logDir = _logger.GetLogDirectory();
+
+            _inferenceEngine?.PrewarmFirstFrameAsync();
+
+
+
+            // convert to BitmapSource on background thread and freeze BEFORE disposing Mat
+            var firstBitmap = firstMat.ToBitmapSource();
+            firstBitmap.Freeze();
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                StatusTextBlock.Text = "Production started";
+                ProductionImage.Source = firstBitmap;
+                //DrawBoundingBoxes(firstDetections);
+            });
+
+            firstMat.Dispose();
+            #endregion
             #region New Inference Engine - simplified (initialization moved into TryCreate)
             try
             {
@@ -219,57 +275,7 @@ namespace VisionAICam.Pages
                 // commented out logger call to avoid log file creation during camera loop
                 // try { _logger.LogInfo($"New inference engine created. PythonDLL='{Python.Runtime.Runtime.PythonDLL}', PythonEngine.IsInitialized={PythonEngine.IsInitialized}"); } catch { }
 
-                // quick self-test: create a tiny Mat and call Detect to surface errors now
-                var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-                var logDir = _logger.GetLogDirectory();
-                Mat probe = new Mat(8, 8, MatType.CV_8UC3, Scalar.All(0));
-                try
-                {
-                    try
-                    {
-                        if (_inferenceEngine!=null)
-                        {
-                            var probeResults = _inferenceEngine.Detect(probe, modelPath, logDir);
-                            // self-test result intentionally not logged here
-                            // try { _logger.LogInfo($"Inference self-test returned {probeResults?.Length ?? 0} results."); } catch { } 
-                        }
-                    }
-                    catch (Exception detEx)
-                    {
-                        // Try to capture Python traceback if available
-                        try
-                        {
-                            using (Py.GIL())
-                            {
-                                dynamic tb = Py.Import("traceback");
-                                string trace = tb.format_exc();
-                                string tracePath = System.IO.Path.Combine(baseDir, "new_inference_error.log");
-                                File.WriteAllText(tracePath, trace);
-                                // logging commented out to avoid creating empty log entries
-                                // try { _logger.LogError($"Detect threw: {detEx}. Python traceback saved to {tracePath}"); } catch { }
-                            }
-                        }
-                        catch (Exception tbEx)
-                        {
-                            // Fallback: write exception text
-                            string tracePath = System.IO.Path.Combine(baseDir, "new_inference_error.log");
-                            File.WriteAllText(tracePath, detEx.ToString() + Environment.NewLine + tbEx.ToString());
-                            // logging commented out
-                            // try { _logger.LogError($"Detect threw: {detEx}. Failed to get Python traceback: {tbEx}. See {tracePath}"); } catch { }
-                        }
-
-                        // Surface short message in UI
-                        Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Inference self-test failed: {detEx.Message} (see new_inference_error.log)");
-                        // stop startup so you can inspect logs
-                        _cameraLoopRunning = false;
-                        probe.Dispose();
-                        return;
-                    }
-                }
-                finally
-                {
-                    probe.Dispose();
-                }
+                
             }
             catch (Exception ex)
             {
@@ -282,71 +288,10 @@ namespace VisionAICam.Pages
 
             try
             {
-                // Wait for first valid frame using the camera service
-                Mat? firstMat = null;
-                while (_isRunning && _camera != null && _camera.IsOpened)
-                {
-                    if (_isPaused)
-                    {
-                        Thread.Sleep(100);
-                        continue;
-                    }
 
-                    var mat = _camera.CaptureCurrentFrame();
-                    if (mat != null && !mat.Empty())
-                    {
-                        firstMat = mat;
-                        break;
-                    }
-                    mat?.Dispose();
-                    Thread.Sleep(30);
-                }
+                
 
-                if (firstMat == null)
-                {
-                    Dispatcher.BeginInvoke(() =>
-                    {
-                        StatusTextBlock.Text = "No frames from camera.";
-                        LoadingOverlay.Visibility = Visibility.Collapsed;
-                    });
-                    _cameraLoopRunning = false;
-                    return;
-                }
-
-                // run first inference BEFORE disposing mat
-                var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-                var logDir = _logger.GetLogDirectory();
-                var remoteFirst = _inferenceEngine.Detect(firstMat, modelPath, logDir);
-
-                // Map to local DTOs
-                var firstDetections = new Collection<DetectionResult>();
-                if (remoteFirst != null)
-                {
-                    foreach (var r in remoteFirst)
-                    {
-                        firstDetections.Add(new DetectionResult
-                        {
-                            ClassName = r.ClassName ?? string.Empty,
-                            Confidence = r.Confidence,
-                            Box = r.Box ?? string.Empty,
-                            Task = r.Task ?? string.Empty
-                        });
-                    }
-                }
-
-                // convert to BitmapSource on background thread and freeze BEFORE disposing Mat
-                var firstBitmap = firstMat.ToBitmapSource();
-                firstBitmap.Freeze();
-
-                Dispatcher.BeginInvoke(() =>
-                {
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    StatusTextBlock.Text = "Production started";
-                    ProductionImage.Source = firstBitmap;
-                    DrawBoundingBoxes(firstDetections);
-                });
-
-                firstMat.Dispose();
+                //_inferenceEngine?.PrewarmFirstFrame(firstMat, modelPath, logDir);
 
                 // Main loop
                 while (_isRunning && _camera != null && _camera.IsOpened)
@@ -425,105 +370,23 @@ namespace VisionAICam.Pages
             {
                 try
                 {
-                    PythonEngine.Shutdown();
+                    // Dispose the InferenceEngine instance rather than directly calling PythonEngine.Shutdown().
+                    // InferenceEngine.Dispose() is responsible for shutting down the Python runtime and clearing
+                    // the singleton in a safe, thread-locked manner.
+                    _inferenceEngine?.Dispose();
+                    _inferenceEngine = null;
                 }
                 catch (Exception ex)
                 {
-                    try { /* _logger.LogError($"PythonEngine.Shutdown threw: {ex}"); */ } catch { }
+                    try { /* _logger.LogError($"InferenceEngine.Dispose threw: {ex}"); */ } catch { }
                 }
                 _cameraLoopRunning = false;
             }
             #endregion
         }
 
-        private void OnFrameReady(BitmapSource bitmap)
-        {
-            Dispatcher.BeginInvoke(() =>
-            {
-                if (!IsLoaded) return;
-                ProductionImage.Source = bitmap;
-            });
-        }
-
-        private DetectionResult[] GetDetectionsFromPython(Mat mat)
-        {
-            try
-            {
-                Cv2.ImEncode(".jpg", mat, out var buf);
-
-                using (Py.GIL())
-                {
-                    string pythonScriptDir = AppDomain.CurrentDomain.BaseDirectory;
-                    pythonScriptDir = System.IO.Path.Combine(pythonScriptDir, "Script");
-                    dynamic sys = Py.Import("sys");
-                    bool pathExists = false;
-                    foreach (dynamic p in sys.path)
-                    {
-                        if (pythonScriptDir.Equals((string)p.ToString(), StringComparison.OrdinalIgnoreCase))
-                        {
-                            pathExists = true;
-                            break;
-                        }
-                    }
-                    if (!pathExists) sys.path.append(pythonScriptDir);
-
-                    dynamic inference = Py.Import("inference");
-                    string modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-                    // use ClearEngine.Logging logger for python log directory
-                    string logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
-                    dynamic results = inference.detect(buf, modelPath, logDir);
-
-                    var detections = new Collection<DetectionResult>();
-                    foreach (dynamic det in results)
-                    {
-                        string task = det["Task"]?.ToString();
-                        string className = det["class"]?.ToString();
-                        double confidence = (double)det["confidence"];
-
-                        if (task == "detect")
-                        {
-                            var box = det["box"];
-                            if (box != null && box.Length() == 4)
-                            {
-                                detections.Add(new DetectionResult
-                                {
-                                    ClassName = className,
-                                    Confidence = confidence,
-                                    Box = $"{box[0]},{box[1]},{box[2]},{box[3]}",
-                                    Task = "detect"
-                                });
-                            }
-                        }
-                        else if (task == "obb")
-                        {
-                            var rotateBox = det["rotate_box"];
-                            if (rotateBox != null && rotateBox.Length() == 5)
-                            {
-                                detections.Add(new DetectionResult
-                                {
-                                    ClassName = className,
-                                    Confidence = confidence,
-                                    Box = $"{rotateBox[0]},{rotateBox[1]},{rotateBox[2]},{rotateBox[3]},{rotateBox[4]}",
-                                    Task = "obb"
-                                });
-                            }
-                        }
-                    }
-                    return detections.ToArray();
-                }
-            }
-            catch (Exception ex)
-            {
-                // log to new logger as well as write python_error.log for compatibility
-                try { /* ClearEngine.Logging.Logger.Instance.LogError($"GetDetectionsFromPython error: {ex}"); */ } catch { }
-                string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "python_error.log");
-                File.WriteAllText(logPath, ex.ToString());
-                string errorMsg = $"Detection error: {ex.Message} (see python_error.log)";
-                Dispatcher.BeginInvoke(() => StatusTextBlock.Text = errorMsg);
-            }
-            return Array.Empty<DetectionResult>();
-        }
-
+        
+        
         private void DrawBoundingBoxes(IEnumerable<DetectionResult> detections)
         {
             BoundingBoxCanvas.Children.Clear();
