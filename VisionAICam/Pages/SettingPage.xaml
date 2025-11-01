@@ -91,7 +91,7 @@
                         <TextBox x:Name="CaptureFolderPathText"
                                  MinWidth="260"
                                  IsReadOnly="True"/>
-                        <Button Content="Browse..." Margin="10,0" Click="BrowseCaptureFolderButton_Click"/>
+                        <Button Content="Browse..." Margin="10,0" ToolTip="Implement Browse handler in code-behind" x:Name="BrowseCaptureFolderButton"/>
                     </WrapPanel>
                 </Grid>
             </TabItem>
@@ -105,13 +105,75 @@
                                  MinWidth="320"
                                  IsReadOnly="True"
                                  Margin="10,0"/>
-                        <Button Content="Browse..." Margin="10,0" Click="BrowseModelButton_Click"/>
+                        <Button Content="Browse..." Margin="10,0" ToolTip="Existing handler: BrowseModelButton_Click" x:Name="BrowseModelButton"/>
                     </WrapPanel>
                     <Button Content="Select from Model Management..."
                             Margin="0,10,0,0"
                             HorizontalAlignment="Left"
-                            Click="SelectFromModelManagementButton_Click"/>
+                            x:Name="SelectFromModelManagementButton"/>
                 </StackPanel>
+            </TabItem>
+
+            <!-- Inference Settings (model path removed) -->
+            <TabItem Header="Inference">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/> <!-- Python DLL -->
+                        <RowDefinition Height="Auto"/> <!-- Runtime -->
+                        <RowDefinition Height="Auto"/> <!-- Sampling Interval (new) -->
+                        <RowDefinition Height="Auto"/> <!-- Engine Options -->
+                        <RowDefinition Height="*"/>    <!-- Status / Notes -->
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="180"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Python DLL Path:" VerticalAlignment="Center"/>
+                    <WrapPanel Grid.Row="0" Grid.Column="1">
+                        <TextBox x:Name="PythonDllPathText" MinWidth="360" IsReadOnly="True"/>
+                        <Button Content="Browse..." Margin="10,0" x:Name="BrowsePythonDllButton" ToolTip="Add Click handler BrowsePythonDllButton_Click in SettingPage.xaml.cs"/>
+                    </WrapPanel>
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Runtime:" VerticalAlignment="Center"/>
+                    <ComboBox x:Name="InferenceRuntimeComboBox" Grid.Row="1" Grid.Column="1" Width="240" Margin="0,6,0,6">
+                        <ComboBoxItem Content="pythonnet (default)"/>
+                        <ComboBoxItem Content="ONNX Runtime"/>
+                        <ComboBoxItem Content="Other"/>
+                    </ComboBox>
+
+                    <!-- New: SamplingInterval bound to AppSettings.SamplingInterval -->
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Sampling Interval (ms):" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,4">
+                        <Slider x:Name="SamplingIntervalSlider"
+                                Width="220"
+                                Minimum="1" Maximum="2000"
+                                SmallChange="1" LargeChange="10"
+                                TickFrequency="10" IsSnapToTickEnabled="False"
+                                Value="{Binding SamplingInterval, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBox x:Name="SamplingIntervalTextBox"
+                                 Width="64"
+                                 Margin="8,0,0,0"
+                                 Text="{Binding SamplingInterval, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 HorizontalContentAlignment="Center"/>
+                        <TextBlock Text="ms" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Engine Options:" VerticalAlignment="Top"/>
+                    <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Vertical" Margin="0,6,0,6">
+                        <CheckBox x:Name="InferenceEnableCachingCheckBox" Content="Enable engine caching" IsChecked="True" Margin="0,4"/>
+                        <CheckBox x:Name="InferencePrewarmCheckBox" Content="Pre-warm on startup" IsChecked="False" Margin="0,4"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="Test Inference" x:Name="TestInferenceButton" IsEnabled="False" ToolTip="Implement handler to run a quick test inference (disabled by default)"/>
+                            <TextBlock Text=" " Width="8"/>
+                            <Button Content="Reset to Defaults" x:Name="ResetInferenceDefaultsButton" ToolTip="Implement handler to restore inference defaults"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <GroupBox Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Header="Status / Notes" Margin="0,12,0,0">
+                        <TextBox x:Name="InferenceStatusText" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="120"/>
+                    </GroupBox>
+                </Grid>
             </TabItem>
 
             <!-- 🎨 General Preferences -->

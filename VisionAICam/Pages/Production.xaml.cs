@@ -49,7 +49,9 @@ namespace VisionAICam.Pages
 
         private void InitializeTimer()
         {
-            _timer = new System.Timers.Timer(20); // Set interval to 20 ms
+            int intervalMs = _appSettings?.SamplingInterval ?? 20;
+
+            _timer = new System.Timers.Timer(intervalMs); // Set interval to 20 ms
             _timer.Elapsed += OnTimerElapsed;
             _timer.AutoReset = true;
             _timer.Enabled = false; // Start disabled, enable when needed

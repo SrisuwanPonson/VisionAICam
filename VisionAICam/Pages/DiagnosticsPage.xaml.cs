@@ -606,7 +606,17 @@ namespace VisionAICam.Pages
                             }
                             else
                             {
-                                string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                                // Use user-configured Python DLL path if available; otherwise fall back to the same hardcoded default used in Production
+                                string pythonDllPath;
+                                if (!string.IsNullOrWhiteSpace(_app_settings?.PythonDllPath))
+                                {
+                                    pythonDllPath = _app_settings.PythonDllPath;
+                                }
+                                else
+                                {
+                                    pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                                }
+
                                 if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
                                 {
                                     _logger.LogInfo($"Inference engine initialization failed: {initError}");
