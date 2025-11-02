@@ -5,13 +5,12 @@ using System.ComponentModel;
 using Python.Runtime;
 using System;
 using System.Reflection;
+using VisionAICam.Core;
 
 namespace VisionAICam
 {
     public partial class MainWindow : Window
     {
-        private Production? _productionPage;
-
         public MainWindow()
         {
             InitializeComponent();
@@ -23,10 +22,10 @@ namespace VisionAICam
                 return;
             }
 
+            // Navigate to the shared Production page from MasterController (creates on UI thread if needed)
             if (MainContent.Content is not Production)
             {
-                _productionPage ??= new Production();
-                MainContent.Navigate(_productionPage);
+                MainContent.Navigate(MasterController.Instance.Production);
             }
 
             // Subscribe to window closing to perform final cleanup
@@ -105,27 +104,27 @@ namespace VisionAICam
 
         private void UserButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<UserPage>(new UserPage(), "User");
+            NavigateIfNotDuplicate<UserPage>(MasterController.Instance.UserPage, "User");
         }
 
         private void DataButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<DataPage>(new DataPage(), "Data");
+            NavigateIfNotDuplicate<DataPage>(MasterController.Instance.DataSetPage, "Data");
         }
 
         private void DiagnosticButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<DiagnosticsPage>(new DiagnosticsPage(), "Diagnostics");
+            NavigateIfNotDuplicate<DiagnosticsPage>(MasterController.Instance.DiagnosticsPage, "Diagnostics");
         }
 
         private void SettingsButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<SettingPage>(new SettingPage(), "Settings");
+            NavigateIfNotDuplicate<SettingPage>(MasterController.Instance.SettingPage, "Settings");
         }
 
         private void CameraButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<CameraPage>(new CameraPage(), "Camera");
+            NavigateIfNotDuplicate<CameraPage>(MasterController.Instance.CameraPage, "Camera");
         }
 
         private void ProductionButton_Click(object sender, RoutedEventArgs e)
@@ -136,30 +135,32 @@ namespace VisionAICam
                 return;
             }
 
-            if (_productionPage == null)
-                _productionPage = new Production();
-
-            MainContent.Navigate(_productionPage);
+            MainContent.Navigate(MasterController.Instance.Production);
         }
 
         private void ExitButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_productionPage != null && _productionPage.IsRunning)
+            try
             {
-                _productionPage.StopProduction();
+                var prod = MasterController.Instance.Production;
+                if (prod != null && prod.IsRunning)
+                {
+                    prod.StopProduction();
+                }
             }
+            catch { }
 
             Application.Current.Shutdown();
         }
 
         private void DataSetButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<DataSetPage>(new DataSetPage(), "Dataset");
+            NavigateIfNotDuplicate<DataSetPage>(MasterController.Instance.DataSetPage, "Dataset");
         }
 
         private void ModelButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<ModelPage>(new ModelPage(), "Model");
+            NavigateIfNotDuplicate<ModelPage>(MasterController.Instance.ModelPage, "Model");
         }
 
         /// <summary>
@@ -173,8 +174,9 @@ namespace VisionAICam
                 // Quick synchronous work (must be fast)
                 try
                 {
-                    if (_productionPage != null && _productionPage.IsRunning)
-                        _productionPage.StopProduction();
+                    var prod = MasterController.Instance.Production;
+                    if (prod != null && prod.IsRunning)
+                        prod.StopProduction();
                 }
                 catch { }
 

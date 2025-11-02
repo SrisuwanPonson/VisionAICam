@@ -1,0 +1,7 @@
+<!-- Add inside DataPage.xaml's layout (example minimal snippet) -->
+<Grid>
+  <StackPanel>
+    <TextBlock x:Name="EngineStatusText" Text="Engine: (none)" Margin="4"/>
+    <DataGrid x:Name="ResultsGrid" AutoGenerateColumns="True" Height="300" Margin="4" />
+  </StackPanel>
+</Grid>
