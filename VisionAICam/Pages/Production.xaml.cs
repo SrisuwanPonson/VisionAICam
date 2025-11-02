@@ -15,6 +15,7 @@ using System.Diagnostics;
 using ClearEngine.Devices.Camera; // use camera class library
 using ClearEngine.Logging; // <- use the new logger library
 using ClearEngine.Model.Inference;
+using VisionAICam.Core; // <- use MasterController
 
 namespace VisionAICam.Pages
 {
@@ -41,6 +42,7 @@ namespace VisionAICam.Pages
         private readonly ILogger _logger = ClearEngine.Logging.Logger.Instance;
         // Add this field inside the Production class (near the other private fields)
         private ClearEngine.Model.Inference.InferenceEngine? _inferenceEngine;
+
         public Production()
         {
             InitializeComponent();
@@ -49,9 +51,9 @@ namespace VisionAICam.Pages
 
         private void InitializeTimer()
         {
-            int intervalMs = _appSettings?.SamplingInterval ?? 20;
-
-            _timer = new System.Timers.Timer(intervalMs); // Set interval to 20 ms
+            // Use a safe default here. Actual sampling interval will be applied in StartProduction
+            int intervalMs = 20;
+            _timer = new System.Timers.Timer(intervalMs);
             _timer.Elapsed += OnTimerElapsed;
             _timer.AutoReset = true;
             _timer.Enabled = false; // Start disabled, enable when needed
@@ -99,7 +101,18 @@ namespace VisionAICam.Pages
             StatusTextBlock.Text = "Production started";
             LoadingOverlay.Visibility = Visibility.Visible;
 
-            _appSettings = SettingsManager.Load();
+            // Prefer settings registered in MasterController; fall back to SettingsManager.Load()
+            _appSettings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+
+            // Apply sampling interval from settings to the timer if available
+            if (_timer != null)
+            {
+                int intervalMs = _appSettings?.SamplingInterval ?? 20;
+                // guard against invalid values
+                if (intervalMs <= 0) intervalMs = 20;
+                _timer.Interval = intervalMs;
+            }
+
             int cameraIndex = _appSettings?.CameraIndex ?? 0;
 
             _camera = CameraFactory.Create(CameraBackend.OpenCv);
@@ -188,8 +201,14 @@ namespace VisionAICam.Pages
 
             _cameraLoopRunning = true;
 
-            // AFTER (new integration using ClearEngine.Model.Inference)
-            string pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
+            // Read python DLL path from settings if available
+            var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+            string pythonDllPath = settings?.PythonDllPath;
+            if (string.IsNullOrWhiteSpace(pythonDllPath))
+            {
+                pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
+            }
+
             if (!File.Exists(pythonDllPath))
             {
                 Dispatcher.BeginInvoke(() =>
@@ -246,14 +265,12 @@ namespace VisionAICam.Pages
                 return;
             }
             //// run first inference BEFORE disposing mat
-            var modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
+            var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? "model.pt";
             var logDir = _logger.GetLogDirectory();
-            _inferenceEngine.modelPath = _appSettings?.DefaultModelPath ?? "model.pt";
-            _inferenceEngine.logDir = _logger.GetLogDirectory();
+            _inferenceEngine.modelPath = modelPath;
+            _inferenceEngine.logDir = logDir;
 
             _inferenceEngine?.PrewarmFirstFrameAsync();
-
-
 
             // convert to BitmapSource on background thread and freeze BEFORE disposing Mat
             var firstBitmap = firstMat.ToBitmapSource();
@@ -274,15 +291,9 @@ namespace VisionAICam.Pages
             {
                 // Log some runtime info
                 string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? ".";
-                // commented out logger call to avoid log file creation during camera loop
-                // try { _logger.LogInfo($"New inference engine created. PythonDLL='{Python.Runtime.Runtime.PythonDLL}', PythonEngine.IsInitialized={PythonEngine.IsInitialized}"); } catch { }
-
-                
             }
             catch (Exception ex)
             {
-                // logging commented out to avoid duplicate logs
-                // try { _logger.LogError($"Unexpected error during inference self-test: {ex}"); } catch { }
                 Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Inference init error: {ex.Message}");
                 _cameraLoopRunning = false;
                 return;
@@ -290,11 +301,6 @@ namespace VisionAICam.Pages
 
             try
             {
-
-                
-
-                //_inferenceEngine?.PrewarmFirstFrame(firstMat, modelPath, logDir);
-
                 // Main loop
                 while (_isRunning && _camera != null && _camera.IsOpened)
                 {
@@ -361,8 +367,6 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                // logging commented out to minimize log activity during camera loop
-                // _logger?.LogError($"CameraLoop (new engine) error: {ex}");
                 Dispatcher.BeginInvoke(() =>
                 {
                     StatusTextBlock.Text = $"Error: {ex.Message}";
