@@ -1,9 +1,13 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using ClearEngine.Logging;
 using ClearEngine.Model.Inference;
 using VisionAICam.Pages;
@@ -271,6 +275,94 @@ namespace VisionAICam.Core
 
             if (field == null && created != null) field = created;
             return field ?? created!;
+        }
+
+        // Shared, UI-bound collection of detection results used by DataPage.
+        // Uses the Production page DTO type (VisionAICam.Pages.DetectionResult).
+        private readonly ObservableCollection<VisionAICam.Pages.DetectionResult> _sharedResults = new();
+        public ObservableCollection<VisionAICam.Pages.DetectionResult> SharedResults => _sharedResults;
+
+        private const int DefaultMaxSharedResults = 100;
+
+        private readonly ConcurrentQueue<VisionAICam.Pages.DetectionResult> _resultsQueue = new();
+        private int _flushPending = 0; // 0 = not scheduled, 1 = scheduled or running
+
+        // Add results on UI thread in a single dispatched op and keep collection size bounded.
+        public void AddDetectionResults(IEnumerable<VisionAICam.Pages.DetectionResult> results)
+        {
+            if (results == null) return;
+
+            // enqueue items quickly from any thread
+            foreach (var r in results)
+                _resultsQueue.Enqueue(r);
+
+            // schedule a single UI flush if none is pending
+            if (Interlocked.Exchange(ref _flushPending, 1) == 0)
+            {
+                var dispatcher = Application.Current?.Dispatcher;
+                if (dispatcher == null)
+                {
+                    // No UI yet — drop or buffer (we already buffered in _resultsQueue)
+                    Interlocked.Exchange(ref _flushPending, 0);
+                    return;
+                }
+
+                dispatcher.BeginInvoke(new Action(FlushQueuedResults), DispatcherPriority.Normal);
+            }
+        }
+
+        // runs on UI thread (dispatched)
+        private void FlushQueuedResults()
+        {
+            try
+            {
+                // drain queue into a list
+                var list = new List<VisionAICam.Pages.DetectionResult>();
+                while (_resultsQueue.TryDequeue(out var item))
+                    list.Add(item);
+
+                if (list.Count > 0)
+                    AddRangeAndTrim(_sharedResults, list.ToArray(), DefaultMaxSharedResults);
+            }
+            catch (Exception ex)
+            {
+                try { _logger.LogError($"FlushQueuedResults failed: {ex}"); } catch { }
+            }
+            finally
+            {
+                // mark not pending
+                Interlocked.Exchange(ref _flushPending, 0);
+
+                // If new items arrived while we were flushing, schedule another flush
+                if (!_resultsQueue.IsEmpty && Interlocked.Exchange(ref _flushPending, 1) == 0)
+                {
+                    var dispatcher = Application.Current?.Dispatcher;
+                    if (dispatcher != null)
+                        dispatcher.BeginInvoke(new Action(FlushQueuedResults), DispatcherPriority.Normal);
+                    else
+                        Interlocked.Exchange(ref _flushPending, 0);
+                }
+            }
+        }
+
+        // Helper: add items and trim oldest to keep collection bounded (must be called on UI thread)
+        private static void AddRangeAndTrim(ObservableCollection<VisionAICam.Pages.DetectionResult> target, VisionAICam.Pages.DetectionResult[] items, int maxItems)
+        {
+            if (target == null || items == null || items.Length == 0) return;
+
+            foreach (var it in items)
+            {
+                target.Add(it);
+            }
+
+            // Trim oldest entries if we've grown too large
+            if (maxItems > 0)
+            {
+                while (target.Count > maxItems)
+                {
+                    try { target.RemoveAt(0); } catch { break; }
+                }
+            }
         }
     }
 }

@@ -54,7 +54,7 @@
                         <Button Content="Export" Width="80" Click="ExportButton_Click"/>
                         <Button Content="Delete Selected" Width="120" Click="DeleteButton_Click"/>
                     </StackPanel>
-                    <DataGrid x:Name="DataGrid"
+                    <DataGrid x:Name="ResultsGrid"
                               AutoGenerateColumns="False"
                               SelectionMode="Single"
                               HeadersVisibility="Column"
@@ -62,8 +62,8 @@
                               Height="300">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Timestamp" Binding="{Binding Timestamp}" Width="*"/>
-                            <DataGridTextColumn Header="File Name" Binding="{Binding FileName}" Width="*"/>
-                            <DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="*"/>
+                            <DataGridTextColumn Header="Class Name" Binding="{Binding ClassName}" Width="*"/>
+                            <DataGridTextColumn Header="Box Position" Binding="{Binding Box}" Width="*"/>
                             <DataGridTextColumn Header="Confidence" Binding="{Binding Confidence}" Width="*"/>
                         </DataGrid.Columns>
                     </DataGrid>

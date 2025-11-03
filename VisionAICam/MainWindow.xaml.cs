@@ -109,7 +109,8 @@ namespace VisionAICam
 
         private void DataButton_Click(object sender, RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<DataPage>(MasterController.Instance.DataSetPage, "Data");
+            // Navigate to the DataPage (was incorrectly navigating to DataSetPage via MasterController)
+            NavigateIfNotDuplicate<DataPage>(new DataPage(), "Data");
         }
 
         private void DiagnosticButton_Click(object sender, RoutedEventArgs e)

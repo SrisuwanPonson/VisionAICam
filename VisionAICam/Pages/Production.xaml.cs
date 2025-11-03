@@ -19,8 +19,10 @@ using VisionAICam.Core; // <- use MasterController
 
 namespace VisionAICam.Pages
 {
-    public class DetectionResult
+    public class 
+        DetectionResult
     {
+        public DateTime Timestamp { get; set; } = DateTime.Now;
         public string ClassName { get; set; } = "";
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
@@ -349,6 +351,17 @@ namespace VisionAICam.Pages
                                     FpsTextBlock.Text = "FPS: 30";
                                     InferenceTimeTextBlock.Text = "Inference: ~";
                                 });
+
+                                // --- after building `mapped` (Collection<DetectionResult>)
+                                try
+                                {
+                                    // push to shared Results so DataPage shows them in real-time
+                                    MasterController.Instance.AddDetectionResults(mapped);
+                                }
+                                catch (Exception ex)
+                                {
+                                    try { _logger.LogError($"Failed to add detection results to MasterController: {ex}"); } catch { }
+                                }
                             }
                             finally
                             {
