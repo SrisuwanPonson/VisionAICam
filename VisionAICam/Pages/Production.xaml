@@ -93,6 +93,21 @@
                     </StackPanel>
                 </StackPanel>
             </GroupBox>
+
+            <!-- Add this DataGrid somewhere appropriate in the Production.xaml layout -->
+            <DataGrid x:Name="PerFrameSummaryGrid"
+                      AutoGenerateColumns="False"
+                      HeadersVisibility="Column"
+                      IsReadOnly="True"
+                      Width="240"
+                      HorizontalAlignment="Right"
+                      VerticalAlignment="Top"
+                      Margin="0,43,409,0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Class" Binding="{Binding ClassName}" Width="*" />
+                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="72" />
+                </DataGrid.Columns>
+            </DataGrid>
         </Grid>
     </ScrollViewer>
 </Page>

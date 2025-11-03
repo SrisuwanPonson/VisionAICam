@@ -16,17 +16,24 @@ using ClearEngine.Devices.Camera; // use camera class library
 using ClearEngine.Logging; // <- use the new logger library
 using ClearEngine.Model.Inference;
 using VisionAICam.Core; // <- use MasterController
+using System.Linq;
 
 namespace VisionAICam.Pages
 {
-    public class 
-        DetectionResult
+    public class DetectionResult
     {
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string ClassName { get; set; } = "";
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
         public string Task { get; set; } = ""; // "detect" or "obb"
+    }
+
+    // Per-frame summary DTO
+    public class FrameSummary
+    {
+        public string ClassName { get; set; } = "";
+        public int Count { get; set; }
     }
 
     public partial class Production : Page
@@ -45,10 +52,33 @@ namespace VisionAICam.Pages
         // Add this field inside the Production class (near the other private fields)
         private ClearEngine.Model.Inference.InferenceEngine? _inferenceEngine;
 
+        // Per-frame summary collection bound to UI DataGrid (cleared and replaced each trigger frame)
+        private readonly ObservableCollection<FrameSummary> _perFrameSummary = new();
+
         public Production()
         {
             InitializeComponent();
             InitializeTimer();
+            InitializeFrameSummary();
+        }
+
+        private void InitializeFrameSummary()
+        {
+            // If a DataGrid named PerFrameSummaryGrid exists in XAML, bind it to our collection.
+            try
+            {
+                var dg = this.FindName("PerFrameSummaryGrid") as DataGrid;
+                if (dg != null)
+                {
+                    dg.ItemsSource = _perFrameSummary;
+                }
+            }
+            catch { /* non-fatal if UI element not present */ }
+        }
+
+        private static string GetDefaultPythonDllPath()
+        {
+            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
         }
 
         private void InitializeTimer()
@@ -115,6 +145,9 @@ namespace VisionAICam.Pages
                 _timer.Interval = intervalMs;
             }
 
+            // Clear any previous per-frame summary when starting
+            _perFrameSummary.Clear();
+
             int cameraIndex = _appSettings?.CameraIndex ?? 0;
 
             _camera = CameraFactory.Create(CameraBackend.OpenCv);
@@ -165,6 +198,9 @@ namespace VisionAICam.Pages
             _cameraThread = null;
             ProductionImage.Source = null;
             ClearBoundingBoxes();
+
+            // Clear per-frame summary when production stops
+            _perFrameSummary.Clear();
         }
 
         public void PauseProduction()
@@ -350,6 +386,9 @@ namespace VisionAICam.Pages
                                     DrawBoundingBoxes(mapped);
                                     FpsTextBlock.Text = "FPS: 30";
                                     InferenceTimeTextBlock.Text = "Inference: ~";
+
+                                    // Update the per-frame summary (clears previous and shows counts for this frame)
+                                    UpdateFrameSummary(mapped);
                                 });
 
                                 // --- after building `mapped` (Collection<DetectionResult>)
@@ -372,6 +411,9 @@ namespace VisionAICam.Pages
                         else
                         {
                             mat?.Dispose();
+
+                            // If no detections / no frame, clear per-frame summary on UI thread
+                            Dispatcher.BeginInvoke(() => _perFrameSummary.Clear());
                         }
                     }
 
@@ -404,8 +446,30 @@ namespace VisionAICam.Pages
             #endregion
         }
 
-        
-        
+        private void UpdateFrameSummary(IEnumerable<DetectionResult> mapped)
+        {
+            // Ensure we run on UI thread since we mutate ObservableCollection
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(() => UpdateFrameSummary(mapped));
+                return;
+            }
+
+            _perFrameSummary.Clear();
+
+            if (mapped == null) return;
+
+            var counts = mapped
+                .Where(d => !string.IsNullOrEmpty(d.ClassName))
+                .GroupBy(d => d.ClassName)
+                .Select(g => new FrameSummary { ClassName = g.Key, Count = g.Count() })
+                .OrderByDescending(s => s.Count)
+                .ToList();
+
+            foreach (var s in counts)
+                _perFrameSummary.Add(s);
+        }
+
         private void DrawBoundingBoxes(IEnumerable<DetectionResult> detections)
         {
             BoundingBoxCanvas.Children.Clear();
