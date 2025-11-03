@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading;
@@ -34,6 +35,9 @@ namespace VisionAICam.Pages
     {
         public string ClassName { get; set; } = "";
         public int Count { get; set; }
+
+        // Brush used to color the class name in the DataGrid (matches bounding box color)
+        public Brush ColorBrush { get; set; } = Brushes.White;
     }
 
     public partial class Production : Page
@@ -54,6 +58,19 @@ namespace VisionAICam.Pages
 
         // Per-frame summary collection bound to UI DataGrid (cleared and replaced each trigger frame)
         private readonly ObservableCollection<FrameSummary> _perFrameSummary = new();
+
+        // Brush cache: colors per class name
+        // keep a few sensible defaults, others will be generated with high contrast
+        private readonly Dictionary<string, SolidColorBrush> _classBrushes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["person"] = Brushes.Red as SolidColorBrush,
+            ["car"] = Brushes.Lime as SolidColorBrush,
+            ["truck"] = Brushes.Orange as SolidColorBrush,
+            ["bicycle"] = Brushes.Cyan as SolidColorBrush,
+            ["motorbike"] = Brushes.Magenta as SolidColorBrush,
+            ["cat"] = Brushes.Yellow as SolidColorBrush,
+            ["dog"] = Brushes.Blue as SolidColorBrush
+        };
 
         public Production()
         {
@@ -446,6 +463,66 @@ namespace VisionAICam.Pages
             #endregion
         }
 
+        // Improved color generation: produce bright / saturated colors for high contrast.
+        private SolidColorBrush GetBrushForClass(string className)
+        {
+            if (string.IsNullOrWhiteSpace(className))
+                return Brushes.Red as SolidColorBrush;
+
+            if (_classBrushes.TryGetValue(className, out var brush))
+                return brush;
+
+            // Deterministic hue from hash, ensure positive
+            int hash = Math.Abs(className.GetHashCode());
+            double hue = hash % 360; // 0..359
+
+            // Slight variation in saturation/value derived from hash to avoid too-similar tones
+            double satVariant = ((hash >> 8) & 0xFF) / 255.0; // 0..1
+            double valVariant = ((hash >> 16) & 0xFF) / 255.0; // 0..1
+
+            // Choose saturation and value in high range for vivid colors
+            double saturation = 0.65 + satVariant * 0.25; // 0.65 .. 0.90
+            double value = 0.75 + valVariant * 0.20;      // 0.75 .. 0.95
+
+            var color = HsvToRgb(hue, saturation, value);
+            var newBrush = new SolidColorBrush(color);
+            newBrush.Freeze();
+
+            lock (_classBrushes)
+            {
+                if (!_classBrushes.ContainsKey(className))
+                    _classBrushes[className] = newBrush;
+                else
+                    newBrush = _classBrushes[className];
+            }
+
+            return newBrush;
+        }
+
+        // Helper: convert HSV to Color (H 0-360, S 0-1, V 0-1)
+        private static Color HsvToRgb(double h, double s, double v)
+        {
+            h = h % 360;
+            double c = v * s;
+            double hh = h / 60.0;
+            double x = c * (1 - Math.Abs((hh % 2) - 1));
+            double r1 = 0, g1 = 0, b1 = 0;
+
+            if (hh >= 0 && hh < 1) { r1 = c; g1 = x; b1 = 0; }
+            else if (hh >= 1 && hh < 2) { r1 = x; g1 = c; b1 = 0; }
+            else if (hh >= 2 && hh < 3) { r1 = 0; g1 = c; b1 = x; }
+            else if (hh >= 3 && hh < 4) { r1 = 0; g1 = x; b1 = c; }
+            else if (hh >= 4 && hh < 5) { r1 = x; g1 = 0; b1 = c; }
+            else if (hh >= 5 && hh < 6) { r1 = c; g1 = 0; b1 = x; }
+
+            double m = v - c;
+            byte r = (byte)Math.Round((r1 + m) * 255);
+            byte g = (byte)Math.Round((g1 + m) * 255);
+            byte b = (byte)Math.Round((b1 + m) * 255);
+
+            return Color.FromRgb(r, g, b);
+        }
+
         private void UpdateFrameSummary(IEnumerable<DetectionResult> mapped)
         {
             // Ensure we run on UI thread since we mutate ObservableCollection
@@ -462,7 +539,12 @@ namespace VisionAICam.Pages
             var counts = mapped
                 .Where(d => !string.IsNullOrEmpty(d.ClassName))
                 .GroupBy(d => d.ClassName)
-                .Select(g => new FrameSummary { ClassName = g.Key, Count = g.Count() })
+                .Select(g => new FrameSummary
+                {
+                    ClassName = g.Key,
+                    Count = g.Count(),
+                    ColorBrush = GetBrushForClass(g.Key)
+                })
                 .OrderByDescending(s => s.Count)
                 .ToList();
 
@@ -478,6 +560,10 @@ namespace VisionAICam.Pages
             {
                 var parts = det.Box.Split(',');
 
+                // choose color per class
+                var strokeBrush = GetBrushForClass(det.ClassName);
+                Brush labelBrush = strokeBrush;
+
                 if (parts.Length == 4 && det.Task == "detect" &&
                     double.TryParse(parts[0], out double x1) &&
                     double.TryParse(parts[1], out double y1) &&
@@ -486,7 +572,7 @@ namespace VisionAICam.Pages
                 {
                     var rect = new Rectangle
                     {
-                        Stroke = Brushes.Red,
+                        Stroke = strokeBrush,
                         StrokeThickness = 2,
                         Width = Math.Abs(x2 - x1),
                         Height = Math.Abs(y2 - y1),
@@ -499,8 +585,8 @@ namespace VisionAICam.Pages
                     var label = new TextBlock
                     {
                         Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                        Foreground = Brushes.Yellow,
-                        Background = Brushes.Black,
+                        Foreground = labelBrush,
+                        Background = Brushes.Transparent,
                         FontSize = 12,
                         Padding = new Thickness(2, 0, 2, 0)
                     };
@@ -517,7 +603,7 @@ namespace VisionAICam.Pages
                 {
                     var rect = new Rectangle
                     {
-                        Stroke = Brushes.Lime,
+                        Stroke = strokeBrush,
                         StrokeThickness = 2,
                         Width = w,
                         Height = h,
@@ -532,15 +618,15 @@ namespace VisionAICam.Pages
                     var label = new TextBlock
                     {
                         Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                        Foreground = Brushes.Cyan,
-                        Background = Brushes.Black,
+                        Foreground = labelBrush,
+                        Background = Brushes.Transparent,
                         FontSize = 12,
                         Padding = new Thickness(2, 0, 2, 0)
                     };
                     Canvas.SetLeft(label, cx - w / 2 + 2);
                     Canvas.SetTop(label, cy - h / 2 - 18);
                     BoundingBoxCanvas.Children.Add(label);
-                }
+                }03
             }
         }
 

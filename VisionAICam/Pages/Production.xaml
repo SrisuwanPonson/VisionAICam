@@ -95,17 +95,61 @@
             </GroupBox>
 
             <!-- Add this DataGrid somewhere appropriate in the Production.xaml layout -->
+            <!-- Per-frame summary: transparent background and transparent rows/cells -->
             <DataGrid x:Name="PerFrameSummaryGrid"
                       AutoGenerateColumns="False"
                       HeadersVisibility="Column"
                       IsReadOnly="True"
-                      Width="240"
+                      Width="164"
                       HorizontalAlignment="Right"
                       VerticalAlignment="Top"
-                      Margin="0,43,409,0">
+                      Margin="0,43,485,0"
+                      Background="Transparent"
+                      RowBackground="Transparent"
+                      AlternatingRowBackground="Transparent"
+                      GridLinesVisibility="None"
+                      BorderThickness="0">
+                <DataGrid.Resources>
+                    <!-- Make column headers transparent and text white -->
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Padding" Value="6,4"/>
+                        <Setter Property="Foreground" Value="White"/>
+                    </Style>
+
+                    <!-- Make cells transparent and remove cell borders -->
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Padding" Value="6,2"/>
+                    </Style>
+
+                    <!-- Ensure rows are transparent -->
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="Transparent"/>
+                    </Style>
+                </DataGrid.Resources>
+
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Class" Binding="{Binding ClassName}" Width="*" />
-                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="72" />
+                    <!-- Class column: class name text colored using ColorBrush provided by VM -->
+                    <DataGridTemplateColumn Header="Class" Width="*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding ClassName}" Foreground="{Binding ColorBrush}" FontWeight="SemiBold"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Count column: keep text white for contrast -->
+                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="72">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="FontWeight" Value="Normal"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
                 </DataGrid.Columns>
             </DataGrid>
         </Grid>
