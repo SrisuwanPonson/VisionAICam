@@ -91,7 +91,7 @@
                         <TextBox x:Name="CaptureFolderPathText"
                                  MinWidth="260"
                                  IsReadOnly="True"/>
-                        <Button Content="Browse..." Margin="10,0" ToolTip="Implement Browse handler in code-behind" x:Name="BrowseCaptureFolderButton"/>
+                        <Button Content="Browse..." Margin="10,0" ToolTip="Implement Browse handler in code-behind" x:Name="BrowseCaptureFolderButton" Click="BrowseCaptureFolderButton_Click"/>
                     </WrapPanel>
                 </Grid>
             </TabItem>

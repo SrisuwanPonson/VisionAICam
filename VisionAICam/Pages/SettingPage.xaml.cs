@@ -196,5 +196,7 @@ namespace VisionAICam.Pages
                 }
             }
         }
+
+        
     }
 }

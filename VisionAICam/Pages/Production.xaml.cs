@@ -626,7 +626,7 @@ namespace VisionAICam.Pages
                     Canvas.SetLeft(label, cx - w / 2 + 2);
                     Canvas.SetTop(label, cy - h / 2 - 18);
                     BoundingBoxCanvas.Children.Add(label);
-                }03
+                }
             }
         }
 
