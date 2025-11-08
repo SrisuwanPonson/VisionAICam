@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using VisionAICam.Core;
+using VisionAICam.Services;
 
 namespace VisionAICam
 {
@@ -35,8 +36,25 @@ namespace VisionAICam
             {
                 try
                 {
+                    // Determine whether to prewarm inference from persisted settings (fallback to true).
+                    bool prewarm = true;
+                    try
+                    {
+                        var settings = SettingsManager.Load();
+                        if (settings != null)
+                        {
+                            var prop = settings.GetType().GetProperty("InferencePrewarm");
+                            if (prop != null)
+                                prewarm = Convert.ToBoolean(prop.GetValue(settings) ?? true);
+                        }
+                    }
+                    catch
+                    {
+                        // ignore and keep default prewarm = true
+                    }
+
                     // basic initialization (no progress reporting)
-                    await MasterController.Instance.InitializeAsync(prewarmInferenceEngine: false).ConfigureAwait(false);
+                    await MasterController.Instance.InitializeAsync(prewarmInferenceEngine: prewarm).ConfigureAwait(false);
 
                     // show main window on UI thread
                     Application.Current.Dispatcher.Invoke(() =>

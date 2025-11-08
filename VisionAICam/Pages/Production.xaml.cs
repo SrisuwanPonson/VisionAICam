@@ -1,23 +1,25 @@
-﻿using System;
+﻿using ClearEngine.Devices.Camera; // use camera class library
+using ClearEngine.Logging; // <- use the new logger library
+using ClearEngine.Model.Inference;
+using OpenCvSharp;
+using OpenCvSharp.WpfExtensions;
+using Python.Runtime;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using OpenCvSharp;
-using OpenCvSharp.WpfExtensions;
 using VisionAICam;
-using Python.Runtime;
-using System.Diagnostics;
-using ClearEngine.Devices.Camera; // use camera class library
-using ClearEngine.Logging; // <- use the new logger library
-using ClearEngine.Model.Inference;
 using VisionAICam.Core; // <- use MasterController
-using System.Linq;
+using VisionAICam.Properties;
+using VisionAICam.Services;
 
 namespace VisionAICam.Pages
 {
@@ -55,6 +57,7 @@ namespace VisionAICam.Pages
         private readonly ILogger _logger = ClearEngine.Logging.Logger.Instance;
         // Add this field inside the Production class (near the other private fields)
         private ClearEngine.Model.Inference.InferenceEngine? _inferenceEngine;
+        public InferenceEngine? InferenceEngineInstance => _inferenceEngine;
 
         // Per-frame summary collection bound to UI DataGrid (cleared and replaced each trigger frame)
         private readonly ObservableCollection<FrameSummary> _perFrameSummary = new();
@@ -242,23 +245,13 @@ namespace VisionAICam.Pages
         public bool IsPaused => _isPaused;
 
         private bool _cameraLoopRunning = false;
-
-        private void CameraLoop()
+        public bool Prewarm(
+            
+            )
         {
-            if (_cameraLoopRunning)
-            {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusTextBlock.Text = "Camera loop is already running.";
-                });
-                return;
-            }
-
-            _cameraLoopRunning = true;
-
             // Read python DLL path from settings if available
             var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
-            string pythonDllPath = settings?.PythonDllPath;
+            string? pythonDllPath = settings?.PythonDllPath;
             if (string.IsNullOrWhiteSpace(pythonDllPath))
             {
                 pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
@@ -272,7 +265,7 @@ namespace VisionAICam.Pages
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                 });
                 _cameraLoopRunning = false;
-                return;
+                return false;
             }
 
             // Let the inference library handle initialization + instance creation
@@ -284,62 +277,57 @@ namespace VisionAICam.Pages
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                 });
                 _cameraLoopRunning = false;
-                return;
+                return false;
             }
 
             Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}");
-            #region Prewarm
-            // Wait for first valid frame using the camera service
-            Mat? firstMat = null;
-            while (_isRunning && _camera != null && _camera.IsOpened)
-            {
-                if (_isPaused)
-                {
-                    Thread.Sleep(100);
-                    continue;
-                }
 
-                var mat = _camera.CaptureCurrentFrame();
-                if (mat != null && !mat.Empty())
-                {
-                    firstMat = mat;
-                    break;
-                }
-                mat?.Dispose();
-                Thread.Sleep(30);
-            }
-
-            if (firstMat == null)
-            {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusTextBlock.Text = "No frames from camera.";
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                });
-                _cameraLoopRunning = false;
-                return;
-            }
-            //// run first inference BEFORE disposing mat
+        
+            // Configure inference engine instance paths
             var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? "model.pt";
             var logDir = _logger.GetLogDirectory();
             _inferenceEngine.modelPath = modelPath;
             _inferenceEngine.logDir = logDir;
 
-            _inferenceEngine?.PrewarmFirstFrameAsync();
+            // Ask inference engine to prewarm (uses existing instance)
+            try
+            {
+                _inferenceEngine?.PrewarmFirstFrameAsync();
+            }
+            catch (Exception ex)
+            {
+                try { _logger.LogError($"PrewarmFirstFrameAsync threw: {ex}"); } catch { }
+            }
 
-            // convert to BitmapSource on background thread and freeze BEFORE disposing Mat
-            var firstBitmap = firstMat.ToBitmapSource();
-            firstBitmap.Freeze();
+      
+            return true;
+        }
+        private void CameraLoop()
+        {
+            if (_cameraLoopRunning)
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = "Camera loop is already running.";
+                });
+                return;
+            }
+
+            _cameraLoopRunning = true;
+            Prewarm();
+
+
+            #region Prewarm
+           
 
             Dispatcher.BeginInvoke(() =>
             {
                 LoadingOverlay.Visibility = Visibility.Collapsed;
                 StatusTextBlock.Text = "Production started";
-                ProductionImage.Source = firstBitmap;
-                //DrawBoundingBoxes(firstDetections);
+               
             });
 
-            firstMat.Dispose();
+         
             #endregion
             #region New Inference Engine - simplified (initialization moved into TryCreate)
             try
@@ -353,7 +341,9 @@ namespace VisionAICam.Pages
                 _cameraLoopRunning = false;
                 return;
             }
-
+            var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+            var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? "model.pt";
+            var logDir = _logger.GetLogDirectory();
             try
             {
                 // Main loop
@@ -376,7 +366,7 @@ namespace VisionAICam.Pages
                             try
                             {
                                 // run detection using inference engine
-                                var remoteResults = _inferenceEngine.Detect(mat, modelPath, logDir);
+                                var remoteResults = InferenceEngineInstance?.Detect(mat, modelPath, logDir);
 
                                 var mapped = new Collection<DetectionResult>();
                                 if (remoteResults != null)

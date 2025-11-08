@@ -103,6 +103,19 @@ namespace VisionAICam.Pages
             // Enable Test button only if a valid path exists
             if (TestInferenceButton != null)
                 TestInferenceButton.IsEnabled = File.Exists(pythonPath);
+
+            // --- NEW: reflect inference options in UI from AppSettings ---
+            if (_appSettings != null)
+            {
+                InferenceEnableCachingCheckBox.IsChecked = _appSettings.InferenceEnableCaching;
+                InferencePrewarmCheckBox.IsChecked = _appSettings.InferencePrewarm;
+            }
+            else
+            {
+                // sensible defaults if settings missing
+                InferenceEnableCachingCheckBox.IsChecked = true;
+                InferencePrewarmCheckBox.IsChecked = true;
+            }
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -124,6 +137,10 @@ namespace VisionAICam.Pages
             // Persist Python DLL path from settings page
             if (PythonDllPathText != null)
                 _appSettings.PythonDllPath = PythonDllPathText.Text ?? "";
+
+            // --- NEW: persist inference engine options ---
+            _appSettings.InferenceEnableCaching = InferenceEnableCachingCheckBox.IsChecked ?? false;
+            _appSettings.InferencePrewarm = InferencePrewarmCheckBox.IsChecked ?? false;
 
             SettingsManager.Save(_appSettings);
 

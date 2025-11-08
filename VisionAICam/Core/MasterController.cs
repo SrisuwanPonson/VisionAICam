@@ -122,47 +122,13 @@ namespace VisionAICam.Core
                     progress?.Report("Failed loading settings (continuing).");
                 }
 
-                // Try to initialize inference engine and register wrapper service
+                //Try to initialize inference engine and register wrapper service
                 if (prewarmInferenceEngine)
                 {
                     try
                     {
-                        var settingsSvc = GetService<AppSettings>();
-                        string pythonDll = settingsSvc?.PythonDllPath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
-
-                        if (InferenceEngine.TryCreate(pythonDll, _logger, out var engine, out var engineError) && engine != null)
-                        {
-                            // configure engine
-                            engine.modelPath = settingsSvc?.DefaultModelPath ?? engine.modelPath ?? "model.pt";
-                            engine.logDir = _logger.GetLogDirectory();
-
-                            // register concrete engine for backward compatibility
-                            RegisterService(engine);
-
-                            // register wrapper service
-                            var svc = new InferenceEngineService(engine, _logger);
-                            RegisterService<IInferenceEngineService>(svc);
-
-                            try { _logger.LogInfo("InferenceEngine initialized and registered."); } catch { }
-
-                            // kick off async prewarm if configured
-                            bool prewarm = true;
-                            try
-                            {
-                                var prop = settingsSvc?.GetType().GetProperty("InferencePrewarm");
-                                if (prop != null) prewarm = Convert.ToBoolean(prop.GetValue(settingsSvc) ?? true);
-                            }
-                            catch { }
-
-                            if (prewarm)
-                            {
-                                _ = svc.PrewarmAsync(engine.modelPath, engine.logDir);
-                            }
-                        }
-                        else
-                        {
-                            try { _logger.LogError($"InferenceEngine initialization failed: {engineError}"); } catch { }
-                        }
+                        //Production.Prewarm();
+                        progress?.Report("Inference engine initialized.");
                     }
                     catch (Exception ex)
                     {
@@ -362,6 +328,99 @@ namespace VisionAICam.Core
                 {
                     try { target.RemoveAt(0); } catch { break; }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Attempts to prewarm the inference engine using an image taken from the configured
+        /// DefaultImagePath (file or first image under the directory). This method is safe to
+        /// call multiple times and runs the actual detection on a background thread so it does
+        /// not block the caller.
+        /// Returns true when an image was found and detection completed (or ran without throwing).
+        /// </summary>
+        public async Task<bool> PrewarmInferenceFromDefaultImageAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var settings = GetService<AppSettings>() ?? SettingsManager.Load();
+                string? startPath = settings?.DefaultImagePath;
+                if (string.IsNullOrWhiteSpace(startPath))
+                    startPath = AppDomain.CurrentDomain.BaseDirectory;
+
+                string? imageFile = null;
+
+                // If path is a file, use it directly
+                if (File.Exists(startPath))
+                {
+                    imageFile = startPath;
+                }
+                else
+                {
+                    // Treat as directory and search for common image types (first hit)
+                    if (!Directory.Exists(startPath))
+                        startPath = AppDomain.CurrentDomain.BaseDirectory;
+
+                    string[] exts = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp" };
+                    foreach (var ext in exts)
+                    {
+                        try
+                        {
+                            imageFile = Directory.EnumerateFiles(startPath, "*" + ext, SearchOption.AllDirectories).FirstOrDefault();
+                            if (!string.IsNullOrEmpty(imageFile) && File.Exists(imageFile))
+                                break;
+                            imageFile = null;
+                        }
+                        catch (UnauthorizedAccessException) { /* skip inaccessible folders */ }
+                        catch (PathTooLongException) { /* skip problematic paths */ }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(imageFile) || !File.Exists(imageFile))
+                {
+                    try { _logger.LogInfo("PrewarmInferenceFromDefaultImageAsync: no image found to prewarm."); } catch { }
+                    return false;
+                }
+
+                // Read image bytes once (small memory cost) and run detection in background to prewarm
+                byte[] jpegBuffer = await Task.Run(() => File.ReadAllBytes(imageFile), cancellationToken).ConfigureAwait(false);
+
+                var engine = GetService<InferenceEngine>();
+                if (engine == null)
+                {
+                    try { _logger.LogWarning("PrewarmInferenceFromDefaultImageAsync: InferenceEngine service not registered."); } catch { }
+                    return false;
+                }
+
+                string modelPath = engine.modelPath ?? settings?.DefaultModelPath ?? "model.pt";
+                string logDir = _logger.GetLogDirectory();
+
+                // Run detection on background thread — this will initialize Python + model calls inside the engine
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        // Use Detect(byte[]) which already attempts in-memory call and falls back to temp file as needed.
+                        var res = engine.Detect(jpegBuffer, modelPath, logDir);
+                        try { _logger.LogInfo($"PrewarmInferenceFromDefaultImageAsync: detection ran on {Path.GetFileName(imageFile)}, results: {res?.Length ?? 0}"); } catch { }
+                    }
+                    catch (Exception ex)
+                    {
+                        try { _logger.LogError($"PrewarmInferenceFromDefaultImageAsync: detection failed: {ex}"); } catch { }
+                        throw;
+                    }
+                }, cancellationToken).ConfigureAwait(false);
+
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                try { _logger.LogInfo("PrewarmInferenceFromDefaultImageAsync cancelled."); } catch { }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                try { _logger.LogError($"PrewarmInferenceFromDefaultImageAsync error: {ex}"); } catch { }
+                return false;
             }
         }
     }
