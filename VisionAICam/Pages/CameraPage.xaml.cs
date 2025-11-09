@@ -16,25 +16,44 @@ namespace VisionAICam.Pages
         private ICamera? _camera;
         private AppSettings? _appSettings;
 
+        // Prevent re-running initialClass more than once per application run
+        private bool _initialClassesLoaded = false;
+
+        // Suppress saving while programmatically setting slider values
+        private bool _suspendSliderSave = false;
+
         public CameraPage()
         {
             InitializeComponent();
+
             _appSettings = SettingsManager.Load();
+
+            // Discover cameras once on construction
             DiscoverAndPopulateCameras();
+
+            // Initialize class/category lists exactly once per app run
+            initialClass();
+
             Unloaded += CameraPage_Unloaded;
             IsVisibleChanged += CameraPage_IsVisibleChanged;
             Loaded += CameraPage_Loaded;
 
             if (_appSettings != null)
             {
+                // Prevent slider change handlers from persisting these programmatic sets
+                _suspendSliderSave = true;
                 BrightnessSlider.Value = _appSettings.Brightness;
                 ContrastSlider.Value = _appSettings.Contrast;
                 ExposureSlider.Value = _appSettings.Exposure;
+                _suspendSliderSave = false;
             }
         }
 
         private void initialClass()
         {
+            if (_initialClassesLoaded)
+                return;
+
             string classFile = "class_list.txt";
             string categoryFile = "category_list.txt";
 
@@ -47,6 +66,10 @@ namespace VisionAICam.Pages
             else
             {
                 System.IO.File.WriteAllLines(classFile, new List<string> { "WallPlug", "Screw", "Anchor", "Bracket", "Clip" });
+                // After creating default file, load them into UI
+                var classes = System.IO.File.ReadAllLines(classFile);
+                ClassComboBox.Items.Clear();
+                ClassComboBox.ItemsSource = classes;
             }
 
             if (System.IO.File.Exists(categoryFile))
@@ -65,7 +88,12 @@ namespace VisionAICam.Pages
                    "Electrical",
                    "Tool"
                });
+                var categories = System.IO.File.ReadAllLines(categoryFile);
+                CategoryComboBox.Items.Clear();
+                CategoryComboBox.ItemsSource = categories;
             }
+
+            _initialClassesLoaded = true;
         }
 
         private void CameraPage_Loaded(object sender, RoutedEventArgs e) { }
@@ -74,8 +102,7 @@ namespace VisionAICam.Pages
         {
             if (!IsVisible)
                 StopCamera();
-            else
-                initialClass();
+            // do not re-run initialClass here - it is run once in ctor
         }
 
         private void CameraPage_Unloaded(object sender, RoutedEventArgs e) => StopCamera();
@@ -177,12 +204,15 @@ namespace VisionAICam.Pages
                 return;
             }
 
+            // When updating sliders from camera properties, avoid persisting those updates as user actions
+            _suspendSliderSave = true;
             Dispatcher.Invoke(() =>
             {
                 BrightnessSlider.Value = _camera.GetProperty(VideoCaptureProperties.Brightness);
                 ContrastSlider.Value = _camera.GetProperty(VideoCaptureProperties.Contrast);
                 ExposureSlider.Value = _camera.GetProperty(VideoCaptureProperties.Exposure);
             });
+            _suspendSliderSave = false;
         }
 
         private void StopCameraButton_Click(object sender, RoutedEventArgs e) => StopCamera();
@@ -226,6 +256,9 @@ namespace VisionAICam.Pages
 
         private void BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            if (_suspendSliderSave)
+                return;
+
             if (_camera != null && _camera.IsOpened)
                 _camera.SetProperty(VideoCaptureProperties.Brightness, e.NewValue);
 
@@ -238,6 +271,9 @@ namespace VisionAICam.Pages
 
         private void ContrastSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            if (_suspendSliderSave)
+                return;
+
             if (_camera != null && _camera.IsOpened)
                 _camera.SetProperty(VideoCaptureProperties.Contrast, e.NewValue);
 
@@ -250,6 +286,9 @@ namespace VisionAICam.Pages
 
         private void ExposureSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
+            if (_suspendSliderSave)
+                return;
+
             if (_camera != null && _camera.IsOpened)
                 _camera.SetProperty(VideoCaptureProperties.Exposure, e.NewValue);
 
