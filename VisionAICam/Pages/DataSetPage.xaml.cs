@@ -215,12 +215,72 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         private void BoundingBoxCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (_isDrawing && _currentDrawingShapeInfo?.Shape is Polyline && _currentPolygonPoints.Count > 2)
+            // If drawing and current shape is a Polyline handle both polygon-close and free-pen finalize
+            if (_isDrawing && _currentDrawingShapeInfo?.Shape is Polyline)
             {
-                FinalizePolygon();
+                if (_currentDrawingMode == DrawingMode.Polygon && _currentPolygonPoints.Count > 2)
+                {
+                    FinalizePolygon();
+                    return;
+                }
+
+                if (_currentDrawingMode == DrawingMode.FreePen)
+                {
+                    // finalize free-pen using the current mouse position (clamped)
+                    var clamped = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
+                    FinalizeFreePen(clamped);
+                    return;
+                }
             }
         }
+        private void FinalizeFreePen(Point end)
+        {
+            if (_currentDrawingShapeInfo == null || _currentDrawingShapeInfo.Shape is not Polyline poly)
+                return;
 
+            // Release any mouse capture
+            BoundingBoxCanvas.ReleaseMouseCapture();
+
+            // Clamp final point and add if different enough
+            var clamped = ClampPointToImage(end);
+            var last = poly.Points.Count > 0 ? poly.Points[poly.Points.Count - 1] : new Point(double.NaN, double.NaN);
+            if (double.IsNaN(last.X) ||
+                Math.Abs(last.X - clamped.X) > 0.5 ||
+                Math.Abs(last.Y - clamped.Y) > 0.5)
+            {
+                poly.Points.Add(clamped);
+                _currentDrawingShapeInfo.Record.Points.Add(clamped);
+            }
+
+            // Decide whether to keep the stroke (require at least 2 points)
+            if (poly.Points.Count > 1)
+            {
+                // Commit record
+                _currentDrawingShapeInfo.Record.Points = new List<Point>(poly.Points);
+                Annotations.Add(_currentDrawingShapeInfo.Record);
+                SaveStateForUndo();
+
+                // Keep session/project in sync so exports and saves include this annotation
+                ProjectSession.Annotations = Annotations;
+                if (_currentProject != null)
+                    _currentProject.Annotations = Annotations;
+
+                // Refresh UI from annotations (will recreate visuals consistently)
+                RefreshAnnotations();
+                SetStatus($"Free-pen annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
+            }
+            else
+            {
+                // Too short — remove temporary visuals and shape info
+                BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
+                BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                _shapeInfos.Remove(_currentDrawingShapeInfo);
+                SetStatus("Free-pen stroke too short, ignored.");
+            }
+
+            _currentDrawingShapeInfo = null;
+            _isDrawing = false;
+        }
 
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -298,8 +358,63 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 StartRectangle(pt, label);
                 _mouseLeftDown = false;
             }
+            else if(_currentDrawingMode==DrawingMode.FreePen)
+            {
+                _isDrawing = true;
+                StartFreePen(pt,label); _mouseLeftDown = false;
+            }
+
         }
 
+        private void StartFreePen(Point pt, string label)
+        {
+            // Create visual polyline stroke and label (similar to StartRectangle)
+            Color color = GetColorForClass(label);
+            var brush = new SolidColorBrush(color);
+
+            var polyline = new Polyline
+            {
+                Stroke = brush,
+                StrokeThickness = 2,
+                Points = new PointCollection { pt }
+            };
+
+            var labelBlock = new TextBlock
+            {
+                Text = label,
+                Foreground = brush,
+                FontSize = 10,
+                FontWeight = FontWeights.Normal,
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                Margin = new Thickness(0)
+            };
+
+            Canvas.SetLeft(labelBlock, pt.X + 1);
+            Canvas.SetTop(labelBlock, pt.Y + 1);
+
+            var record = new AnnotationRecord
+            {
+                ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
+                Label = label,
+                AnnotationType = AnnotationType.FreePen,
+                Points = new List<Point> { pt }
+            };
+
+            var info = new ShapeInfo
+            {
+                Shape = polyline,
+                LabelBlock = labelBlock,
+                Record = record,
+                Metadata = new ShapeMetadata { Label = label, Type = AnnotationType.FreePen }
+            };
+
+            _currentDrawingShapeInfo = info;
+            _shapeInfos.Add(info);
+
+            BoundingBoxCanvas.Children.Add(polyline);
+            BoundingBoxCanvas.Children.Add(labelBlock);
+        }
 
         private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
         {
@@ -360,6 +475,19 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 if (_currentDrawingMode == DrawingMode.Rectangle)
                 {
                     UpdateRectangle(clampedPt);
+                }
+                else if (_currentDrawingMode == DrawingMode.FreePen && _currentDrawingShapeInfo.Shape is Polyline poly)
+                {
+                    // Add point with simple thinning to reduce excessive points
+                    var last = poly.Points.Count > 0 ? poly.Points[poly.Points.Count - 1] : new Point(double.NaN, double.NaN);
+                    if (double.IsNaN(last.X) ||
+                        Math.Abs(clampedPt.X - last.X) > 1.5 ||
+                        Math.Abs(clampedPt.Y - last.Y) > 1.5)
+                    {
+                        poly.Points.Add(clampedPt);
+                        // keep the annotation record in sync
+                        _currentDrawingShapeInfo.Record.Points.Add(clampedPt);
+                    }
                 }
             }
 
@@ -444,6 +572,14 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             if (_isDrawing && _currentDrawingShapeInfo != null && _currentDrawingMode == DrawingMode.Polygon)
             {
                 updatePolygon(clampedPt);
+                return;
+            }
+
+            // Handle free-pen drawing
+            
+            if (_isDrawing && _currentDrawingShapeInfo != null && _currentDrawingMode == DrawingMode.FreePen)
+            {
+                FinalizeFreePen(clampedPt);
                 return;
             }
 
