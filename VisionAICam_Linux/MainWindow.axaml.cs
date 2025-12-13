@@ -1,15 +1,14 @@
-﻿using System.Windows;
-using System.Windows.Controls;
-using VisionAICam.Pages;
-using System.ComponentModel;
-using Python.Runtime;
+using Avalonia.Controls;
 using System;
+using System.Diagnostics;
 using System.Reflection;
-using VisionAICam.Core;
-using System.Windows.Navigation;
 using System.Threading.Tasks;
+using Python.Runtime;
+using VisionAICam.Pages;
+using VisionAICam.Core;
+using ClearEngine.Model.Inference;
 
-namespace VisionAICam
+namespace VisionAICam_Linux
 {
     public partial class MainWindow : Window
     {
@@ -17,77 +16,25 @@ namespace VisionAICam
         {
             InitializeComponent();
 
-            // Attach to navigation events so we can show/hide side panels depending on the page
-            MainContent.Navigated -= MainContent_Navigated;
-            MainContent.Navigated += MainContent_Navigated;
-
             if (IsAnotherInstanceRunning())
             {
-                //MessageBox.Show("Another instance of the application is already running.", "Instance Detected", MessageBoxButton.OK, MessageBoxImage.Warning);
-                Application.Current.Shutdown();
+                Debug.WriteLine("Another instance of the application is already running. Shutting down.");
+                Application.Current?.Shutdown();
                 return;
             }
 
             // Navigate to the shared Production page from MasterController (creates on UI thread if needed)
             if (MainContent.Content is not Production)
             {
-                MainContent.Navigate(MasterController.Instance.Production);
+                MainContent.Content = MasterController.Instance.Production;
             }
-
-            // Ensure side panels reflect the current content initially
-            UpdateSidePanelVisibility();
 
             // Subscribe to window closing to perform final cleanup
             this.Closing -= MainWindow_Closing;
             this.Closing += MainWindow_Closing;
 
-            //MessageBox.Show("MainWindow has been created.", "Startup", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
-
-        private void MainContent_Navigated(object? sender, NavigationEventArgs e)
-        {
-            UpdateSidePanelVisibility();
-        }
-
-        /// <summary>
-        /// Shows side panels only when the Production page is displayed; hides them for all other pages.
-        /// </summary>
-        private void UpdateSidePanelVisibility()
-        {
-            try
-            {
-                bool isProduction = MainContent?.Content is Production;
-
-                // If the named panels are missing for any reason, this will safely no-op
-                if (LeftPanel != null)
-                    LeftPanel.Visibility = isProduction ? Visibility.Visible : Visibility.Collapsed;
-
-                if (RightPanel != null)
-                    RightPanel.Visibility = isProduction ? Visibility.Visible : Visibility.Collapsed;
-
-                // Also keep Start/Stop and Pause buttons consistent when panels hidden
-                if (!isProduction)
-                {
-                    // disable controls that are only valid in Production
-                    StartStopButton.IsEnabled = false;
-                    PauseButton.IsEnabled = false;
-                }
-                else
-                {
-                    // restore Start/Stop and Pause enabled state based on production state
-                    if (MainContent.Content is Production prod)
-                    {
-                        StartStopButton.IsEnabled = true;
-                        PauseButton.IsEnabled = prod.IsRunning;
-                    }
-                    else
-                    {
-                        StartStopButton.IsEnabled = true;
-                        PauseButton.IsEnabled = false;
-                    }
-                }
-            }
-            catch { }
+            // Debug information in place of WPF MessageBox
+            Debug.WriteLine("MainWindow has been created.");
         }
 
         private bool IsAnotherInstanceRunning()
@@ -97,8 +44,7 @@ namespace VisionAICam
             return processes.Length > 1;
         }
 
-
-        private void StartStopButton_Click(object sender, RoutedEventArgs e)
+        private void StartStopButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
             if (MainContent.Content is Production production)
             {
@@ -118,11 +64,11 @@ namespace VisionAICam
             }
             else
             {
-                MessageBox.Show("Please open the Production page to start/stop production.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                Debug.WriteLine("Please open the Production page to start/stop production.");
             }
         }
 
-        private void PauseButton_Click(object sender, RoutedEventArgs e)
+        private void PauseButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
             if (MainContent.Content is Production production)
             {
@@ -142,59 +88,59 @@ namespace VisionAICam
             }
             else
             {
-                MessageBox.Show("Please open the Production page to pause/resume production.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                Debug.WriteLine("Please open the Production page to pause/resume production.");
             }
         }
 
-        private void NavigateIfNotDuplicate<T>(Page pageInstance, string pageName) where T : Page
+        private void NavigateIfNotDuplicate<T>(Control pageInstance, string pageName) where T : Control
         {
             if (MainContent.Content is T)
             {
-                MessageBox.Show($"The {pageName} page is already open.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                Debug.WriteLine($"The {pageName} page is already open.");
                 return;
             }
 
-            MainContent.Navigate(pageInstance);
+            MainContent.Content = pageInstance;
         }
 
-        private void UserButton_Click(object sender, RoutedEventArgs e)
+        private void UserButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<UserPage>(MasterController.Instance.UserPage, "User");
+            NavigateIfNotDuplicate<Controls.UserControl>(MasterController.Instance.UserPage, "User");
         }
 
-        private void DataButton_Click(object sender, RoutedEventArgs e)
+        private void DataButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            // Navigate to the DataPage (was incorrectly navigating to DataSetPage via MasterController)
-            NavigateIfNotDuplicate<DataPage>(new DataPage(), "Data");
+            // Navigate to the DataPage (create new instance if appropriate)
+            NavigateIfNotDuplicate<Control>(new DataPage(), "Data");
         }
 
-        private void DiagnosticButton_Click(object sender, RoutedEventArgs e)
+        private void DiagnosticButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<DiagnosticsPage>(MasterController.Instance.DiagnosticsPage, "Diagnostics");
+            NavigateIfNotDuplicate<Control>(MasterController.Instance.DiagnosticsPage, "Diagnostics");
         }
 
-        private void SettingsButton_Click(object sender, RoutedEventArgs e)
+        private void SettingsButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<SettingPage>(MasterController.Instance.SettingPage, "Settings");
+            NavigateIfNotDuplicate<Control>(MasterController.Instance.SettingPage, "Settings");
         }
 
-        private void CameraButton_Click(object sender, RoutedEventArgs e)
+        private void CameraButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<CameraPage>(MasterController.Instance.CameraPage, "Camera");
+            NavigateIfNotDuplicate<Control>(MasterController.Instance.CameraPage, "Camera");
         }
 
-        private void ProductionButton_Click(object sender, RoutedEventArgs e)
+        private void ProductionButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
             if (MainContent.Content is Production)
             {
-                MessageBox.Show("The Production page is already open.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                Debug.WriteLine("The Production page is already open.");
                 return;
             }
 
-            MainContent.Navigate(MasterController.Instance.Production);
+            MainContent.Content = MasterController.Instance.Production;
         }
 
-        private void ExitButton_Click(object sender, RoutedEventArgs e)
+        private void ExitButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
             try
             {
@@ -206,24 +152,24 @@ namespace VisionAICam
             }
             catch { }
 
-            Application.Current.Shutdown();
+            Application.Current?.Shutdown();
         }
 
-        private void DataSetButton_Click(object sender, RoutedEventArgs e)
+        private void DataSetButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<DataSetPage>(MasterController.Instance.DataSetPage, "Dataset");
+            NavigateIfNotDuplicate<Control>(MasterController.Instance.DataSetPage, "Dataset");
         }
 
-        private void ModelButton_Click(object sender, RoutedEventArgs e)
+        private void ModelButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            NavigateIfNotDuplicate<ModelPage>(MasterController.Instance.ModelPage, "Model");
+            NavigateIfNotDuplicate<Control>(MasterController.Instance.ModelPage, "Model");
         }
 
         /// <summary>
         /// MainWindow_Closing: perform only quick synchronous cleanup and schedule heavier disposal on a background thread.
         /// This keeps window close fast while still doing final cleanup asynchronously.
         /// </summary>
-        private void MainWindow_Closing(object? sender, CancelEventArgs e)
+        private void MainWindow_Closing(object? sender, WindowClosingEventArgs e)
         {
             try
             {
@@ -285,11 +231,11 @@ namespace VisionAICam
                     {
                         try
                         {
-                            var engineType = typeof(ClearEngine.Model.Inference.InferenceEngine);
+                            var engineType = typeof(InferenceEngine);
                             var instanceProp = engineType.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
                             object? engineInstance = instanceProp != null ? instanceProp.GetValue(null) : null;
 
-                            if (engineInstance is ClearEngine.Model.Inference.InferenceEngine engine)
+                            if (engineInstance is InferenceEngine engine)
                             {
                                 engine.Dispose();
                             }
@@ -342,7 +288,7 @@ namespace VisionAICam
                     }
                     catch (Exception ex)
                     {
-                        try { System.Diagnostics.Debug.WriteLine($"LongRunningCleanupAsync error: {ex}"); } catch { }
+                        try { Debug.WriteLine($"LongRunningCleanupAsync error: {ex}"); } catch { }
                     }
                 });
             }
@@ -358,7 +304,7 @@ namespace VisionAICam
             // Dispose inference engine singleton if present (direct access + safe reflection clearing)
             try
             {
-                var engineType = typeof(ClearEngine.Model.Inference.InferenceEngine);
+                var engineType = typeof(InferenceEngine);
 
                 // Try to get the public Instance property if available
                 var instanceProp = engineType.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
@@ -368,7 +314,7 @@ namespace VisionAICam
                     try { engineInstance = instanceProp.GetValue(null); } catch { engineInstance = null; }
                 }
 
-                if (engineInstance is ClearEngine.Model.Inference.InferenceEngine engine)
+                if (engineInstance is InferenceEngine engine)
                 {
                     try { engine.Dispose(); } catch { }
                 }
@@ -395,8 +341,6 @@ namespace VisionAICam
             // Shutdown Python runtime if initialized.
             try
             {
-                // PythonEngine calls can require the main thread in some environments.
-                // Attempt shutdown from background thread; if it fails, ignore to avoid blocking close.
                 if (PythonEngine.IsInitialized)
                 {
                     try { PythonEngine.Shutdown(); } catch { }
@@ -404,7 +348,7 @@ namespace VisionAICam
             }
             catch { }
 
-            // Give native resources a chance to finalize — do this with small delays so OS has time.
+            // Give native resources a chance to finalize � do this with small delays so OS has time.
             try
             {
                 GC.Collect();
@@ -442,7 +386,7 @@ namespace VisionAICam
                     {
                         var result = asyncMethod.Invoke(target, null);
                         // if returns a Task, attempt to Wait briefly
-                        if (result is System.Threading.Tasks.Task t)
+                        if (result is Task t)
                         {
                             try { t.Wait(1500); } catch { }
                         }
@@ -469,17 +413,18 @@ namespace VisionAICam
                 {
                     // Completed within timeout
                     return true;
+
                 }
                 else
                 {
                     // Timed out - do not block further
-                    try { System.Diagnostics.Debug.WriteLine("TryRunWithTimeout: operation timed out."); } catch { }
+                    try { Debug.WriteLine("TryRunWithTimeout: operation timed out."); } catch { }
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                try { System.Diagnostics.Debug.WriteLine($"TryRunWithTimeout exception: {ex}"); } catch { }
+                try { Debug.WriteLine($"TryRunWithTimeout exception: {ex}"); } catch { }
                 return false;
             }
         }

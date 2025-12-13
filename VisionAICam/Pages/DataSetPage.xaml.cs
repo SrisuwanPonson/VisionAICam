@@ -62,6 +62,11 @@ namespace VisionAICam.Pages
         private Point _dragStartPoint;
         private bool _isDraggingShape = false;
 
+        // NEW: pending selection when user presses left button but drag should start only after moving into shape
+        private ShapeInfo? _pendingShapeInfo = null;
+        private Point _mouseDownPoint;
+        private bool _mouseLeftDown = false;
+
         private enum HitType { None, Body, TopLeft, TopRight, BottomLeft, BottomRight }
         private HitType _currentHit = HitType.None;
         private Ellipse? _activeHandle = null;
@@ -221,20 +226,25 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         {
             BoundingBoxCanvas.Focus();
             Point pt = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
+            _mouseLeftDown = true;
+            _mouseDownPoint = pt;
 
             if (!IsPointInImageBounds(pt))
             {
                 SetStatus("Click inside the image to annotate.");
+                _mouseLeftDown = false;
                 return;
             }
 
-            // Check if clicking on a handle
+            // Check if clicking on a handle (start reshape immediately)
             foreach (var handle in _handles)
             {
                 if (IsPointOverHandle(pt, handle))
                 {
                     _activeHandle = handle;
-                    _currentHit = (HitType)handle.Tag;
+                    // attempt to recover hit info (some handles use HitType or PolygonVertexHit as Tag)
+                    if (handle.Tag is HitType ht) _currentHit = ht;
+                    else if (handle.Tag is PolygonVertexHit pvh) _currentHit = HitType.Body; // placeholder for polygon vertex
                     _reshapeShapeInfo = _activeShapeInfo;
                     BoundingBoxCanvas.CaptureMouse();
                     SetStatus("Reshape started.");
@@ -243,31 +253,18 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 }
             }
 
-            // If not drawing, check for shape selection
+            // DELAYED DRAG: remember candidate shape under cursor, but don't start dragging yet.
             if (!_isDrawing)
             {
-                _activeShapeInfo = _shapeInfos.LastOrDefault(info =>
+                _pendingShapeInfo = _shapeInfos.LastOrDefault(info =>
                     info.Shape.IsMouseOver || info.LabelBlock.IsMouseOver);
 
-                if (_activeShapeInfo != null)
+                if (_pendingShapeInfo != null)
                 {
-                    if (!IsShapeFullyInImage(_activeShapeInfo))
-                    {
-                        SetStatus("Shape must remain inside the image.");
-                        return;
-                    }
-
-                    _dragStartPoint = pt;
-                    _isDraggingShape = true;
-                    HighlightShape(_activeShapeInfo, true);
-
-                    if (_activeShapeInfo.Shape is Polyline)
-                        AddPolygonHandles(_activeShapeInfo);
-                    else
-                        AddResizeHandles(_activeShapeInfo);
-
+                    // don't set _isDraggingShape here; start drag when mouse moves while holding down and cursor is over shape
+                    SetStatus("Hold and move to start dragging the shape.");
                     BoundingBoxCanvas.CaptureMouse();
-                    SetStatus("Shape selected for dragging.");
+                    e.Handled = true;
                     return;
                 }
                 else
@@ -281,6 +278,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             if (string.IsNullOrWhiteSpace(label))
             {
                 SetStatus("Please select a label before drawing.");
+                _mouseLeftDown = false;
                 return;
             }
 
@@ -288,6 +286,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             {
                 _isDrawing = true;
                 StartPolygon(pt, label); // Adds a new point
+                _mouseLeftDown = false;
                 return;
             }
 
@@ -297,6 +296,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 _isDrawing = true;
                 _dragStartPoint = pt;
                 StartRectangle(pt, label);
+                _mouseLeftDown = false;
             }
         }
 
@@ -312,6 +312,35 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
                 RefreshHandles(_reshapeShapeInfo);
                 return;
+            }
+
+            // If user pressed mouse down previously, but drag hasn't started yet, start drag when moving into shape area while holding.
+            if (_mouseLeftDown && !_isDraggingShape && _pendingShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
+            {
+                // Start dragging only when cursor is over the pending shape (or moved a small threshold)
+                bool cursorOverShape = _pendingShapeInfo.Shape.IsMouseOver || _pendingShapeInfo.LabelBlock.IsMouseOver;
+                double dx = pt.X - _mouseDownPoint.X;
+                double dy = pt.Y - _mouseDownPoint.Y;
+                double moved = Math.Sqrt(dx * dx + dy * dy);
+
+                // Use either entering the shape or moving beyond a small movement threshold to start dragging
+                if (cursorOverShape || moved > 3.0)
+                {
+                    _activeShapeInfo = _pendingShapeInfo;
+                    _pendingShapeInfo = null;
+                    _isDraggingShape = true;
+                    _dragStartPoint = pt;
+                    HighlightShape(_activeShapeInfo, true);
+
+                    if (_activeShapeInfo.Shape is Polyline)
+                        AddPolygonHandles(_activeShapeInfo);
+                    else
+                        AddResizeHandles(_activeShapeInfo);
+
+                    BoundingBoxCanvas.CaptureMouse();
+                    SetStatus("Shape selected for dragging.");
+                    // continue to perform an immediate drag step below
+                }
             }
 
             if (_isDraggingShape && _activeShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
@@ -349,6 +378,15 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         {
             Point pt = e.GetPosition(BoundingBoxCanvas);
             Point clampedPt = ClampPointToImage(pt);
+
+            // reset pending state since mouse button released
+            _mouseLeftDown = false;
+            if (_pendingShapeInfo != null)
+            {
+                // user pressed but didn't move enough to start drag; just clear
+                _pendingShapeInfo = null;
+                BoundingBoxCanvas.ReleaseMouseCapture();
+            }
 
             // Handle polygon vertex dragging
             if (_activeHandle != null && _reshapeShapeInfo != null)
@@ -425,6 +463,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     SetStatus("Rectangle must be fully inside the image.");
                 }
                 _isDrawing = false;
+                _currentDrawingShapeInfo = null;
             }
         }
         #endregion

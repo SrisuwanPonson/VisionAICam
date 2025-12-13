@@ -107,7 +107,7 @@
         </DockPanel>
 
         <!-- Left statistics panel -->
-        <Grid DockPanel.Dock="Left" Width="140" HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0">
+        <Grid x:Name="LeftPanel" DockPanel.Dock="Left" Width="140" HorizontalAlignment="Left" VerticalAlignment="Stretch" Margin="0">
             <Image Source="pack://application:,,,/Assets/vertical_panel.png"
                    Stretch="UniformToFill" Opacity="1"/>
             <StackPanel>
@@ -116,7 +116,7 @@
         </Grid>
 
         <!-- Right-side vertical navigator bar -->
-        <StackPanel DockPanel.Dock="Right"
+        <StackPanel x:Name="RightPanel" DockPanel.Dock="Right"
                     Orientation="Vertical"
                     Width="100"
                     HorizontalAlignment="Right"

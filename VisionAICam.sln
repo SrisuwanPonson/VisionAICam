@@ -5,8 +5,6 @@ VisualStudioVersion = 17.12.35707.178
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionAICam", "VisionAICam\VisionAICam.csproj", "{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyApp.Core", "MyApp.Core\MyApp.Core.csproj", "{783CACB6-F53B-4202-BDF0-9F347D45A4DE}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Devices.Camera", "VisionAICam.Devices.Camera\ClearEngine.Devices.Camera.csproj", "{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Model.Inference", "ClearEngine.Inference\ClearEngine.Model.Inference.csproj", "{369011D8-A7EA-4384-8D31-C1D75D407029}"
@@ -14,6 +12,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Logging", "ClearEngine.Logging\ClearEngine.Logging.csproj", "{6F9A67B5-89C1-4CB5-A091-258E95E27F3E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.SessionManagement", "ClearEngine.SessionManagement\ClearEngine.SessionManagement.csproj", "{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionAICam_Linux", "VisionAICam_Linux\VisionAICam_Linux.csproj", "{25B153DD-01F1-4F38-AFF6-639F13F485B0}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -31,14 +31,6 @@ Global
 		{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}.Release|Any CPU.Build.0 = Release|Any CPU
 		{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}.Release|x64.ActiveCfg = Release|Any CPU
 		{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}.Release|x64.Build.0 = Release|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Debug|x64.Build.0 = Debug|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|Any CPU.Build.0 = Release|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|x64.ActiveCfg = Release|Any CPU
-		{783CACB6-F53B-4202-BDF0-9F347D45A4DE}.Release|x64.Build.0 = Release|Any CPU
 		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5139E76F-BB30-47E2-8CBA-CD86BEDE0BBD}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -71,6 +63,14 @@ Global
 		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|x64.ActiveCfg = Release|Any CPU
 		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|x64.Build.0 = Release|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|x64.Build.0 = Debug|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|x64.ActiveCfg = Release|Any CPU
+		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

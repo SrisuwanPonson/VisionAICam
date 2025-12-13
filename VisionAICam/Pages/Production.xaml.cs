@@ -245,9 +245,7 @@ namespace VisionAICam.Pages
         public bool IsPaused => _isPaused;
 
         private bool _cameraLoopRunning = false;
-        public bool Prewarm(
-            
-            )
+        public bool Prewarm()
         {
             // Read python DLL path from settings if available
             var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
