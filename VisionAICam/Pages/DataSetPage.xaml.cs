@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Ookii.Dialogs.Wpf;
+using System.Text.Json;
 
 
 
@@ -86,6 +87,8 @@ namespace VisionAICam.Pages
 
         private readonly List<ShapeInfo> _shapeInfos = new();
 
+        private double _polygonAutoCloseThreshold = 12.0; // 1) Add a field to the DataSetPage class
+
         public DataSetPage()
         {
             InitializeComponent();
@@ -129,6 +132,17 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
             BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
             
+            // 2) In the DataSetPage constructor (after InitializeComponent and before using the value) load the value from AppSettings:
+            try
+            {
+                var cfg = SettingsManager.Load();
+                if (cfg != null)
+                    _polygonAutoCloseThreshold = cfg.PolygonAutoCloseThreshold;
+            }
+            catch
+            {
+                // ignore - keep default
+            }
         }
     
 
@@ -215,72 +229,83 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         private void BoundingBoxCanvas_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
         {
-            // If drawing and current shape is a Polyline handle both polygon-close and free-pen finalize
-            if (_isDrawing && _currentDrawingShapeInfo?.Shape is Polyline)
-            {
-                if (_currentDrawingMode == DrawingMode.Polygon && _currentPolygonPoints.Count > 2)
-                {
-                    FinalizePolygon();
-                    return;
-                }
-
-                if (_currentDrawingMode == DrawingMode.FreePen)
-                {
-                    // finalize free-pen using the current mouse position (clamped)
-                    var clamped = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
-                    FinalizeFreePen(clamped);
-                    return;
-                }
-            }
-        }
-        private void FinalizeFreePen(Point end)
-        {
-            if (_currentDrawingShapeInfo == null || _currentDrawingShapeInfo.Shape is not Polyline poly)
+            // Only handle right-click when we are actively drawing and the current visual is a polyline
+            if (!_isDrawing || _currentDrawingShapeInfo?.Shape is not Polyline poly)
                 return;
 
-            // Release any mouse capture
-            BoundingBoxCanvas.ReleaseMouseCapture();
+            var clamped = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
 
-            // Clamp final point and add if different enough
-            var clamped = ClampPointToImage(end);
-            var last = poly.Points.Count > 0 ? poly.Points[poly.Points.Count - 1] : new Point(double.NaN, double.NaN);
-            if (double.IsNaN(last.X) ||
-                Math.Abs(last.X - clamped.X) > 0.5 ||
-                Math.Abs(last.Y - clamped.Y) > 0.5)
+            // POLYGON: update last point and finalize when there are >= 3 points
+            if (_currentDrawingMode == DrawingMode.Polygon)
             {
-                poly.Points.Add(clamped);
-                _currentDrawingShapeInfo.Record.Points.Add(clamped);
+                if (_currentPolygonPoints.Count > 0)
+                    _currentPolygonPoints[_currentPolygonPoints.Count - 1] = clamped;
+                else
+                    _currentPolygonPoints.Add(clamped);
+
+                if (_currentPolygonPoints.Count > 2)
+                {
+                    poly.Points = new PointCollection(_currentPolygonPoints);
+                    FinalizePolygon();
+                }
+                else
+                {
+                    // Cancel incomplete polygon
+                    BoundingBoxCanvas.Children.Remove(poly);
+                    if (_currentDrawingShapeInfo?.LabelBlock != null)
+                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                    _shapeInfos.Remove(_currentDrawingShapeInfo);
+                    _currentDrawingShapeInfo = null;
+                    _currentPolygonPoints.Clear();
+                    _isDrawing = false;
+                    SetStatus("Polygon requires at least 3 points. Drawing canceled.");
+                }
+
+                e.Handled = true;
+                return;
             }
 
-            // Decide whether to keep the stroke (require at least 2 points)
-            if (poly.Points.Count > 1)
+            // FREE PEN: finalize stroke — use the actual poly.Points / record (not the polygon buffer)
+            if (_currentDrawingMode == DrawingMode.FreePen)
             {
-                // Commit record
-                _currentDrawingShapeInfo.Record.Points = new List<Point>(poly.Points);
-                Annotations.Add(_currentDrawingShapeInfo.Record);
-                SaveStateForUndo();
+                // Make sure final point equals clamped mouse pos
+                if (poly.Points.Count > 0)
+                    poly.Points[poly.Points.Count - 1] = clamped;
+                else
+                    poly.Points.Add(clamped);
 
-                // Keep session/project in sync so exports and saves include this annotation
-                ProjectSession.Annotations = Annotations;
-                if (_currentProject != null)
-                    _currentProject.Annotations = Annotations;
+                // Sync authoritative record with the visual points
+                _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
 
-                // Refresh UI from annotations (will recreate visuals consistently)
-                RefreshAnnotations();
-                SetStatus($"Free-pen annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
+                if (_currentDrawingShapeInfo.Record.Points.Count > 1)
+                {
+                    // FinalizeFreePen expects the final clamped point and will
+                    // add the annotation, save undo state and refresh the UI.
+                    FinalizeFreePen(clamped);
+                }
+                else
+                {
+                    // Discard too-short stroke and clean up safely
+                    BoundingBoxCanvas.Children.Remove(poly);
+                    if (_currentDrawingShapeInfo?.LabelBlock != null)
+                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                    if (_shapeInfos.Contains(_currentDrawingShapeInfo))
+                        _shapeInfos.Remove(_currentDrawingShapeInfo);
+                    SetStatus("Free-pen stroke too short.");
+                }
+
+                // Reset drawing state and release mouse capture
+                _currentDrawingShapeInfo = null;
+                _currentPolygonPoints.Clear(); // safe to clear shared buffer
+                _isDrawing = false;
+                BoundingBoxCanvas.ReleaseMouseCapture();
+
+                e.Handled = true;
+                return;
             }
-            else
-            {
-                // Too short — remove temporary visuals and shape info
-                BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
-                BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
-                _shapeInfos.Remove(_currentDrawingShapeInfo);
-                SetStatus("Free-pen stroke too short, ignored.");
-            }
-
-            _currentDrawingShapeInfo = null;
-            _isDrawing = false;
+        
         }
+
 
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -354,7 +379,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             if (_currentDrawingMode == DrawingMode.Rectangle)
             {
                 _isDrawing = true;
-                _dragStartPoint = pt;
+                _dragStartPoint = pt; // Uncommenting to store the drag start point
                 StartRectangle(pt, label);
                 _mouseLeftDown = false;
             }
@@ -579,7 +604,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             
             if (_isDrawing && _currentDrawingShapeInfo != null && _currentDrawingMode == DrawingMode.FreePen)
             {
-                FinalizeFreePen(clampedPt);
+                //FinalizeFreePen(clampedPt);
+                updateFreePen(clampedPt);
                 return;
             }
 
@@ -811,7 +837,105 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 polyline.Points = new PointCollection(_currentPolygonPoints);
             }
         }
+        private void updateFreePen(Point clampedPt)
+        {
+            if (_currentDrawingShapeInfo?.Shape is Polyline poly)
+            {
+                // Mirror updatePolygon: update the last point to the clamped position
+                if (poly.Points.Count > 0)
+                {
+                    poly.Points[poly.Points.Count - 1] = clampedPt;
+                }
+                else
+                {
+                    poly.Points.Add(clampedPt);
+                }
 
+                // Keep the annotation record in sync with the visual
+                _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
+            }
+        }
+
+        // Helper used by right-click finalize path
+        private void FinalizeFreePen(Point clampedPt)
+        {
+            if (_currentDrawingShapeInfo != null && _currentDrawingShapeInfo.Shape is Polyline poly)
+            {
+                // Make sure final point equals clamped mouse pos
+                if (poly.Points.Count > 0)
+                    poly.Points[poly.Points.Count - 1] = clampedPt;
+                else
+                    poly.Points.Add(clampedPt);
+
+                // Sync authoritative record with the visual points
+                var points = poly.Points.ToList();
+                _currentDrawingShapeInfo.Record.Points = points;
+
+                var autoCloseThreshold = _polygonAutoCloseThreshold; // use configured value
+                bool autoClosed = false;
+
+                // Auto-close when the stroke forms a loop: last point near the first and there are >= 3 distinct vertices
+                if (points.Count > 2)
+                {
+                    double dx = points[0].X - points[^1].X;
+                    double dy = points[0].Y - points[^1].Y;
+                    double distSq = dx * dx + dy * dy;
+                    if (distSq <= autoCloseThreshold * autoCloseThreshold)
+                    {
+                        // Remove the final near-duplicate point so the polygon uses the original first vertex as closure.
+                        points.RemoveAt(points.Count - 1);
+
+                        // Update record to a polygon and mark metadata accordingly
+                        _currentDrawingShapeInfo.Record.Points = points;
+                        _currentDrawingShapeInfo.Record.AnnotationType = AnnotationType.Polygon;
+                        _currentDrawingShapeInfo.Metadata.Type = AnnotationType.Polygon;
+
+                        autoClosed = true;
+                    }
+                }
+
+                if (_currentDrawingShapeInfo.Record.Points.Count > 1)
+                {
+                    if (autoClosed && _currentDrawingShapeInfo.Record.Points.Count > 2)
+                    {
+                        Annotations.Add(_currentDrawingShapeInfo.Record);
+                        SaveStateForUndo();
+                        RefreshAnnotations();
+                        SetStatus($"Free-pen auto-closed to polygon with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
+                    }
+                    else if (!autoClosed)
+                    {
+                        Annotations.Add(_currentDrawingShapeInfo.Record);
+                        SaveStateForUndo();
+                        RefreshAnnotations();
+                        SetStatus($"Free-pen annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
+                    }
+                    else
+                    {
+                        // If autoClosed but resulting polygon doesn't have enough points, treat as too short.
+                        BoundingBoxCanvas.Children.Remove(poly);
+                        if (_currentDrawingShapeInfo?.LabelBlock != null)
+                            BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                        _shapeInfos.Remove(_currentDrawingShapeInfo);
+                        SetStatus("Auto-closed polygon too short. Drawing canceled.");
+                    }
+                }
+                else
+                {
+                    // Discard too-short stroke
+                    BoundingBoxCanvas.Children.Remove(poly);
+                    if (_currentDrawingShapeInfo?.LabelBlock != null)
+                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                    _shapeInfos.Remove(_currentDrawingShapeInfo);
+                    SetStatus("Free-pen stroke too short.");
+                }
+
+                // Reset drawing state
+                _currentDrawingShapeInfo = null;
+                _currentPolygonPoints.Clear(); // safe to clear shared buffer
+                _isDrawing = false;
+            }
+        }
         private void FinalizePolygon()
         {
             if (_currentDrawingShapeInfo != null && _currentDrawingShapeInfo.Shape is Polyline)

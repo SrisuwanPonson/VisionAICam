@@ -22,6 +22,17 @@ namespace VisionAICam.Pages
             // Wire up handlers for controls added in XAML
             if (BrowsePythonDllButton != null)
                 BrowsePythonDllButton.Click += BrowsePythonDllButton_Click;
+
+            // In the constructor (after InitializeComponent) wire slider <-> textbox (if controls exist in XAML):
+            if (PolygonAutoCloseThresholdSlider != null)
+            {
+                // keep UI in sync: slider -> textbox
+                PolygonAutoCloseThresholdSlider.ValueChanged += (s, ev) =>
+                {
+                    if (PolygonAutoCloseThresholdTextBox != null)
+                        PolygonAutoCloseThresholdTextBox.Text = PolygonAutoCloseThresholdSlider.Value.ToString("0.##");
+                };
+            }
         }
 
         private static string GetDefaultPythonDllPath()
@@ -116,6 +127,16 @@ namespace VisionAICam.Pages
                 InferenceEnableCachingCheckBox.IsChecked = true;
                 InferencePrewarmCheckBox.IsChecked = true;
             }
+
+            // In LoadSettings(), after loading _appSettings and other controls, set UI from settings:
+            if (_appSettings != null)
+            {
+                // ensure control names match your XAML (PolygonAutoCloseThresholdSlider, PolygonAutoCloseThresholdTextBox)
+                if (PolygonAutoCloseThresholdSlider != null)
+                    PolygonAutoCloseThresholdSlider.Value = _appSettings.PolygonAutoCloseThreshold;
+                if (PolygonAutoCloseThresholdTextBox != null)
+                    PolygonAutoCloseThresholdTextBox.Text = _appSettings.PolygonAutoCloseThreshold.ToString("0.##");
+            }
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -141,6 +162,21 @@ namespace VisionAICam.Pages
             // --- NEW: persist inference engine options ---
             _appSettings.InferenceEnableCaching = InferenceEnableCachingCheckBox.IsChecked ?? false;
             _appSettings.InferencePrewarm = InferencePrewarmCheckBox.IsChecked ?? false;
+
+            // In SaveButton_Click(), persist the value back into _appSettings before calling SettingsManager.Save(_appSettings);
+            if (_appSettings != null)
+            {
+                double parsed;
+                if (PolygonAutoCloseThresholdTextBox != null && double.TryParse(PolygonAutoCloseThresholdTextBox.Text, out parsed))
+                {
+                    _appSettings.PolygonAutoCloseThreshold = Math.Max(0.0, parsed);
+                }
+                else if (PolygonAutoCloseThresholdSlider != null)
+                {
+                    _appSettings.PolygonAutoCloseThreshold = Math.Max(0.0, PolygonAutoCloseThresholdSlider.Value);
+                }
+                // SettingsManager.Save(_appSettings) already called below in method
+            }
 
             SettingsManager.Save(_appSettings);
 

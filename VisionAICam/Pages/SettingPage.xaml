@@ -176,15 +176,39 @@
                 </Grid>
             </TabItem>
 
-            <!-- 🎨 General Preferences -->
+            <!-- 🎨 General Preferences -->  
             <TabItem Header="Preferences">
-                <WrapPanel Margin="12">
-                    <TextBlock Text="Theme:" VerticalAlignment="Center"/>
-                    <ComboBox x:Name="ThemeComboBox" Width="120" Margin="10,0">
-                        <ComboBoxItem Content="Light"/>
-                        <ComboBoxItem Content="Dark"/>
-                    </ComboBox>
-                </WrapPanel>
+                <!-- IMPORTANT: TabItem can only have a single child.
+                     Wrap the Header controls in a single container (StackPanel) to avoid "invalid markup". -->
+                <StackPanel Margin="12">
+                    <WrapPanel>
+                        <TextBlock Text="Theme:" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="ThemeComboBox" Width="120" Margin="10,0">
+                            <ComboBoxItem Content="Light"/>
+                            <ComboBoxItem Content="Dark"/>
+                        </ComboBox>
+                    </WrapPanel>
+
+                    <!-- Polygon auto-close threshold control -->
+                    <StackPanel Orientation="Horizontal" Margin="12,8,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Polygon auto-close threshold (px):" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Slider
+                            x:Name="PolygonAutoCloseThresholdSlider"
+                            Width="200"
+                            Minimum="1"
+                            Maximum="200"
+                            TickFrequency="1"
+                            SmallChange="1"
+                            LargeChange="10"
+                            Value="{Binding PolygonAutoCloseThreshold, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBox
+                            x:Name="PolygonAutoCloseThresholdTextBox"
+                            Width="60"
+                            Margin="8,0,0,0"
+                            VerticalContentAlignment="Center"
+                            Text="{Binding PolygonAutoCloseThreshold, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.##}}" />
+                    </StackPanel>
+                </StackPanel>
             </TabItem>
 
             <!-- ℹ️ About -->

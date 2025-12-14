@@ -26,5 +26,6 @@ namespace VisionAICam
         public bool InferenceEnableCaching { get; set; } = true;
         public bool InferencePrewarm { get; set; } = false;
         public int SamplingInterval { get; set; }=40; // in milliseconds
+        public double PolygonAutoCloseThreshold { get; set; } = 12.0;
     }
 }
