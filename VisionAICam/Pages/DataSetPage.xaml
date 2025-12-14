@@ -166,6 +166,120 @@
                                                     IsHitTestVisible="True"
                                                     Panel.ZIndex="1"
                                                     RenderTransformOrigin="0.5,0.5"/>
+
+                                            <!-- Floating Processing Menu (top-right) -->
+                                            <Border x:Name="FloatingProcessingMenu"
+                                                    Background="#CCFFFFFF"
+                                                    BorderBrush="#888"
+                                                    BorderThickness="1"
+                                                    CornerRadius="6"
+                                                    Padding="6"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Top"
+                                                    Margin="10"
+                                                    Panel.ZIndex="200"
+                                                    Visibility="Visible">
+                                                <StackPanel Orientation="Vertical" MinWidth="160">
+                                                    <!-- Drag handle (Thumb) + toggle in a single row -->
+                                                    <DockPanel LastChildFill="True" Margin="0,0,0,6">
+                                                        <Thumb x:Name="MenuDragThumb"
+                                                               Width="12"
+                                                               Height="12"
+                                                               DockPanel.Dock="Left"
+                                                               Cursor="SizeAll"
+                                                               Margin="0,0,8,0"
+                                                               Background="Transparent"
+                                                               DragDelta="MenuDragThumb_DragDelta"/>
+                                                        <ToggleButton x:Name="ProcessingMenuToggle"
+                                                                      Content="Processing ▾"
+                                                                      IsChecked="True"
+                                                                      Click="ToggleProcessingMenu_Click"
+                                                                      HorizontalAlignment="Stretch"/>
+                                                    </DockPanel>
+
+                                                    <!-- Replace the existing <StackPanel x:Name="ProcessingButtonsPanel"> ... </StackPanel>
+                                                         inside FloatingProcessingMenu with this mode-separated UI -->
+                                                    <StackPanel x:Name="ProcessingButtonsPanel" Orientation="Vertical" MinWidth="220">
+                                                        <!-- Mode buttons -->
+                                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                                            <Button Content="Grayscale" Click="ProcessGrayscale_Click" Margin="0,0,6,0" Width="90"/>
+                                                            <Button Content="Edges (Canny)" Click="ProcessEdges_Click" Margin="0,0,6,0" Width="110"/>
+                                                        </StackPanel>
+
+                                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                                            <Button Content="Contours" Click="ProcessContours_Click" Margin="0,0,6,0" Width="90"/>
+                                                            <Button Content="Contour Rects" Click="ProcessContourRects_Click" Margin="0,0,0,6" Width="110"/>
+                                                        </StackPanel>
+
+                                                        <Separator Margin="0,6"/>
+
+                                                        <!-- Grayscale options (currently minimal, reserved for future controls) -->
+                                                        <StackPanel x:Name="GrayscaleOptionsPanel" Orientation="Vertical" Visibility="Collapsed" Margin="0,2">
+                                                            <TextBlock Text="Grayscale Options" FontWeight="Bold" Margin="0,0,0,4"/>
+                                                            <TextBlock Text="(No options)" FontStyle="Italic" Foreground="#666"/>
+                                                        </StackPanel>
+
+                                                        <!-- Edge / Canny options -->
+                                                        <StackPanel x:Name="EdgeOptionsPanel" Orientation="Vertical" Visibility="Collapsed" Margin="0,2">
+                                                            <TextBlock Text="Edge (Canny) Options" FontWeight="Bold" Margin="0,4,0,6"/>
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,2">
+                                                                <TextBlock Text="Canny T1:" Width="70" VerticalAlignment="Center"/>
+                                                                <Slider x:Name="CannyThresh1Slider" Minimum="0" Maximum="500" Value="50" Width="100" TickFrequency="10"/>
+                                                                <TextBlock x:Name="CannyThresh1Value" Width="36" Text="50" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,2">
+                                                                <TextBlock Text="Canny T2:" Width="70" VerticalAlignment="Center"/>
+                                                                <Slider x:Name="CannyThresh2Slider" Minimum="0" Maximum="500" Value="150" Width="100" TickFrequency="10"/>
+                                                                <TextBlock x:Name="CannyThresh2Value" Width="36" Text="150" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,2">
+                                                                <TextBlock Text="Blur:" Width="70" VerticalAlignment="Center"/>
+                                                                <Slider x:Name="BlurKernelSlider" Minimum="1" Maximum="21" Value="5" Width="100" TickFrequency="2" IsSnapToTickEnabled="True"/>
+                                                                <TextBlock x:Name="BlurKernelValue" Width="36" Text="5" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </StackPanel>
+
+                                                        <!-- Contour options -->
+                                                        <StackPanel x:Name="ContourOptionsPanel" Orientation="Vertical" Visibility="Collapsed" Margin="0,2">
+                                                            <TextBlock Text="Contour Options" FontWeight="Bold" Margin="0,4,0,6"/>
+                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,2">
+                                                                <TextBlock Text="Min Area:" Width="70" VerticalAlignment="Center"/>
+                                                                <Slider x:Name="MinContourAreaSlider" Minimum="0" Maximum="5000" Value="50" Width="100" TickFrequency="10"/>
+                                                                <TextBlock x:Name="MinContourAreaValue" Width="48" Text="50" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+
+                                                            <CheckBox x:Name="DrawContourRectsCheckBox" Content="Draw contour rects" IsChecked="True" Margin="0,6"/>
+                                                        </StackPanel>
+
+                                                        <Separator Margin="0,6"/>
+
+                                                        <!-- Common actions -->
+                                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                                                            <Button Content="Apply Now" x:Name="ApplyProcessingButton" MinWidth="80"/>
+                                                            <Button Content="Reset" Click="ResetProcessing_Click" Margin="6,0,0,0" MinWidth="60"/>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Small preview badge shown when a processing mode is active -->
+                                            <Border x:Name="ProcessingPreviewBadge"
+                                                    Background="#AA000000"
+                                                    CornerRadius="4"
+                                                    Padding="6"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Top"
+                                                    Margin="10,10,0,0"
+                                                    Panel.ZIndex="210"
+                                                    Visibility="Collapsed">
+                                                <TextBlock x:Name="ProcessingPreviewText"
+                                                           Foreground="White"
+                                                           FontWeight="Bold"
+                                                           Text="Preview"/>
+                                            </Border>
+
                                         </Grid>
                                     </ScrollViewer>
                                 </Grid>

@@ -10,9 +10,9 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Ookii.Dialogs.Wpf;
-using System.Text.Json;
 
-
+// Explicitly disambiguate WPF Point to avoid conflicts with other Point types.
+using SWPoint = System.Windows.Point;
 
 namespace VisionAICam.Pages
 {
@@ -55,17 +55,17 @@ namespace VisionAICam.Pages
         private enum DrawingMode { FreePen, Rectangle, Polygon }
         private DrawingMode _currentDrawingMode = DrawingMode.Rectangle;
 
-        private List<Point> _currentPolygonPoints = new();
+        private List<SWPoint> _currentPolygonPoints = new();
         private ShapeInfo? _currentDrawingShapeInfo = null;
         private bool _isDrawing = false;
 
         private ShapeInfo? _activeShapeInfo = null;
-        private Point _dragStartPoint;
+        private SWPoint _dragStartPoint;
         private bool _isDraggingShape = false;
 
         // NEW: pending selection when user presses left button but drag should start only after moving into shape
         private ShapeInfo? _pendingShapeInfo = null;
-        private Point _mouseDownPoint;
+        private SWPoint _mouseDownPoint;
         private bool _mouseLeftDown = false;
 
         private enum HitType { None, Body, TopLeft, TopRight, BottomLeft, BottomRight }
@@ -86,8 +86,11 @@ namespace VisionAICam.Pages
         private AnnotationProject? _currentProject;
 
         private readonly List<ShapeInfo> _shapeInfos = new();
+        private List<ShapeInfo> _shape_infos => _shapeInfos;
 
-        private double _polygonAutoCloseThreshold = 12.0; // 1) Add a field to the DataSetPage class
+        // Small processing mode state for the floating menu
+        private enum ImageProcessMode { None, Grayscale, Edges, Contours, ContourRects }
+        private ImageProcessMode _selectedProcessingMode = ImageProcessMode.None;
 
         public DataSetPage()
         {
@@ -132,17 +135,7 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
             BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
             
-            // 2) In the DataSetPage constructor (after InitializeComponent and before using the value) load the value from AppSettings:
-            try
-            {
-                var cfg = SettingsManager.Load();
-                if (cfg != null)
-                    _polygonAutoCloseThreshold = cfg.PolygonAutoCloseThreshold;
-            }
-            catch
-            {
-                // ignore - keep default
-            }
+            if (ApplyProcessingButton != null) ApplyProcessingButton.Click += ApplyProcessingButton_Click;
         }
     
 
@@ -196,7 +189,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 }
             }
         }
-        private Ellipse CreateHandle(Point point)
+        private Ellipse CreateHandle(SWPoint point)
         {
             var handle = new Ellipse
             {
@@ -290,7 +283,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     if (_currentDrawingShapeInfo?.LabelBlock != null)
                         BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
                     if (_shapeInfos.Contains(_currentDrawingShapeInfo))
-                        _shapeInfos.Remove(_currentDrawingShapeInfo);
+                        _shape_infos.Remove(_currentDrawingShapeInfo);
                     SetStatus("Free-pen stroke too short.");
                 }
 
@@ -310,7 +303,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             BoundingBoxCanvas.Focus();
-            Point pt = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
+            SWPoint pt = ClampPointToImage(e.GetPosition(BoundingBoxCanvas));
             _mouseLeftDown = true;
             _mouseDownPoint = pt;
 
@@ -391,7 +384,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         }
 
-        private void StartFreePen(Point pt, string label)
+        private void StartFreePen(SWPoint pt, string label)
         {
             // Create visual polyline stroke and label (similar to StartRectangle)
             Color color = GetColorForClass(label);
@@ -423,7 +416,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
                 Label = label,
                 AnnotationType = AnnotationType.FreePen,
-                Points = new List<Point> { pt }
+                Points = new List<SWPoint> { pt }
             };
 
             var info = new ShapeInfo
@@ -435,7 +428,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             };
 
             _currentDrawingShapeInfo = info;
-            _shapeInfos.Add(info);
+            _shape_infos.Add(info);
 
             BoundingBoxCanvas.Children.Add(polyline);
             BoundingBoxCanvas.Children.Add(labelBlock);
@@ -443,11 +436,11 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
         {
-            Point pt = e.GetPosition(BoundingBoxCanvas);
+            SWPoint pt = e.GetPosition(BoundingBoxCanvas);
 
             if (_activeHandle != null && _reshapeShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
             {
-                Point clampedPt = ClampPointToImage(pt);
+                SWPoint clampedPt = ClampPointToImage(pt);
                 ResizeRectangle(_reshapeShapeInfo, _currentHit, clampedPt);
                 UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
                 RefreshHandles(_reshapeShapeInfo);
@@ -495,7 +488,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
             if (_isDrawing && _currentDrawingShapeInfo != null)
             {
-                Point clampedPt = ClampPointToImage(pt);
+                SWPoint clampedPt = ClampPointToImage(pt);
 
                 if (_currentDrawingMode == DrawingMode.Rectangle)
                 {
@@ -504,7 +497,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 else if (_currentDrawingMode == DrawingMode.FreePen && _currentDrawingShapeInfo.Shape is Polyline poly)
                 {
                     // Add point with simple thinning to reduce excessive points
-                    var last = poly.Points.Count > 0 ? poly.Points[poly.Points.Count - 1] : new Point(double.NaN, double.NaN);
+                    var last = poly.Points.Count > 0 ? poly.Points[poly.Points.Count - 1] : new SWPoint(double.NaN, double.NaN);
                     if (double.IsNaN(last.X) ||
                         Math.Abs(clampedPt.X - last.X) > 1.5 ||
                         Math.Abs(clampedPt.Y - last.Y) > 1.5)
@@ -519,7 +512,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             if (_activeHandle != null && _reshapeShapeInfo?.Shape is Polyline polyline &&
                 _activeHandle.Tag is PolygonVertexHit vertexHit && e.LeftButton == MouseButtonState.Pressed)
             {
-                Point clampedPt = ClampPointToImage(pt);
+                SWPoint clampedPt = ClampPointToImage(pt);
                 polyline.Points[vertexHit.VertexIndex] = clampedPt;
                 UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
                 RefreshHandles(_reshapeShapeInfo);
@@ -529,8 +522,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         private void BoundingBoxCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            Point pt = e.GetPosition(BoundingBoxCanvas);
-            Point clampedPt = ClampPointToImage(pt);
+            SWPoint pt = e.GetPosition(BoundingBoxCanvas);
+            SWPoint clampedPt = ClampPointToImage(pt);
 
             // reset pending state since mouse button released
             _mouseLeftDown = false;
@@ -621,7 +614,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 {
                     BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
                     BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
-                    _shapeInfos.Remove(_currentDrawingShapeInfo);
+                    _shape_infos.Remove(_currentDrawingShapeInfo);
                     SetStatus("Rectangle must be fully inside the image.");
                 }
                 _isDrawing = false;
@@ -632,7 +625,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         #region Drawing/Shape Helper Methods 
 
-        private void StartRectangle(Point start, string label)
+        private void StartRectangle(SWPoint start, string label)
         {
             // Generate a random color based on the class name (label)
             Color color = GetColorForClass(label);
@@ -664,7 +657,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
                 Label = label,
                 AnnotationType = AnnotationType.Rectangle,
-                Points = new List<Point> { start, start }
+                Points = new List<SWPoint> { start, start }
             };
 
             var info = new ShapeInfo
@@ -676,7 +669,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             };
 
             _currentDrawingShapeInfo = info;
-            _shapeInfos.Add(info);
+            _shape_infos.Add(info);
 
             BoundingBoxCanvas.Children.Add(rect);
             BoundingBoxCanvas.Children.Add(labelBlock);
@@ -713,12 +706,12 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             return Color.FromRgb(r, g, b);
         }
 
-        private void UpdateRectangle(Point current)
+        private void UpdateRectangle(SWPoint current)
         {
             if (_currentDrawingShapeInfo?.Shape is Rectangle rect)
             {
-                var start = _currentDrawingShapeInfo.Record.Points[0];
-                Point clamped = ClampPointToImage(current);
+                var start = (SWPoint)_currentDrawingShapeInfo.Record.Points[0];
+                SWPoint clamped = ClampPointToImage(current);
                 double x = Math.Min(start.X, clamped.X);
                 double y = Math.Min(start.Y, clamped.Y);
                 double w = Math.Abs(clamped.X - start.X);
@@ -732,11 +725,11 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, x + 1);
                 Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, y + 1);
 
-                _currentDrawingShapeInfo.Record.Points = new List<Point> { start, clamped };
+                _currentDrawingShapeInfo.Record.Points = new List<SWPoint> { start, clamped };
             }
         }
 
-        private void FinalizeRectangle(Point end)
+        private void FinalizeRectangle(SWPoint end)
         {
             if (_currentDrawingShapeInfo != null)
             {
@@ -752,14 +745,14 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 {
                     BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.Shape);
                     BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
-                    _shapeInfos.Remove(_currentDrawingShapeInfo);
+                    _shape_infos.Remove(_currentDrawingShapeInfo);
                     SetStatus("Rectangle must be fully inside the image.");
                 }
                 _currentDrawingShapeInfo = null;
             }
         }
 
-        private void StartPolygon(Point start, string label)
+        private void StartPolygon(SWPoint start, string label)
         {
             if (_currentDrawingShapeInfo == null)
             {
@@ -792,7 +785,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
                     Label = label,
                     AnnotationType = AnnotationType.Polygon,
-                    Points = new List<Point> { start }
+                    Points = new List<SWPoint> { start }
                 };
 
                 var info = new ShapeInfo
@@ -804,12 +797,12 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 };
 
                 _currentDrawingShapeInfo = info;
-                _shapeInfos.Add(info);
+                _shape_infos.Add(info);
 
                 BoundingBoxCanvas.Children.Add(polyline);
                 BoundingBoxCanvas.Children.Add(labelBlock);
 
-                _currentPolygonPoints = new List<Point>();
+                _currentPolygonPoints = new List<SWPoint>();
             }
 
             if (!_currentPolygonPoints.Contains(start))
@@ -820,7 +813,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 currentPolyline.Points = new PointCollection(_currentPolygonPoints);
             }
         }
-        private void updatePolygon(Point clampedPt)
+        private void updatePolygon(SWPoint clampedPt)
         {
             if (_currentDrawingShapeInfo?.Shape is Polyline polyline)
             {
@@ -837,7 +830,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 polyline.Points = new PointCollection(_currentPolygonPoints);
             }
         }
-        private void updateFreePen(Point clampedPt)
+        private void updateFreePen(SWPoint clampedPt)
         {
             if (_currentDrawingShapeInfo?.Shape is Polyline poly)
             {
@@ -857,7 +850,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         }
 
         // Helper used by right-click finalize path
-        private void FinalizeFreePen(Point clampedPt)
+        private void FinalizeFreePen(SWPoint clampedPt)
         {
             if (_currentDrawingShapeInfo != null && _currentDrawingShapeInfo.Shape is Polyline poly)
             {
@@ -866,59 +859,14 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     poly.Points[poly.Points.Count - 1] = clampedPt;
                 else
                     poly.Points.Add(clampedPt);
-
                 // Sync authoritative record with the visual points
-                var points = poly.Points.ToList();
-                _currentDrawingShapeInfo.Record.Points = points;
-
-                var autoCloseThreshold = _polygonAutoCloseThreshold; // use configured value
-                bool autoClosed = false;
-
-                // Auto-close when the stroke forms a loop: last point near the first and there are >= 3 distinct vertices
-                if (points.Count > 2)
-                {
-                    double dx = points[0].X - points[^1].X;
-                    double dy = points[0].Y - points[^1].Y;
-                    double distSq = dx * dx + dy * dy;
-                    if (distSq <= autoCloseThreshold * autoCloseThreshold)
-                    {
-                        // Remove the final near-duplicate point so the polygon uses the original first vertex as closure.
-                        points.RemoveAt(points.Count - 1);
-
-                        // Update record to a polygon and mark metadata accordingly
-                        _currentDrawingShapeInfo.Record.Points = points;
-                        _currentDrawingShapeInfo.Record.AnnotationType = AnnotationType.Polygon;
-                        _currentDrawingShapeInfo.Metadata.Type = AnnotationType.Polygon;
-
-                        autoClosed = true;
-                    }
-                }
-
+                _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
                 if (_currentDrawingShapeInfo.Record.Points.Count > 1)
                 {
-                    if (autoClosed && _currentDrawingShapeInfo.Record.Points.Count > 2)
-                    {
-                        Annotations.Add(_currentDrawingShapeInfo.Record);
-                        SaveStateForUndo();
-                        RefreshAnnotations();
-                        SetStatus($"Free-pen auto-closed to polygon with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
-                    }
-                    else if (!autoClosed)
-                    {
-                        Annotations.Add(_currentDrawingShapeInfo.Record);
-                        SaveStateForUndo();
-                        RefreshAnnotations();
-                        SetStatus($"Free-pen annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
-                    }
-                    else
-                    {
-                        // If autoClosed but resulting polygon doesn't have enough points, treat as too short.
-                        BoundingBoxCanvas.Children.Remove(poly);
-                        if (_currentDrawingShapeInfo?.LabelBlock != null)
-                            BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
-                        _shapeInfos.Remove(_currentDrawingShapeInfo);
-                        SetStatus("Auto-closed polygon too short. Drawing canceled.");
-                    }
+                    Annotations.Add(_currentDrawingShapeInfo.Record);
+                    SaveStateForUndo();
+                    RefreshAnnotations();
+                    SetStatus($"Free-pen annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
                 }
                 else
                 {
@@ -929,7 +877,6 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     _shapeInfos.Remove(_currentDrawingShapeInfo);
                     SetStatus("Free-pen stroke too short.");
                 }
-
                 // Reset drawing state
                 _currentDrawingShapeInfo = null;
                 _currentPolygonPoints.Clear(); // safe to clear shared buffer
@@ -959,7 +906,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, first.X + 1);
                 Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, first.Y + 1);
 
-                _currentDrawingShapeInfo.Record.Points = new List<Point>(_currentPolygonPoints);
+                _currentDrawingShapeInfo.Record.Points = new List<SWPoint>(_currentPolygonPoints);
                 Annotations.Add(_currentDrawingShapeInfo.Record);
                 SaveStateForUndo();
                 RefreshAnnotations();
@@ -980,20 +927,20 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 Canvas.SetLeft(info.LabelBlock, Canvas.GetLeft(info.LabelBlock) + clampedDelta.X);
                 Canvas.SetTop(info.LabelBlock, Canvas.GetTop(info.LabelBlock) + clampedDelta.Y);
 
-                var p0 = info.Record.Points[0];
-                var p1 = info.Record.Points[1];
-                info.Record.Points[0] = new Point(p0.X + clampedDelta.X, p0.Y + clampedDelta.Y);
-                info.Record.Points[1] = new Point(p1.X + clampedDelta.X, p1.Y + clampedDelta.Y);
+                var p0 = (SWPoint)info.Record.Points[0];
+                var p1 = (SWPoint)info.Record.Points[1];
+                info.Record.Points[0] = new SWPoint(p0.X + clampedDelta.X, p0.Y + clampedDelta.Y);
+                info.Record.Points[1] = new SWPoint(p1.X + clampedDelta.X, p1.Y + clampedDelta.Y);
             }
         }
 
-        private void ResizeRectangle(ShapeInfo info, HitType hit, Point pt)
+        private void ResizeRectangle(ShapeInfo info, HitType hit, SWPoint pt)
         {
             if (info.Shape is not Rectangle rect) return;
             var points = info.Record.Points.ToList();
 
-            var p0 = points[0];
-            var p1 = points[1];
+            var p0 = (SWPoint)points[0];
+            var p1 = (SWPoint)points[1];
 
             pt = ClampPointToImage(pt);
 
@@ -1003,12 +950,12 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     p0 = pt;
                     break;
                 case HitType.TopRight:
-                    p0 = new Point(p0.X, pt.Y);
-                    p1 = new Point(pt.X, p1.Y);
+                    p0 = new SWPoint(p0.X, pt.Y);
+                    p1 = new SWPoint(pt.X, p1.Y);
                     break;
                 case HitType.BottomLeft:
-                    p0 = new Point(pt.X, p0.Y);
-                    p1 = new Point(p1.X, pt.Y);
+                    p0 = new SWPoint(pt.X, p0.Y);
+                    p1 = new SWPoint(p1.X, pt.Y);
                     break;
                 case HitType.BottomRight:
                     p1 = pt;
@@ -1034,14 +981,14 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         #region Helper Methods for Bounds and Clamping
 
-        private bool IsPointInImageBounds(Point pt)
+        private bool IsPointInImageBounds(SWPoint pt)
         {
             return pt.X >= 0 && pt.Y >= 0 && pt.X <= _currentImageWidth && pt.Y <= _currentImageHeight;
         }
 
-        private Point ClampPointToImage(Point pt)
+        private SWPoint ClampPointToImage(SWPoint pt)
         {
-            return new Point(
+            return new SWPoint(
                 Math.Max(0, Math.Min(_currentImageWidth, pt.X)),
                 Math.Max(0, Math.Min(_currentImageHeight, pt.Y))
             );
@@ -1050,8 +997,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         private bool IsShapeFullyInImage(ShapeInfo info)
         {
             if (info.Record.Points.Count != 2) return false;
-            var p0 = info.Record.Points[0];
-            var p1 = info.Record.Points[1];
+            var p0 = (SWPoint)info.Record.Points[0];
+            var p1 = (SWPoint)info.Record.Points[1];
             return IsPointInImageBounds(p0) && IsPointInImageBounds(p1);
         }
 
@@ -1075,7 +1022,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             return delta;
         }
 
-        private bool IsPointOverHandle(Point pt, Ellipse handle)
+        private bool IsPointOverHandle(SWPoint pt, Ellipse handle)
         {
             double x = Canvas.GetLeft(handle) + _handleSize / 2;
             double y = Canvas.GetTop(handle) + _handleSize / 2;
@@ -1099,8 +1046,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 double y = Canvas.GetTop(rect);
                 double w = rect.Width;
                 double h = rect.Height;
-                info.Record.Points[0] = new Point(x, y);
-                info.Record.Points[1] = new Point(x + w, y + h);
+                info.Record.Points[0] = new SWPoint(x, y);
+                info.Record.Points[1] = new SWPoint(x + w, y + h);
             }
         }
 
@@ -1132,10 +1079,10 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
             var corners = new[]
             {
-                new Point(points[0].X, points[0].Y), // TopLeft
-                new Point(points[1].X, points[0].Y), // TopRight
-                new Point(points[0].X, points[1].Y), // BottomLeft
-                new Point(points[1].X, points[1].Y), // BottomRight
+                new SWPoint(((SWPoint)points[0]).X, ((SWPoint)points[0]).Y), // TopLeft
+                new SWPoint(((SWPoint)points[1]).X, ((SWPoint)points[0]).Y), // TopRight
+                new SWPoint(((SWPoint)points[0]).X, ((SWPoint)points[1]).Y), // BottomLeft
+                new SWPoint(((SWPoint)points[1]).X, ((SWPoint)points[1]).Y), // BottomRight
             };
 
             for (int i = 0; i < 4; i++)
@@ -2203,10 +2150,6 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             }
         }
 
-      
-
-        
-
         private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
         {
             var window = Window.GetWindow(this);
@@ -2227,6 +2170,275 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 window.ResizeMode = ResizeMode.CanResize;
                 _isFullScreen = false;
                 SetStatus("Exited full screen mode.");
+            }
+        }
+
+        // Drag handler for the floating processing menu thumb (uses fully-qualified DragDeltaEventArgs to avoid adding a using)
+        private void MenuDragThumb_DragDelta(object sender, System.Windows.Controls.Primitives.DragDeltaEventArgs e)
+        {
+            if (FloatingProcessingMenu == null) return;
+
+            // Ensure RenderTransform is a TranslateTransform
+            if (FloatingProcessingMenu.RenderTransform is not TranslateTransform tt)
+            {
+                tt = new TranslateTransform();
+                FloatingProcessingMenu.RenderTransform = tt;
+            }
+
+            double newX = tt.X + e.HorizontalChange;
+            double newY = tt.Y + e.VerticalChange;
+
+            // Optional: clamp to canvas size so the menu doesn't drift off-screen
+            if (BoundingBoxCanvas != null && BoundingBoxCanvas.ActualWidth > 0 && BoundingBoxCanvas.ActualHeight > 0)
+            {
+                double minX = -BoundingBoxCanvas.ActualWidth * 0.9;
+                double maxX = BoundingBoxCanvas.ActualWidth * 0.9;
+                double minY = -BoundingBoxCanvas.ActualHeight * 0.9;
+                double maxY = BoundingBoxCanvas.ActualHeight * 0.9;
+                newX = Math.Max(minX, Math.Min(maxX, newX));
+                newY = Math.Max(minY, Math.Min(maxY, newY));
+            }
+
+            tt.X = newX;
+            tt.Y = newY;
+        }
+
+        private void ToggleProcessingMenu_Click(object sender, RoutedEventArgs e)
+        {
+            if (ProcessingButtonsPanel == null || ProcessingMenuToggle == null) return;
+            bool isOpen = ProcessingMenuToggle.IsChecked == true;
+            ProcessingButtonsPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+            ProcessingMenuToggle.Content = isOpen ? "Processing ▾" : "Processing ▴";
+        }
+
+        private void ProcessGrayscale_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedProcessingMode = ImageProcessMode.Grayscale;
+
+            if (ProcessingPreviewBadge != null && ProcessingPreviewText != null)
+            {
+                ProcessingPreviewBadge.Visibility = Visibility.Visible;
+                ProcessingPreviewText.Text = "Preview: Grayscale";
+            }
+
+            if (GrayscaleOptionsPanel != null) GrayscaleOptionsPanel.Visibility = Visibility.Visible;
+            if (EdgeOptionsPanel != null) EdgeOptionsPanel.Visibility = Visibility.Collapsed;
+            if (ContourOptionsPanel != null) ContourOptionsPanel.Visibility = Visibility.Collapsed;
+
+            SetStatus($"Processing preview: {ProcessingPreviewText?.Text}");
+        }
+
+        private void ProcessEdges_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedProcessingMode = ImageProcessMode.Edges;
+
+            if (ProcessingPreviewBadge != null && ProcessingPreviewText != null)
+            {
+                ProcessingPreviewBadge.Visibility = Visibility.Visible;
+                ProcessingPreviewText.Text = "Preview: Edges (Canny)";
+            }
+
+            if (GrayscaleOptionsPanel != null) GrayscaleOptionsPanel.Visibility = Visibility.Collapsed;
+            if (EdgeOptionsPanel != null) EdgeOptionsPanel.Visibility = Visibility.Visible;
+            if (ContourOptionsPanel != null) ContourOptionsPanel.Visibility = Visibility.Collapsed;
+
+            SetStatus($"Processing preview: {ProcessingPreviewText?.Text}");
+        }
+
+        private void ProcessContours_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedProcessingMode = ImageProcessMode.Contours;
+
+            if (ProcessingPreviewBadge != null && ProcessingPreviewText != null)
+            {
+                ProcessingPreviewBadge.Visibility = Visibility.Visible;
+                ProcessingPreviewText.Text = "Preview: Contours";
+            }
+
+            if (GrayscaleOptionsPanel != null) GrayscaleOptionsPanel.Visibility = Visibility.Collapsed;
+            if (EdgeOptionsPanel != null) EdgeOptionsPanel.Visibility = Visibility.Collapsed;
+            if (ContourOptionsPanel != null) ContourOptionsPanel.Visibility = Visibility.Visible;
+
+            SetStatus($"Processing preview: {ProcessingPreviewText?.Text}");
+        }
+
+        private void ProcessContourRects_Click(object sender, RoutedEventArgs e)
+        {
+            _selectedProcessingMode = ImageProcessMode.ContourRects;
+
+            if (ProcessingPreviewBadge != null && ProcessingPreviewText != null)
+            {
+                ProcessingPreviewBadge.Visibility = Visibility.Visible;
+                ProcessingPreviewText.Text = "Preview: Contour Rects";
+            }
+
+            if (GrayscaleOptionsPanel != null) GrayscaleOptionsPanel.Visibility = Visibility.Collapsed;
+            if (EdgeOptionsPanel != null) EdgeOptionsPanel.Visibility = Visibility.Collapsed;
+            if (ContourOptionsPanel != null) ContourOptionsPanel.Visibility = Visibility.Visible;
+
+            SetStatus($"Processing preview: {ProcessingPreviewText?.Text}");
+        }
+
+        private void ResetProcessing_Click(object sender, RoutedEventArgs e)
+        {
+            if (ProcessingPreviewBadge != null) ProcessingPreviewBadge.Visibility = Visibility.Collapsed;
+
+            // Restore original image if available
+            if (!string.IsNullOrEmpty(_currentImagePath) && File.Exists(_currentImagePath))
+            {
+                try
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(_currentImagePath);
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    LabelingImage.Source = bmp;
+                }
+                catch
+                {
+                    // Ignore restore errors
+                }
+            }
+
+            // Hide all option panels
+            if (GrayscaleOptionsPanel != null) GrayscaleOptionsPanel.Visibility = Visibility.Collapsed;
+            if (EdgeOptionsPanel != null) EdgeOptionsPanel.Visibility = Visibility.Collapsed;
+            if (ContourOptionsPanel != null) ContourOptionsPanel.Visibility = Visibility.Collapsed;
+
+            SetStatus("Processing cleared. Original image retained.");
+        }
+
+        private async void ApplyProcessingButton_Click(object? sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_currentImagePath) || !File.Exists(_currentImagePath))
+            {
+                SetStatus("No image loaded to process.");
+                return;
+            }
+
+            if (_selectedProcessingMode == ImageProcessMode.None)
+            {
+                SetStatus("Select a processing mode first (Grayscale/Edges/Contours).");
+                return;
+            }
+
+            SetStatus("Processing...");
+
+            try
+            {
+                // Run processing on thread-pool and get a frozen BitmapSource from the worker thread.
+                var result = await Task.Run(() => ProcessImage(_currentImagePath!, _selectedProcessingMode));
+
+                if (result != null)
+                {
+                    // result is already frozen inside ProcessImage; safe to assign on UI thread.
+                    Dispatcher.Invoke(() =>
+                    {
+                        LabelingImage.Source = result;
+                        if (ProcessingPreviewBadge != null && ProcessingPreviewText != null)
+                        {
+                            ProcessingPreviewBadge.Visibility = Visibility.Visible;
+                            ProcessingPreviewText.Text = _selectedProcessingMode switch
+                            {
+                                ImageProcessMode.Grayscale => "Preview: Grayscale",
+                                ImageProcessMode.Edges => "Preview: Edges",
+                                ImageProcessMode.Contours => "Preview: Contours",
+                                ImageProcessMode.ContourRects => "Preview: Contour Rects",
+                                _ => "Preview"
+                            };
+                        }
+                        SetStatus($"Processing preview ready: {ProcessingPreviewText?.Text}");
+                    });
+                }
+                else
+                {
+                    Dispatcher.Invoke(() => SetStatus("Processing produced no result."));
+                }
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.Invoke(() => SetStatus($"Processing failed: {ex.Message}"));
+            }
+        }
+
+        // ProcessImage now ensures any BitmapSource returned is Frozen so it can be used across threads
+        private BitmapSource? ProcessImage(string imagePath, ImageProcessMode mode)
+        {
+            try
+            {
+                // Load image into BitmapImage on worker thread and freeze it.
+                BitmapImage src;
+                using (var fs = File.OpenRead(imagePath))
+                {
+                    src = new BitmapImage();
+                    src.BeginInit();
+                    src.CacheOption = BitmapCacheOption.OnLoad;
+                    src.StreamSource = fs;
+                    src.EndInit();
+                    src.Freeze(); // freeze before leaving worker thread
+                }
+
+                if (mode == ImageProcessMode.Grayscale)
+                {
+                    var conv = new FormatConvertedBitmap(src, PixelFormats.Gray8, null, 0);
+                    conv.Freeze();
+                    return conv;
+                }
+
+                // For edge detection we need Gray8 pixel array
+                var gray = new FormatConvertedBitmap(src, PixelFormats.Gray8, null, 0);
+                gray.Freeze(); // freeze the source gray bitmap
+                int width = gray.PixelWidth;
+                int height = gray.PixelHeight;
+                int stride = (width * gray.Format.BitsPerPixel + 7) / 8;
+                var pixels = new byte[height * stride];
+                gray.CopyPixels(pixels, stride, 0);
+
+                if (mode == ImageProcessMode.Edges)
+                {
+                    // Sobel kernels
+                    int[] gx = { -1, 0, 1, -2, 0, 2, -1, 0, 1 };
+                    int[] gy = { -1, -2, -1, 0, 0, 0, 1, 2, 1 };
+
+                    var outPixels = new byte[height * stride];
+
+                    for (int y = 1; y < height - 1; y++)
+                    {
+                        for (int x = 1; x < width - 1; x++)
+                        {
+                            int sumX = 0;
+                            int sumY = 0;
+                            int k = 0;
+                            for (int ky = -1; ky <= 1; ky++)
+                            {
+                                for (int kx = -1; kx <= 1; kx++, k++)
+                                {
+                                    int sample = pixels[(y + ky) * stride + (x + kx)];
+                                    sumX += sample * gx[k];
+                                    sumY += sample * gy[k];
+                                }
+                            }
+
+                            int mag = (int)Math.Sqrt(sumX * sumX + sumY * sumY);
+                            if (mag > 255) mag = 255;
+                            outPixels[y * stride + x] = (byte)mag;
+                        }
+                    }
+
+                    // Build BitmapSource from Gray8 and freeze before returning
+                    var outBmp = BitmapSource.Create(width, height, src.DpiX, src.DpiY, PixelFormats.Gray8, null, outPixels, stride);
+                    outBmp.Freeze();
+                    return outBmp;
+                }
+
+                // Contours/ContourRects not implemented in worker path here - return frozen original
+                return src;
+            }
+            catch
+            {
+                return null;
             }
         }
     }
