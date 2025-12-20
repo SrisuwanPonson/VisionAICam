@@ -165,7 +165,18 @@
                                                     Focusable="True"
                                                     IsHitTestVisible="True"
                                                     Panel.ZIndex="1"
-                                                    RenderTransformOrigin="0.5,0.5"/>
+                                                    RenderTransformOrigin="0.5,0.5"
+                                                    ContextMenuOpening="BoundingBoxCanvas_ContextMenuOpening">
+                                                <Canvas.ContextMenu>
+                                                    <ContextMenu>
+                                                        <MenuItem x:Name="CtxSaveProcessed" Header="Save Processed Preview" Click="SaveProcessedImage_ContextMenu_Click"/>
+                                                        <MenuItem x:Name="CtxSaveCurrent"   Header="Save Current Image"     Click="SaveCurrentImage_ContextMenu_Click"/>
+                                                        <Separator/>
+                                                        <MenuItem x:Name="CtxRemoveSelected" Header="Remove Selected" Click="RemoveSelected_Click"/>
+                                                        <MenuItem x:Name="CtxEditAnnotation"  Header="Edit Annotation"  Click="EditAnnotation_Click"/>
+                                                    </ContextMenu>
+                                                </Canvas.ContextMenu>
+                                            </Canvas>
 
                                             <!-- Floating Processing Menu (top-right) -->
                                             <Border x:Name="FloatingProcessingMenu"

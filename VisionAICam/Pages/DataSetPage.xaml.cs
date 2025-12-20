@@ -1,5 +1,7 @@
-﻿using System;
+﻿using Ookii.Dialogs.Wpf;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -9,8 +11,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
-using Ookii.Dialogs.Wpf;
-
 // Explicitly disambiguate WPF Point to avoid conflicts with other Point types.
 using SWPoint = System.Windows.Point;
 
@@ -92,6 +92,9 @@ namespace VisionAICam.Pages
         private enum ImageProcessMode { None, Grayscale, Edges, Contours, ContourRects }
         private ImageProcessMode _selectedProcessingMode = ImageProcessMode.None;
 
+        // Holds the last processed preview (assigned when applying processing).
+        private BitmapSource? _lastProcessedImage;
+
         public DataSetPage()
         {
             InitializeComponent();
@@ -136,6 +139,8 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
             
             if (ApplyProcessingButton != null) ApplyProcessingButton.Click += ApplyProcessingButton_Click;
+
+            BoundingBoxCanvas.ContextMenuOpening += BoundingBoxCanvas_ContextMenuOpening;
         }
     
 
@@ -2324,12 +2329,27 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 return;
             }
 
+            // Capture UI-controlled parameters before running on background thread
+            int minContourArea = 50;
+            try
+            {
+                if (MinContourAreaSlider != null)
+                    minContourArea = Math.Max(0, (int)MinContourAreaSlider.Value);
+            }
+            catch
+            {
+                minContourArea = 50;
+            }
+
+            // Hard-coded maximum as requested
+            int maxContourArea = 1000;
+
             SetStatus("Processing...");
 
             try
             {
                 // Run processing on thread-pool and get a frozen BitmapSource from the worker thread.
-                var result = await Task.Run(() => ProcessImage(_currentImagePath!, _selectedProcessingMode));
+                var result = await Task.Run(() => ProcessImage(_currentImagePath!, _selectedProcessingMode, minContourArea, maxContourArea));
 
                 if (result != null)
                 {
@@ -2337,6 +2357,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     Dispatcher.Invoke(() =>
                     {
                         LabelingImage.Source = result;
+                        _lastProcessedImage = result;
                         if (ProcessingPreviewBadge != null && ProcessingPreviewText != null)
                         {
                             ProcessingPreviewBadge.Visibility = Visibility.Visible;
@@ -2363,12 +2384,12 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             }
         }
 
-        // ProcessImage now ensures any BitmapSource returned is Frozen so it can be used across threads
-        private BitmapSource? ProcessImage(string imagePath, ImageProcessMode mode)
+        // ProcessImage now accepts contour area limits and filters small/large connected components
+        private BitmapSource? ProcessImage(string imagePath, ImageProcessMode mode, int minContourArea = 50, int maxContourArea = int.MaxValue)
         {
             try
             {
-                // Load image into BitmapImage on worker thread and freeze it.
+                // Load image fully into memory
                 BitmapImage src;
                 using (var fs = File.OpenRead(imagePath))
                 {
@@ -2377,9 +2398,10 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     src.CacheOption = BitmapCacheOption.OnLoad;
                     src.StreamSource = fs;
                     src.EndInit();
-                    src.Freeze(); // freeze before leaving worker thread
+                    src.Freeze();
                 }
 
+                // --- GRAYSCALE ---
                 if (mode == ImageProcessMode.Grayscale)
                 {
                     var conv = new FormatConvertedBitmap(src, PixelFormats.Gray8, null, 0);
@@ -2387,18 +2409,20 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     return conv;
                 }
 
-                // For edge detection we need Gray8 pixel array
+                // Convert to Gray8 for pixel processing
                 var gray = new FormatConvertedBitmap(src, PixelFormats.Gray8, null, 0);
-                gray.Freeze(); // freeze the source gray bitmap
+                gray.Freeze();
+
                 int width = gray.PixelWidth;
                 int height = gray.PixelHeight;
                 int stride = (width * gray.Format.BitsPerPixel + 7) / 8;
+
                 var pixels = new byte[height * stride];
                 gray.CopyPixels(pixels, stride, 0);
 
+                // --- EDGES ---
                 if (mode == ImageProcessMode.Edges)
                 {
-                    // Sobel kernels
                     int[] gx = { -1, 0, 1, -2, 0, 2, -1, 0, 1 };
                     int[] gy = { -1, -2, -1, 0, 0, 0, 1, 2, 1 };
 
@@ -2408,9 +2432,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     {
                         for (int x = 1; x < width - 1; x++)
                         {
-                            int sumX = 0;
-                            int sumY = 0;
-                            int k = 0;
+                            int sumX = 0, sumY = 0, k = 0;
+
                             for (int ky = -1; ky <= 1; ky++)
                             {
                                 for (int kx = -1; kx <= 1; kx++, k++)
@@ -2422,24 +2445,349 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                             }
 
                             int mag = (int)Math.Sqrt(sumX * sumX + sumY * sumY);
-                            if (mag > 255) mag = 255;
-                            outPixels[y * stride + x] = (byte)mag;
+                            outPixels[y * stride + x] = (byte)Math.Min(255, mag);
                         }
                     }
 
-                    // Build BitmapSource from Gray8 and freeze before returning
-                    var outBmp = BitmapSource.Create(width, height, src.DpiX, src.DpiY, PixelFormats.Gray8, null, outPixels, stride);
+                    var outBmp = BitmapSource.Create(width, height, src.DpiX, src.DpiY,
+                                                     PixelFormats.Gray8, null, outPixels, stride);
                     outBmp.Freeze();
                     return outBmp;
                 }
 
-                // Contours/ContourRects not implemented in worker path here - return frozen original
-                return src;
-            }
-            catch
-            {
+                // --- CONTOURS (outer + inner / component-filtered) ---
+                #region Contours
+                if (mode == ImageProcessMode.Contours)
+                {
+                    byte thresh = 128;
+                    bool[,] bin = new bool[height, width];
+                    for (int y = 0; y < height; y++)
+                        for (int x = 0; x < width; x++)
+                            bin[y, x] = pixels[y * stride + x] > thresh;
+
+                    var visitedFg = new bool[height, width];
+                    var outline = new byte[height * stride];
+                    var dirs = new (int dx, int dy)[] { (1, 0), (-1, 0), (0, 1), (0, -1) };
+
+                    // 1) Find foreground components, apply area filter, mark outer boundary pixels
+                    for (int y = 0; y < height; y++)
+                    {
+                        for (int x = 0; x < width; x++)
+                        {
+                            if (!bin[y, x] || visitedFg[y, x]) continue;
+
+                            var stack = new Stack<(int x, int y)>();
+                            var comp = new List<(int x, int y)>();
+                            stack.Push((x, y));
+                            visitedFg[y, x] = true;
+
+                            while (stack.Count > 0)
+                            {
+                                var (cx, cy) = stack.Pop();
+                                comp.Add((cx, cy));
+
+                                foreach (var d in dirs)
+                                {
+                                    int nx = cx + d.dx, ny = cy + d.dy;
+                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height &&
+                                        !visitedFg[ny, nx] && bin[ny, nx])
+                                    {
+                                        visitedFg[ny, nx] = true;
+                                        stack.Push((nx, ny));
+                                    }
+                                }
+                            }
+
+                            int compArea = comp.Count;
+                            if (compArea < minContourArea || compArea > maxContourArea)
+                                continue;
+
+                            // mark outer boundary: foreground pixel that has at least one background neighbor
+                            foreach (var (cx, cy) in comp)
+                            {
+                                bool isBoundary = false;
+                                foreach (var d in dirs)
+                                {
+                                    int nx = cx + d.dx, ny = cy + d.dy;
+                                    if (nx < 0 || nx >= width || ny < 0 || ny >= height || !bin[ny, nx])
+                                    {
+                                        isBoundary = true;
+                                        break;
+                                    }
+                                }
+
+                                if (isBoundary)
+                                {
+                                    outline[cy * stride + cx] = 255; // outer contour bright
+                                }
+                            }
+                        }
+                    }
+
+                    // 2) Find background components (potential holes). Any background component that does NOT touch image border is a hole.
+                    var visitedBg = new bool[height, width];
+                    for (int y = 0; y < height; y++)
+                    {
+                        for (int x = 0; x < width; x++)
+                        {
+                            if (bin[y, x] || visitedBg[y, x]) continue;
+
+                            var stack = new Stack<(int x, int y)>();
+                            var compBg = new List<(int x, int y)>();
+                            bool touchesBorder = false;
+                            stack.Push((x, y));
+                            visitedBg[y, x] = true;
+
+                            while (stack.Count > 0)
+                            {
+                                var (cx, cy) = stack.Pop();
+                                compBg.Add((cx, cy));
+
+                                if (cx == 0 || cy == 0 || cx == width - 1 || cy == height - 1)
+                                    touchesBorder = true;
+
+                                foreach (var d in dirs)
+                                {
+                                    int nx = cx + d.dx, ny = cy + d.dy;
+                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height &&
+                                        !visitedBg[ny, nx] && !bin[ny, nx])
+                                    {
+                                        visitedBg[ny, nx] = true;
+                                        stack.Push((nx, ny));
+                                    }
+                                }
+                            }
+
+                            // only treat as hole if background component does NOT touch image border
+                            if (touchesBorder) continue;
+
+                            // optional: apply hole-area filter too (use same min/max as foreground)
+                            int holeArea = compBg.Count;
+                            if (holeArea < minContourArea || holeArea > maxContourArea)
+                                continue;
+
+                            // mark inner boundary: background pixel adjacent to foreground
+                            foreach (var (cx, cy) in compBg)
+                            {
+                                bool isBoundary = false;
+                                foreach (var d in dirs)
+                                {
+                                    int nx = cx + d.dx, ny = cy + d.dy;
+                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height && bin[ny, nx])
+                                    {
+                                        isBoundary = true;
+                                        break;
+                                    }
+                                }
+
+                                if (isBoundary)
+                                {
+                                    // if outer already marked, keep outer (255). otherwise set inner value (180).
+                                    if (outline[cy * stride + cx] == 0)
+                                        outline[cy * stride + cx] = 180; // inner contour (hole)
+                                }
+                            }
+                        }
+                    }
+
+                    var outBmp = BitmapSource.Create(width, height, src.DpiX, src.DpiY,
+                                                     PixelFormats.Gray8, null, outline, stride);
+                    outBmp.Freeze();
+                    return outBmp;
+                } 
+                #endregion
+
+                // --- CONTOUR RECTS ---
+                if (mode == ImageProcessMode.ContourRects)
+                {
+                    byte thresh = 128;
+                    bool[,] bin = new bool[height, width];
+
+                    for (int y = 0; y < height; y++)
+                        for (int x = 0; x < width; x++)
+                            bin[y, x] = pixels[y * stride + x] > thresh;
+
+                    var visited = new bool[height, width];
+                    var outPixels = new byte[height * stride];
+
+                    var dirs = new (int dx, int dy)[] { (1, 0), (-1, 0), (0, 1), (0, -1) };
+
+                    for (int y = 0; y < height; y++)
+                    {
+                        for (int x = 0; x < width; x++)
+                        {
+                            if (!bin[y, x] || visited[y, x]) continue;
+
+                            int minX = x, maxX = x, minY = y, maxY = y;
+                            int componentCount = 0;
+
+                            var stack = new Stack<(int x, int y)>();
+                            stack.Push((x, y));
+                            visited[y, x] = true;
+
+                            while (stack.Count > 0)
+                            {
+                                var (cx, cy) = stack.Pop();
+                                componentCount++;
+
+                                minX = Math.Min(minX, cx);
+                                maxX = Math.Max(maxX, cx);
+                                minY = Math.Min(minY, cy);
+                                maxY = Math.Max(maxY, cy);
+
+                                foreach (var d in dirs)
+                                {
+                                    int nx = cx + d.dx, ny = cy + d.dy;
+                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height &&
+                                        !visited[ny, nx] && bin[ny, nx])
+                                    {
+                                        visited[ny, nx] = true;
+                                        stack.Push((nx, ny));
+                                    }
+                                }
+                            }
+
+                            // Filter by component pixel count (area) using provided limits.
+                            if (componentCount < minContourArea || componentCount > maxContourArea)
+                            {
+                                // skip drawing this component's rectangle
+                                continue;
+                            }
+
+                            int pad = 1;
+                            minX = Math.Max(0, minX - pad);
+                            minY = Math.Max(0, minY - pad);
+                            maxX = Math.Min(width - 1, maxX + pad);
+                            maxY = Math.Min(height - 1, maxY + pad);
+
+                            for (int rx = minX; rx <= maxX; rx++)
+                            {
+                                outPixels[minY * stride + rx] = 255;
+                                outPixels[maxY * stride + rx] = 255;
+                            }
+                            for (int ry = minY; ry <= maxY; ry++)
+                            {
+                                outPixels[ry * stride + minX] = 255;
+                                outPixels[ry * stride + maxX] = 255;
+                            }
+                        }
+                    }
+
+                    var outBmp = BitmapSource.Create(width, height, src.DpiX, src.DpiY,
+                                                     PixelFormats.Gray8, null, outPixels, stride);
+                    outBmp.Freeze();
+                    return outBmp;
+                }
+
+                // If mode is unknown
                 return null;
             }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("ProcessImage error: " + ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Called by the ContextMenu to save the processed preview (if available) or the visible image.
+        /// </summary>
+        private void SaveProcessedImage_ContextMenu_Click(object sender, RoutedEventArgs e)
+        {
+            // Prefer the last processed preview (if any), fall back to current Image.Source
+            var bmp = _lastProcessedImage ?? (LabelingImage?.Source as BitmapSource);
+
+            if (bmp == null)
+            {
+                SetStatus("No processed preview available to save.");
+                return;
+            }
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "PNG Image (*.png)|*.png|JPEG Image (*.jpg;*.jpeg)|*.jpg;*.jpeg|All Files (*.*)|*.*",
+                FileName = $"Processed_{DateTime.Now:yyyyMMdd_HHmmss}",
+                DefaultExt = ".png"
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                if (SaveBitmapSourceToPath(bmp, dlg.FileName))
+                    SetStatus($"Saved processed preview: {dlg.FileName}");
+                else
+                    SetStatus("Failed to save processed preview.");
+            }
+        }
+
+        /// <summary>
+        /// Save whatever is currently shown in the image control (useful if preview wasn't created separately).
+        /// </summary>
+        private void SaveCurrentImage_ContextMenu_Click(object sender, RoutedEventArgs e)
+        {
+            var bmp = LabelingImage?.Source as BitmapSource;
+            if (bmp == null)
+            {
+                SetStatus("No image loaded to save.");
+                return;
+            }
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "PNG Image (*.png)|*.png|JPEG Image (*.jpg;*.jpeg)|*.jpg;*.jpeg|All Files (*.*)|*.*",
+                FileName = $"Image_{DateTime.Now:yyyyMMdd_HHmmss}",
+                DefaultExt = ".png"
+            };
+
+            if (dlg.ShowDialog() == true)
+            {
+                if (SaveBitmapSourceToPath(bmp, dlg.FileName))
+                    SetStatus($"Saved image: {dlg.FileName}");
+                else
+                    SetStatus("Failed to save image.");
+            }
+        }
+
+        /// <summary>
+        /// Helper to write a frozen BitmapSource to disk (PNG/JPEG by extension).
+        /// </summary>
+        private bool SaveBitmapSourceToPath(BitmapSource bmp, string path)
+        {
+            try
+            {
+                BitmapEncoder encoder;
+                var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+                if (ext == ".jpg" || ext == ".jpeg")
+                    encoder = new JpegBitmapEncoder { QualityLevel = 90 };
+                else
+                    encoder = new PngBitmapEncoder();
+
+                encoder.Frames.Add(BitmapFrame.Create(bmp));
+                using var fs = File.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+                encoder.Save(fs);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SaveBitmapSourceToPath error: {ex}");
+                return false;
+            }
+        }
+
+        private void BoundingBoxCanvas_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            // Enable/disable items based on current state
+            if (CtxSaveProcessed != null)
+                CtxSaveProcessed.IsEnabled = _lastProcessedImage != null;
+
+            if (CtxSaveCurrent != null)
+                CtxSaveCurrent.IsEnabled = LabelingImage?.Source != null;
+
+            // Enable editing/removal only when an annotation is selected in the list
+            bool hasSelection = AnnotationListView?.SelectedItem != null;
+            if (CtxRemoveSelected != null)
+                CtxRemoveSelected.IsEnabled = hasSelection;
+            if (CtxEditAnnotation != null)
+                CtxEditAnnotation.IsEnabled = hasSelection;
         }
     }
 }
