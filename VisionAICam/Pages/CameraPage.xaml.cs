@@ -233,7 +233,7 @@ namespace VisionAICam.Pages
 
                     string ClassName = ClassComboBox.Text;
                     string Category = CategoryComboBox.Text;
-                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd}.png";
+                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
                     string filePath = System.IO.Path.Combine(savePath, fileName);
 
                     mat.SaveImage(filePath);

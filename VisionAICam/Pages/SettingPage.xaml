@@ -105,7 +105,10 @@
                                  MinWidth="320"
                                  IsReadOnly="True"
                                  Margin="10,0"/>
-                        <Button Content="Browse..." Margin="10,0" ToolTip="Existing handler: BrowseModelButton_Click" x:Name="BrowseModelButton"/>
+                        <Button x:Name="BrowseModelButton"
+                                Content="Browse..."
+                                Click="BrowseModelButton_Click"
+                                Margin="4,0,0,0" />
                     </WrapPanel>
                     <Button Content="Select from Model Management..."
                             Margin="0,10,0,0"
