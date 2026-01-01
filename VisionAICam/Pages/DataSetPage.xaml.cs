@@ -94,16 +94,32 @@ namespace VisionAICam.Pages
 
         // Holds the last processed preview (assigned when applying processing).
         private BitmapSource? _lastProcessedImage;
-
+        private bool _isDraggingProcessingMenu = false;
+        private SWPoint _processingMenuMouseDownPoint;
+        private double _processingMenuStartX = 0;
+        private double _processingMenuStartY = 0;
         public DataSetPage()
         {
             InitializeComponent();
             this.Focusable = true;
+
+            // Ensure processing panel is hidden by default and menu unchecked.
+            if (FloatingProcessingMenu != null)
+                FloatingProcessingMenu.Visibility = Visibility.Collapsed;
+            if (ToggleProcessingPanelMenu != null)
+                ToggleProcessingPanelMenu.IsChecked = false;
+
             this.Loaded += async (s, e) =>
             {
                 this.Focus();
                 SetStatus("Ready");
                 Logger.Instance.LogInfo("DataSetPage loaded.");
+
+                // Defensive: ensure processing panel remains hidden on load (in case XAML or styles changed it)
+                if (FloatingProcessingMenu != null)
+                    FloatingProcessingMenu.Visibility = Visibility.Collapsed;
+                if (ToggleProcessingPanelMenu != null)
+                    ToggleProcessingPanelMenu.IsChecked = false;
                 
                 if (ProjectSession.CurrentProject != null)
                 {
@@ -115,6 +131,9 @@ namespace VisionAICam.Pages
                     LabelComboBox.Items.Clear();
                     foreach (var label in _currentProject.ClassLabels)
                         LabelComboBox.Items.Add(label);
+
+                    // ensure stats reflect the loaded project
+                    UpdateClassStats();
 
                     ShowMainContentPanel();
                     if (_currentImageIndex >= 0 && _currentImageIndex < _imagePaths.Count)
@@ -134,17 +153,107 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.MouseLeftButtonDown += BoundingBoxCanvas_MouseLeftButtonDown;
             BoundingBoxCanvas.MouseLeftButtonUp += BoundingBoxCanvas_MouseLeftButtonUp;
             BoundingBoxCanvas.MouseMove += BoundingBoxCanvas_MouseMove;
-            BoundingBoxCanvas.MouseRightButtonDown += BoundingBoxCanvas_MouseRightButtonDown;
             BoundingBoxCanvas.MouseDown += BoundingBoxCanvas_MouseDown;
             BoundingBoxCanvas.MouseWheel += BoundingBoxCanvas_MouseWheel;
             
             if (ApplyProcessingButton != null) ApplyProcessingButton.Click += ApplyProcessingButton_Click;
 
             BoundingBoxCanvas.ContextMenuOpening += BoundingBoxCanvas_ContextMenuOpening;
-        }
-    
 
-private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+            // After InitializeComponent();
+            if (FloatingProcessingMenu != null)
+            {
+                FloatingProcessingMenu.PreviewMouseLeftButtonDown += FloatingProcessingMenu_MouseLeftButtonDown;
+                FloatingProcessingMenu.PreviewMouseMove += FloatingProcessingMenu_MouseMove;
+                FloatingProcessingMenu.PreviewMouseLeftButtonUp += FloatingProcessingMenu_MouseLeftButtonUp;
+            }
+        }
+
+        private void FloatingProcessingMenu_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (FloatingProcessingMenu == null || BoundingBoxCanvas == null) return;
+
+                // Record mouse down relative to the bounding canvas (drag reference).
+                _processingMenuMouseDownPoint = e.GetPosition(BoundingBoxCanvas);
+
+                // Ensure a TranslateTransform exists for movement.
+                if (FloatingProcessingMenu.RenderTransform is not TranslateTransform)
+                    FloatingProcessingMenu.RenderTransform = new TranslateTransform();
+
+                var tt = (TranslateTransform)FloatingProcessingMenu.RenderTransform;
+                _processingMenuStartX = tt.X;
+                _processingMenuStartY = tt.Y;
+
+                // Don't capture here — begin capture only once movement passes threshold so normal clicks still work.
+            }
+            catch { /* non-critical */ }
+        }
+
+        private void FloatingProcessingMenu_MouseMove(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (FloatingProcessingMenu == null || BoundingBoxCanvas == null) return;
+                if (e.LeftButton != MouseButtonState.Pressed) return;
+
+                var pos = e.GetPosition(BoundingBoxCanvas);
+                double dx = pos.X - _processingMenuMouseDownPoint.X;
+                double dy = pos.Y - _processingMenuMouseDownPoint.Y;
+
+                // Start drag after small threshold to avoid interfering with clicks.
+                if (!_isDraggingProcessingMenu)
+                {
+                    if (Math.Sqrt(dx * dx + dy * dy) < 3.0) return;
+                    _isDraggingProcessingMenu = true;
+                    FloatingProcessingMenu.CaptureMouse();
+                }
+
+                // Ensure RenderTransform exists and is a TranslateTransform
+                if (FloatingProcessingMenu.RenderTransform is not TranslateTransform)
+                    FloatingProcessingMenu.RenderTransform = new TranslateTransform();
+
+                var tt = (TranslateTransform)FloatingProcessingMenu.RenderTransform;
+                double newX = _processingMenuStartX + dx;
+                double newY = _processingMenuStartY + dy;
+
+                // Allow moving left of initial position: use symmetric clamping similar to Thumb drag.
+                // Compute reasonable bounds based on canvas size and menu size.
+                double canvasW = Math.Max(1.0, BoundingBoxCanvas.ActualWidth);
+                double canvasH = Math.Max(1.0, BoundingBoxCanvas.ActualHeight);
+                double menuW = Math.Max(1.0, FloatingProcessingMenu.ActualWidth);
+                double menuH = Math.Max(1.0, FloatingProcessingMenu.ActualHeight);
+
+                // Allow the menu to move roughly within the visible canvas area (with small margin).
+                double marginFactor = 0.9;
+                double minX = -canvasW * marginFactor;
+                double maxX = canvasW * marginFactor;
+                double minY = -canvasH * marginFactor;
+                double maxY = canvasH * marginFactor;
+
+                // Clamp values so the menu doesn't drift far off-screen.
+                tt.X = Math.Max(minX, Math.Min(maxX, newX));
+                tt.Y = Math.Max(minY, Math.Min(maxY, newY));
+            }
+            catch { /* non-critical */ }
+        }
+
+        private void FloatingProcessingMenu_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (_isDraggingProcessingMenu)
+                {
+                    _isDraggingProcessingMenu = false;
+                    if (FloatingProcessingMenu != null && FloatingProcessingMenu.IsMouseCaptured)
+                        FloatingProcessingMenu.ReleaseMouseCapture();
+                    e.Handled = true;
+                }
+            }
+            catch { /* non-critical */ }
+        }
+        private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             switch ((DrawingModeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString())
             {
@@ -305,6 +414,46 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
         }
 
 
+
+        private void ToggleProcessingPanelMenu_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Determine "show" from the sender first (MenuItem toggles its IsChecked).
+                bool show;
+                if (sender is MenuItem mi)
+                    show = mi.IsChecked == true;
+                else
+                    show = ToggleProcessingPanelMenu?.IsChecked == true;
+
+                // Ensure UI updates happen on UI thread.
+                Dispatcher.Invoke(() =>
+                {
+                    if (ProcessingMenuToggle != null)
+                    {
+                        ProcessingMenuToggle.IsChecked = show;
+                        ProcessingMenuToggle.Content = show ? "Processing ▾" : "Processing ▴";
+                    }
+
+                    if (ProcessingButtonsPanel != null)
+                        ProcessingButtonsPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+                    if (FloatingProcessingMenu != null)
+                        FloatingProcessingMenu.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+                    // Keep the MenuItem field consistent when sender wasn't the menu item itself.
+                    if (!(sender is MenuItem) && ToggleProcessingPanelMenu != null)
+                        ToggleProcessingPanelMenu.IsChecked = show;
+
+                    SetStatus(show ? "Processing panel shown." : "Processing panel hidden.");
+                });
+            }
+            catch (Exception ex)
+            {
+                // Log for debugging; do not throw to avoid breaking UI.
+                Debug.WriteLine($"ToggleProcessingPanelMenu_Click error: {ex}");
+            }
+        }
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             BoundingBoxCanvas.Focus();
@@ -437,6 +586,9 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
             BoundingBoxCanvas.Children.Add(polyline);
             BoundingBoxCanvas.Children.Add(labelBlock);
+
+            // ensure keyboard focus so Space works immediately
+            BoundingBoxCanvas.Focus();
         }
 
         private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
@@ -678,6 +830,9 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
             BoundingBoxCanvas.Children.Add(rect);
             BoundingBoxCanvas.Children.Add(labelBlock);
+
+            // ensure keyboard focus so Space works immediately
+            BoundingBoxCanvas.Focus();
         }
 
         // Utility: Generate a deterministic color for each class name
@@ -806,8 +961,10 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
                 BoundingBoxCanvas.Children.Add(polyline);
                 BoundingBoxCanvas.Children.Add(labelBlock);
-
                 _currentPolygonPoints = new List<SWPoint>();
+
+                // ensure keyboard focus so Space works immediately
+                BoundingBoxCanvas.Focus();
             }
 
             if (!_currentPolygonPoints.Contains(start))
@@ -1045,14 +1202,37 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         private void UpdateAnnotationRecordFromShape(ShapeInfo info)
         {
+            if (info == null || info.Shape == null || info.Record == null)
+                return;
+
             if (info.Shape is Rectangle rect)
             {
                 double x = Canvas.GetLeft(rect);
-                double y = Canvas.GetTop(rect);
+                double y = Canvas.GetTop(rect); // use GetTop, not SetTop
                 double w = rect.Width;
                 double h = rect.Height;
-                info.Record.Points[0] = new SWPoint(x, y);
-                info.Record.Points[1] = new SWPoint(x + w, y + h);
+
+                // Ensure Points list exists and has two entries
+                if (info.Record.Points == null)
+                {
+                    info.Record.Points = new List<SWPoint> { new SWPoint(x, y), new SWPoint(x + w, y + h) };
+                }
+                else if (info.Record.Points.Count >= 2)
+                {
+                    info.Record.Points[0] = new SWPoint(x, y);
+                    info.Record.Points[1] = new SWPoint(x + w, y + h);
+                }
+                else if (info.Record.Points.Count == 1)
+                {
+                    info.Record.Points[0] = new SWPoint(x, y);
+                    info.Record.Points.Add(new SWPoint(x + w, y + h));
+                }
+                else
+                {
+                    // empty list
+                    info.Record.Points.Add(new SWPoint(x, y));
+                    info.Record.Points.Add(new SWPoint(x + w, y + h));
+                }
             }
         }
 
@@ -1420,6 +1600,9 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     });
                 }
             }
+
+            // update class statistics panel
+            UpdateClassStats();
         }
 
         // Utility: Generate a deterministic color for each class name
@@ -1872,16 +2055,22 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 "2. Select or add a label/class.\n" +
                 "3. Draw annotations using the selected mode.\n" +
                 "4. Use the menu to save, export, or finish your project.\n\n" +
-                "Keyboard Shortcuts:\n" +
-                "F: Next image\n" +
-                "S: Previous image\n" +
-                "A: Add box\n" +
-                "D: Remove selected\n" +
-                "E: Export YOLO\n" +
-                "Enter: Save annotations\n" +
-                "Ctrl+Z: Undo\n" +
-                "Ctrl+Y: Redo\n" +
-                "F: Toggle full screen\n",
+                "Keyboard Shortcuts (current):\n" +
+                "F        : Next image\n" +
+                "S        : Previous image\n" +
+                "Space    : Finish current drawing (Rectangle/Polygon/FreePen)\n" +
+                "Esc      : Cancel drawing / cancel drag / cancel reshape\n" +
+                "Enter    : Save annotations\n" +
+                "Delete   : Remove selected annotation (from list)\n" +
+                "A        : Add box (placeholder - no implementation)\n" +
+                "D        : Remove selected (same as Delete)\n" +
+                "Ctrl+Z   : Undo\n" +
+                "Ctrl+Y   : Redo\n" +
+                "Mouse Wheel : Zoom in/out\n\n" +
+                "Notes:\n" +
+                "- Make sure the page or canvas has keyboard focus (canvas.Focus() is called when starting a draw).\n" +
+                "- Polygon: left-click to add points; finish with Space (or right-click if enabled).\n" +
+                "- Free-pen: draw with left mouse button; finish with Space (or right-click if enabled).\n",
                 "Help",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information
@@ -1938,6 +2127,8 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             LabelComboBox.SelectedItem = newClass;
             NewClassTextBox.Text = string.Empty;
             SetStatus($"Class '{newClass}' added.");
+
+            UpdateClassStats();
         }
 
       
@@ -1966,8 +2157,48 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                     e.Handled = true;
                 }
             }
+            // NEW: finish current drawing with Space
+            else if (e.Key == Key.Space)
+            {
+                if (_isDrawing && _currentDrawingShapeInfo != null)
+                {
+                    // Use current mouse position on canvas as the final point
+                    var rawPos = Mouse.GetPosition(BoundingBoxCanvas);
+                    var clamped = ClampPointToImage(rawPos);
+
+                    if (_currentDrawingMode == DrawingMode.Polygon)
+                    {
+                        if (_currentPolygonPoints.Count > 0)
+                            _currentPolygonPoints[_currentPolygonPoints.Count - 1] = clamped;
+                        else
+                            _currentPolygonPoints.Add(clamped);
+
+                        if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                            poly.Points = new PointCollection(_currentPolygonPoints);
+                    }
+                    else if (_currentDrawingMode == DrawingMode.FreePen)
+                    {
+                        if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                        {
+                            if (poly.Points.Count > 0)
+                                poly.Points[poly.Points.Count - 1] = clamped;
+                            else
+                                poly.Points.Add(clamped);
+                            _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
+                        }
+                    }
+                    else if (_currentDrawingMode == DrawingMode.Rectangle)
+                    {
+                        UpdateRectangle(clamped);
+                    }
+
+                    FinishDrawing_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                }
+            }
             else if (e.Key == Key.Escape)
             {
+                // existing Escape handling...
                 if (_isDrawing)
                 {
                     _isDrawing = false;
@@ -2008,6 +2239,75 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
             }
         }
 
+        // XAML-generated wiring expects the standard (object, RoutedEventArgs) signature.
+        // Forward to the existing implementation that takes a DataSetPage instance.
+        private void FinishDrawing_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                FinishDrawing_Click(this, e);
+            }
+            catch (Exception ex)
+            {
+                // Defensive: surface error to status so user sees something instead of a crash.
+                SetStatus($"Finish drawing failed: {ex.Message}");
+            }
+        }
+
+        private void FinishDrawing_Click(DataSetPage dataSetPage, RoutedEventArgs routedEventArgs)
+        {
+            if (!_isDrawing || _currentDrawingShapeInfo == null)
+            {
+                SetStatus("Nothing to finish.");
+                return;
+            }
+
+            // RECTANGLE: finalize using the recorded end point (if any)
+            if (_currentDrawingMode == DrawingMode.Rectangle)
+            {
+                var pts = _currentDrawingShapeInfo.Record.Points;
+                var end = pts != null && pts.Count > 1 ? (SWPoint)pts[1] : (SWPoint)pts[0];
+                FinalizeRectangle(end);
+            }
+            // POLYGON: require at least 3 points, otherwise cancel
+            else if (_currentDrawingMode == DrawingMode.Polygon)
+            {
+                if (_currentPolygonPoints != null && _currentPolygonPoints.Count > 2)
+                {
+                    FinalizePolygon();
+                }
+                else
+                {
+                    // remove the tentative visual and cancel
+                    if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                        BoundingBoxCanvas.Children.Remove(poly);
+                    if (_currentDrawingShapeInfo.LabelBlock != null)
+                        BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
+                    _shapeInfos.Remove(_currentDrawingShapeInfo);
+                    _currentPolygonPoints.Clear();
+                    _isDrawing = false;
+                    _currentDrawingShapeInfo = null;
+                    BoundingBoxCanvas.ReleaseMouseCapture();
+                    SetStatus("Polygon requires at least 3 points. Drawing canceled.");
+                    return;
+                }
+            }
+            // FREE PEN: finalize using last point of the stroke
+            else if (_currentDrawingMode == DrawingMode.FreePen)
+            {
+                if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                {
+                    var last = poly.Points.Count > 0 ? poly.Points[poly.Points.Count - 1] : new SWPoint(0, 0);
+                    FinalizeFreePen(last);
+                }
+            }
+
+            // common cleanup (safe even if Finalize* already cleared some state)
+            _isDrawing = false;
+            _currentDrawingShapeInfo = null;
+            _currentPolygonPoints.Clear();
+            BoundingBoxCanvas.ReleaseMouseCapture();
+        }
         #region Image selection
         private async void PrevImage_Click(object sender, RoutedEventArgs e)
         {
@@ -2210,10 +2510,37 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
 
         private void ToggleProcessingMenu_Click(object sender, RoutedEventArgs e)
         {
-            if (ProcessingButtonsPanel == null || ProcessingMenuToggle == null) return;
-            bool isOpen = ProcessingMenuToggle.IsChecked == true;
-            ProcessingButtonsPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
-            ProcessingMenuToggle.Content = isOpen ? "Processing ▾" : "Processing ▴";
+            try
+            {
+                bool isOpen = ProcessingMenuToggle?.IsChecked == true;
+
+                // Main buttons panel
+                if (ProcessingButtonsPanel != null)
+                    ProcessingButtonsPanel.Visibility = isOpen ? Visibility.Visible : Visibility.Collapsed;
+
+                // When collapsed, ensure all option panels and preview are also collapsed
+                if (!isOpen)
+                {
+                    if (GrayscaleOptionsPanel != null) GrayscaleOptionsPanel.Visibility = Visibility.Collapsed;
+                    if (EdgeOptionsPanel != null) EdgeOptionsPanel.Visibility = Visibility.Collapsed;
+                    if (ContourOptionsPanel != null) ContourOptionsPanel.Visibility = Visibility.Collapsed;
+                    if (ProcessingPreviewBadge != null) ProcessingPreviewBadge.Visibility = Visibility.Collapsed;
+
+                    // Reset any UI state that may imply an active processing mode
+                    _selectedProcessingMode = ImageProcessMode.None;
+                    if (ProcessingPreviewText != null) ProcessingPreviewText.Text = "Preview";
+                }
+
+                // Update toggle content
+                if (ProcessingMenuToggle != null)
+                    ProcessingMenuToggle.Content = isOpen ? "Processing ▾" : "Processing ▴";
+
+                SetStatus(isOpen ? "Processing options expanded." : "Processing options collapsed.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"ToggleProcessingMenu_Click error: {ex}");
+            }
         }
 
         private void ProcessGrayscale_Click(object sender, RoutedEventArgs e)
@@ -2549,8 +2876,7 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                                 foreach (var d in dirs)
                                 {
                                     int nx = cx + d.dx, ny = cy + d.dy;
-                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height &&
-                                        !visitedBg[ny, nx] && !bin[ny, nx])
+                                    if (nx >= 0 && nx < width && ny >= 0 && ny < height && !visitedBg[ny, nx] && !bin[ny, nx])
                                     {
                                         visitedBg[ny, nx] = true;
                                         stack.Push((nx, ny));
@@ -2564,7 +2890,9 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                             // optional: apply hole-area filter too (use same min/max as foreground)
                             int holeArea = compBg.Count;
                             if (holeArea < minContourArea || holeArea > maxContourArea)
+                            {
                                 continue;
+                            }
 
                             // mark inner boundary: background pixel adjacent to foreground
                             foreach (var (cx, cy) in compBg)
@@ -2788,6 +3116,84 @@ private void DrawingModeComboBox_SelectionChanged(object sender, SelectionChange
                 CtxRemoveSelected.IsEnabled = hasSelection;
             if (CtxEditAnnotation != null)
                 CtxEditAnnotation.IsEnabled = hasSelection;
+        }
+
+        private void UpdateClassStats()
+        {
+            // Get ordered label list from the UI so display order matches LabelComboBox.
+            var labels = LabelComboBox?.Items.Cast<object>()
+                      .Select(i => i?.ToString() ?? "")
+                      .Where(s => !string.IsNullOrEmpty(s))
+                      .ToList() ?? new List<string>();
+
+            // Count annotations across the whole project (Annotations holds project annotations).
+            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var lbl in labels) counts[lbl] = 0;
+
+            foreach (var ann in Annotations)
+            {
+                if (string.IsNullOrEmpty(ann.Label)) continue;
+                if (!counts.ContainsKey(ann.Label))
+                    counts[ann.Label] = 0;
+                counts[ann.Label]++;
+            }
+
+            // Prepare items in the same order as labels; include any extra labels found in annotations.
+            var items = labels.Select(l => new { Label = l, Count = counts.TryGetValue(l, out var c) ? c : 0 }).ToList();
+            var extras = counts.Keys.Except(labels, StringComparer.OrdinalIgnoreCase)
+                 .Select(l => new { Label = l, Count = counts[l] });
+            items.AddRange(extras);
+
+            Dispatcher.Invoke(() =>
+            {
+                if (ClassStatsItems != null)
+                    ClassStatsItems.ItemsSource = items;
+
+                if (ClassStatsTotal != null)
+                    ClassStatsTotal.Text = $"Total annotations: {Annotations?.Count ?? 0}";
+
+                if (ClassStatsPanel != null)
+                    ClassStatsPanel.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            });
+        }
+
+        // Toggle handler for the Class Statistics collapse/expand button.
+        private void ClassStatsToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ClassStatsBody == null || ClassStatsToggleButton == null) return;
+
+                if (ClassStatsBody.Visibility == Visibility.Visible)
+                {
+                    ClassStatsBody.Visibility = Visibility.Collapsed;
+                    ClassStatsToggleButton.Content = "▸"; // collapsed glyph
+                    ClassStatsToggleButton.ToolTip = "Expand statistics";
+                }
+                else
+                {
+                    ClassStatsBody.Visibility = Visibility.Visible;
+                    ClassStatsToggleButton.Content = "▾"; // expanded glyph
+                    ClassStatsToggleButton.ToolTip = "Collapse statistics";
+                }
+            }
+            catch
+            {
+                // Non-critical UI toggle; swallow exceptions.
+            }
+        }
+
+        // Optional programmatic helper to set collapsed state
+        public void SetClassStatsCollapsed(bool collapsed)
+        {
+            try
+            {
+                if (ClassStatsBody == null || ClassStatsToggleButton == null) return;
+                ClassStatsBody.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+                ClassStatsToggleButton.Content = collapsed ? "▸" : "▾";
+                ClassStatsToggleButton.ToolTip = collapsed ? "Expand statistics" : "Collapse statistics";
+            }
+            catch { }
         }
     }
 }
