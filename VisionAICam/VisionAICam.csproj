@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Logger.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Remove="Assets\ai_vision_bg.png" />
     <None Remove="Assets\vertical_panel.png" />
   </ItemGroup>

@@ -1,4 +1,5 @@
-﻿using Ookii.Dialogs.Wpf;
+﻿using ClearEngine.Logging;
+using Ookii.Dialogs.Wpf;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -103,6 +104,12 @@ namespace VisionAICam.Pages
         private SWPoint _classStatsMouseDownPoint;
         private double _classStatsStartX = 0;
         private double _classStatsStartY = 0;
+        // --- Added fields for right-side collapse state ---
+        private bool _rightPanelCollapsed = false;
+        private GridLength _savedRightColumnWidth = new GridLength(400); // default width when expanded
+        private bool _classStatsCollapsed = false; // Add this member
+                                                   // add near other private fields
+        private bool _classStatsOverlayShown = false;
         public DataSetPage()
         {
             InitializeComponent();
@@ -181,9 +188,94 @@ namespace VisionAICam.Pages
                 ClassStatsPanel.PreviewMouseLeftButtonUp += ClassStatsPanel_MouseLeftButtonUp;
             }
 
-
+            // wire label combo selection and ensure badge updates on load
+            LabelComboBox.SelectionChanged += LabelComboBox_SelectionChanged;
         }
 
+        private void LabelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateSelectedClassBadge();
+        }
+        // New: shows/hides/updates the small badge at top-left of the image
+        private void UpdateSelectedClassBadge()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (SelectedClassBadge == null || LabelComboBox == null || LabelingImage == null)
+                    return;
+
+                var selected = LabelComboBox.SelectedItem?.ToString();
+                bool hasImage = LabelingImage.Source != null;
+
+                if (!hasImage || string.IsNullOrWhiteSpace(selected))
+                {
+                    SelectedClassBadge.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                SelectedClassBadge.Text = selected;
+                SelectedClassBadge.Visibility = Visibility.Visible;
+            });
+        }
+        // --- Toggle handler for right-side annotation panel (placed inside DataSetPage class) ---
+        // replace existing RightPanelToggleButton_Click with this
+        private void RightPanelToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (RightColumn == null || RightPanelToggleButton == null)
+                    return;
+
+                if (!_rightPanelCollapsed)
+                {
+                    // collapse right panel
+                    _savedRightColumnWidth = RightColumn.Width;
+                    RightColumn.Width = new GridLength(0);
+                    if (AnnotationControlsPanel != null)
+                        AnnotationControlsPanel.Visibility = Visibility.Collapsed;
+
+                    // show floating class stats overlay
+                    if (ClassStatsPanel != null)
+                    {
+                        ClassStatsPanel.Visibility = Visibility.Visible;
+                        // ensure the body is visible (expand internal panel)
+                        if (ClassStatsBody != null) ClassStatsBody.Visibility = Visibility.Visible;
+                        if (ClassStatsToggleButton != null) ClassStatsToggleButton.Content = "▾";
+                        _classStatsOverlayShown = true;
+                    }
+
+                    RightPanelToggleButton.Content = "▶";
+                    RightPanelToggleButton.ToolTip = "Expand Controls";
+                    _rightPanelCollapsed = true;
+                    SetStatus("Right panel collapsed. Class statistics shown.");
+                }
+                else
+                {
+                    // expand right panel
+                    RightColumn.Width = _savedRightColumnWidth;
+                    if (AnnotationControlsPanel != null)
+                        AnnotationControlsPanel.Visibility = Visibility.Visible;
+
+                    RightPanelToggleButton.Content = "◀";
+                    RightPanelToggleButton.ToolTip = "Collapse Controls";
+                    _rightPanelCollapsed = false;
+
+                    //// hide overlay when right panel is expanded (transient overlay)
+                    //if (ClassStatsPanel != null && ClassStatsPanel.Visibility == Visibility.Visible)
+                    //{
+                    //    ClassStatsPanel.Visibility = Visibility.Collapsed;
+                    //    _classStatsOverlayShown = false;
+                    //    if (ClassStatsDockToggleButton != null) ClassStatsDockToggleButton.Content = "▶";
+                    //}
+
+                    SetStatus("Right panel expanded.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RightPanelToggleButton_Click error: {ex}");
+            }
+        }
         private void FloatingProcessingMenu_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             try
@@ -2225,9 +2317,11 @@ namespace VisionAICam.Pages
             SetStatus($"Class '{newClass}' added.");
 
             UpdateClassStats();
+
+            // show small badge on image when class selected and image loaded
+            UpdateSelectedClassBadge();
         }
 
-      
 
         private void Page_KeyDown(object sender, KeyEventArgs e)
         {
@@ -2503,6 +2597,9 @@ namespace VisionAICam.Pages
             BoundingBoxCanvas.ReleaseMouseCapture();
 
             SetStatus($"Loaded image {index + 1} of {_imagePaths.Count} ({System.IO.Path.GetFileName(imagePath)}). Ready to draw.");
+
+            // update badge visibility based on loaded image and selected label
+            UpdateSelectedClassBadge();
         }
 
         private void ApplyZoomCentered(double newZoom)
@@ -3312,5 +3409,44 @@ namespace VisionAICam.Pages
             }
             catch { }
         }
+
+        // replace existing ClassStatsDockToggleButton_Click with this (keeps internal body expanded when showing)
+        //private void ClassStatsDockToggleButton_Click(object sender, RoutedEventArgs e)
+        //{
+        //    try
+        //    {
+        //        if (ClassStatsPanel == null || ClassStatsDockToggleButton == null) return;
+
+        //        if (ClassStatsPanel.Visibility == Visibility.Visible)
+        //        {
+        //            ClassStatsPanel.Visibility = Visibility.Collapsed;
+        //            ClassStatsDockToggleButton.Content = "▶";
+        //            _classStatsOverlayShown = false;
+        //            SetStatus("Class statistics hidden.");
+        //        }
+        //        else
+        //        {
+        //            ClassStatsPanel.Visibility = Visibility.Visible;
+        //            // ensure body expanded when overlay appears
+        //            if (ClassStatsBody != null) ClassStatsBody.Visibility = Visibility.Visible;
+        //            if (ClassStatsToggleButton != null) { ClassStatsToggleButton.Content = "▾"; ClassStatsToggleButton.ToolTip = "Collapse statistics"; }
+        //            ClassStatsDockToggleButton.Content = "◀";
+        //            _classStatsOverlayShown = true;
+        //            SetStatus("Class statistics shown.");
+        //        }
+        //    }
+        //    catch { /* non-critical UI toggle */ }
+        //}
+
+        //private void ClassStatsDockToggleButton_Click(object sender, RoutedEventArgs e)
+        //{
+        //    try
+        //    {
+        //        if (ClassStatsPanel == null || ClassStatsDockToggleButton == null) return;
+
+        //        ClassStatsDockToggleButton.Content = (ClassStatsPanel != null && ClassStatsPanel.Visibility == Visibility.Visible) ? "◀" : "▶";
+        //    }
+        //    catch { /* non-critical */ }
+        //}
     }
 }

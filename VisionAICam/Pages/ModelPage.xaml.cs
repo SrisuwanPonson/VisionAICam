@@ -13,6 +13,7 @@ using System.Windows.Data;
 using System.Diagnostics;
 using VisionAICam.Utilities;
 using System.Windows.Media.Animation;
+using ClearEngine.Logging;
 
 namespace VisionAICam.Pages
 {
