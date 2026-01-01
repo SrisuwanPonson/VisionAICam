@@ -213,7 +213,15 @@ namespace VisionAICam.Pages
                     return;
                 }
 
-                SelectedClassBadge.Text = selected;
+                string modeName = _currentDrawingMode switch
+                {
+                    DrawingMode.FreePen => "Free Pen",
+                    DrawingMode.Rectangle => "Rectangle",
+                    DrawingMode.Polygon => "Polygon",
+                    _ => _currentDrawingMode.ToString()
+                };
+
+                SelectedClassBadge.Text = $"{selected} : {modeName}";
                 SelectedClassBadge.Visibility = Visibility.Visible;
             });
         }
@@ -459,6 +467,8 @@ namespace VisionAICam.Pages
             }
             RemoveResizeHandles();
             SetStatus($"Drawing mode: {_currentDrawingMode}");
+
+            UpdateSelectedClassBadge();
         }
 
         private void ShowNoProjectPanel()
