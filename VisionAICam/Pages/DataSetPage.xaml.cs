@@ -98,6 +98,11 @@ namespace VisionAICam.Pages
         private SWPoint _processingMenuMouseDownPoint;
         private double _processingMenuStartX = 0;
         private double _processingMenuStartY = 0;
+        // --- Added fields for draggable Class Stats panel ---
+        private bool _isDraggingClassStats = false;
+        private SWPoint _classStatsMouseDownPoint;
+        private double _classStatsStartX = 0;
+        private double _classStatsStartY = 0;
         public DataSetPage()
         {
             InitializeComponent();
@@ -167,6 +172,16 @@ namespace VisionAICam.Pages
                 FloatingProcessingMenu.PreviewMouseMove += FloatingProcessingMenu_MouseMove;
                 FloatingProcessingMenu.PreviewMouseLeftButtonUp += FloatingProcessingMenu_MouseLeftButtonUp;
             }
+            // --- Wire up handlers in the constructor (add inside the DataSetPage() constructor) ---
+            // After existing FloatingProcessingMenu wiring add:
+            if (ClassStatsPanel != null)
+            {
+                ClassStatsPanel.PreviewMouseLeftButtonDown += ClassStatsPanel_MouseLeftButtonDown;
+                ClassStatsPanel.PreviewMouseMove += ClassStatsPanel_MouseMove;
+                ClassStatsPanel.PreviewMouseLeftButtonUp += ClassStatsPanel_MouseLeftButtonUp;
+            }
+
+
         }
 
         private void FloatingProcessingMenu_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -190,7 +205,88 @@ namespace VisionAICam.Pages
             }
             catch { /* non-critical */ }
         }
+        // --- Handlers for dragging the ClassStats panel ---
+        private void ClassStatsPanel_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (ClassStatsPanel == null || BoundingBoxCanvas == null) return;
 
+                // Record starting point relative to the canvas
+                _classStatsMouseDownPoint = e.GetPosition(BoundingBoxCanvas);
+
+                // Ensure a TranslateTransform exists for movement.
+                if (ClassStatsPanel.RenderTransform is not TranslateTransform)
+                    ClassStatsPanel.RenderTransform = new TranslateTransform();
+
+                var tt = (TranslateTransform)ClassStatsPanel.RenderTransform;
+                _classStatsStartX = tt.X;
+                _classStatsStartY = tt.Y;
+
+                // Do not capture yet; capture once movement passes threshold so clicks still work.
+            }
+            catch { /* non-critical */ }
+        }
+
+        private void ClassStatsPanel_MouseMove(object sender, MouseEventArgs e)
+        {
+            try
+            {
+                if (ClassStatsPanel == null || BoundingBoxCanvas == null) return;
+                if (e.LeftButton != MouseButtonState.Pressed) return;
+
+                var pos = e.GetPosition(BoundingBoxCanvas);
+                double dx = pos.X - _classStatsMouseDownPoint.X;
+                double dy = pos.Y - _classStatsMouseDownPoint.Y;
+
+                // Begin drag after small threshold to avoid interfering with clicks.
+                if (!_isDraggingClassStats)
+                {
+                    if (Math.Sqrt(dx * dx + dy * dy) < 3.0) return;
+                    _isDraggingClassStats = true;
+                    ClassStatsPanel.CaptureMouse();
+                }
+
+                if (ClassStatsPanel.RenderTransform is not TranslateTransform)
+                    ClassStatsPanel.RenderTransform = new TranslateTransform();
+
+                var tt = (TranslateTransform)ClassStatsPanel.RenderTransform;
+                double newX = _classStatsStartX + dx;
+                double newY = _classStatsStartY + dy;
+
+                // Compute reasonable bounds based on canvas size and panel size to avoid drifting far off-screen.
+                double canvasW = Math.Max(1.0, BoundingBoxCanvas.ActualWidth);
+                double canvasH = Math.Max(1.0, BoundingBoxCanvas.ActualHeight);
+                double panelW = Math.Max(1.0, ClassStatsPanel.ActualWidth);
+                double panelH = Math.Max(1.0, ClassStatsPanel.ActualHeight);
+
+                // Allow movement within a generous range but clamp to keep panel visible
+                double marginFactor = 0.9;
+                double minX = -canvasW * marginFactor;
+                double maxX = canvasW * marginFactor;
+                double minY = -canvasH * marginFactor;
+                double maxY = canvasH * marginFactor;
+
+                tt.X = Math.Max(minX, Math.Min(maxX, newX));
+                tt.Y = Math.Max(minY, Math.Min(maxY, newY));
+            }
+            catch { /* non-critical */ }
+        }
+
+        private void ClassStatsPanel_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                if (_isDraggingClassStats)
+                {
+                    _isDraggingClassStats = false;
+                    if (ClassStatsPanel != null && ClassStatsPanel.IsMouseCaptured)
+                        ClassStatsPanel.ReleaseMouseCapture();
+                    e.Handled = true;
+                }
+            }
+            catch { /* non-critical */ }
+        }
         private void FloatingProcessingMenu_MouseMove(object sender, MouseEventArgs e)
         {
             try
@@ -2409,20 +2505,41 @@ namespace VisionAICam.Pages
             SetStatus($"Loaded image {index + 1} of {_imagePaths.Count} ({System.IO.Path.GetFileName(imagePath)}). Ready to draw.");
         }
 
+        private void ApplyZoomCentered(double newZoom)
+        {
+            // Ensure ZoomTransform exists (defined in XAML as a ScaleTransform named "ZoomTransform")
+            if (ZoomTransform == null) return;
+
+            // Determine center in image/local coordinates. Prefer the displayed control size (actual), fall back to raw pixel size.
+            double centerX = LabelingImage != null && LabelingImage.ActualWidth > 0
+                ? LabelingImage.ActualWidth * 0.5
+                : (_currentImageWidth > 0 ? _currentImageWidth * 0.5 : 0);
+
+            double centerY = LabelingImage != null && LabelingImage.ActualHeight > 0
+                ? LabelingImage.ActualHeight * 0.5
+                : (_currentImageHeight > 0 ? _currentImageHeight * 0.5 : 0);
+
+            // Set the ScaleTransform center so scaling happens around the center of the image / image box.
+            ZoomTransform.CenterX = centerX;
+            ZoomTransform.CenterY = centerY;
+
+            // Apply the scale
+            ZoomTransform.ScaleX = newZoom;
+            ZoomTransform.ScaleY = newZoom;
+
+            SetStatus($"Zoom: {newZoom * 100:0}%");
+        }
+
         private void ZoomIn_Click(object sender, RoutedEventArgs e)
         {
             _zoom = Math.Min(_zoom + ZoomStep, ZoomMax);
-            ZoomTransform.ScaleX = _zoom;
-            ZoomTransform.ScaleY = _zoom;
-            SetStatus($"Zoom: {_zoom * 100:0}%");
+            ApplyZoomCentered(_zoom);
         }
 
         private void ZoomOut_Click(object sender, RoutedEventArgs e)
         {
             _zoom = Math.Max(_zoom - ZoomStep, ZoomMin);
-            ZoomTransform.ScaleX = _zoom;
-            ZoomTransform.ScaleY = _zoom;
-            SetStatus($"Zoom: {_zoom * 100:0}%");
+            ApplyZoomCentered(_zoom);
         }
         #endregion
 
