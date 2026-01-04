@@ -1,4 +1,5 @@
 ﻿using ClearEngine.Logging;
+using Microsoft.VisualBasic.Logging;
 using Ookii.Dialogs.Wpf;
 using System;
 using System.Collections.Generic;
@@ -12,8 +13,11 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
+using static System.Windows.Forms.Design.AxImporter;
+
 // Explicitly disambiguate WPF Point to avoid conflicts with other Point types.
 using SWPoint = System.Windows.Point;
+using SWPath = System.IO.Path;
 
 namespace VisionAICam.Pages
 {
@@ -146,7 +150,7 @@ namespace VisionAICam.Pages
 
                     // ensure stats reflect the loaded project
                     UpdateClassStats();
-
+                    CheckAutoLabelEnable();
                     ShowMainContentPanel();
                     if (_currentImageIndex >= 0 && _currentImageIndex < _imagePaths.Count)
                         await LoadImageAtIndex(_currentImageIndex);
@@ -1107,6 +1111,7 @@ namespace VisionAICam.Pages
                     SetStatus("Rectangle must be fully inside the image.");
                 }
                 _currentDrawingShapeInfo = null;
+                CheckAutoLabelEnable();
             }
         }
 
@@ -1241,6 +1246,7 @@ namespace VisionAICam.Pages
                 _currentDrawingShapeInfo = null;
                 _currentPolygonPoints.Clear(); // safe to clear shared buffer
                 _isDrawing = false;
+                CheckAutoLabelEnable();
             }
         }
         private void FinalizePolygon()
@@ -1274,6 +1280,7 @@ namespace VisionAICam.Pages
                 _currentDrawingShapeInfo = null;
                 _currentPolygonPoints.Clear();
                 _isDrawing = false;
+                CheckAutoLabelEnable();
             }
         }
 
@@ -1603,6 +1610,7 @@ namespace VisionAICam.Pages
                 _ = LoadImageAtIndex(_currentImageIndex);
                 SetStatus($"Project opened. {savedLabels.Count} classes, {savedAnnotations.Count} images.");
                 ShowMainContentPanel();
+                CheckAutoLabelEnable();
             }
             catch (Exception ex)
             {
@@ -2221,11 +2229,11 @@ namespace VisionAICam.Pages
             };
         }
         private struct MinAreaRect
-{
-    public Point Center;
-    public Size Size;
-    public double Angle; // In degrees
-}
+        {
+            public Point Center;
+            public Size Size;
+            public double Angle; // In degrees
+        }
         private List<double> GetRotatedBoxAs8Values(double cx, double cy, double w, double h, double angleDegrees)
         {
             double angle = angleDegrees * Math.PI / 180.0;
@@ -2236,12 +2244,12 @@ namespace VisionAICam.Pages
             double h2 = h / 2.0;
 
             var corners = new List<Point>
-    {
-        new Point(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
-        new Point(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
-        new Point(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
-        new Point(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
-    };
+            {
+                new Point(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
+                new Point(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
+                new Point(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
+                new Point(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
+            };
 
             return corners.SelectMany(p => new List<double> { p.X, p.Y }).ToList();
         }
@@ -2560,6 +2568,16 @@ namespace VisionAICam.Pages
 
                 _currentImageIndex = 0;
                 await LoadImageAtIndex(_currentImageIndex);
+                // Insert inside LoadFolder_Click after _currentImageIndex = 0; await LoadImageAtIndex...
+                if (_currentProject != null)
+                {
+                    var res = MessageBox.Show("Augment images now to increase dataset size and update project? (You can skip and run later)", "Augment dataset", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (res == MessageBoxResult.Yes)
+                    {
+                        await AugmentCurrentProjectImagesAsync();
+                        SaveProject_Click(sender, e); // optional: save project after augmentation
+                    }
+                }
             }
         }
 
@@ -2718,18 +2736,21 @@ namespace VisionAICam.Pages
             double newY = tt.Y + e.VerticalChange;
 
             // Optional: clamp to canvas size so the menu doesn't drift off-screen
-            if (BoundingBoxCanvas != null && BoundingBoxCanvas.ActualWidth > 0 && BoundingBoxCanvas.ActualHeight > 0)
-            {
-                double minX = -BoundingBoxCanvas.ActualWidth * 0.9;
-                double maxX = BoundingBoxCanvas.ActualWidth * 0.9;
-                double minY = -BoundingBoxCanvas.ActualHeight * 0.9;
-                double maxY = BoundingBoxCanvas.ActualHeight * 0.9;
-                newX = Math.Max(minX, Math.Min(maxX, newX));
-                newY = Math.Max(minY, Math.Min(maxY, newY));
-            }
+            double canvasW = Math.Max(1.0, BoundingBoxCanvas.ActualWidth);
+            double canvasH = Math.Max(1.0, BoundingBoxCanvas.ActualHeight);
+            double menuW = Math.Max(1.0, FloatingProcessingMenu.ActualWidth);
+            double menuH = Math.Max(1.0, FloatingProcessingMenu.ActualHeight);
 
-            tt.X = newX;
-            tt.Y = newY;
+            // Allow the menu to move roughly within the visible canvas area (with small margin).
+            double marginFactor = 0.9;
+            double minX = -canvasW * marginFactor;
+            double maxX = canvasW * marginFactor;
+            double minY = -canvasH * marginFactor;
+            double maxY = canvasH * marginFactor;
+
+            // Clamp values so the menu doesn't drift far off-screen.
+            tt.X = Math.Max(minX, Math.Min(maxX, newX));
+            tt.Y = Math.Max(minY, Math.Min(maxY, newY));
         }
 
         private void ToggleProcessingMenu_Click(object sender, RoutedEventArgs e)
@@ -3458,5 +3479,572 @@ namespace VisionAICam.Pages
         //    }
         //    catch { /* non-critical */ }
         //}
+
+        private async void AutoLabelButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Call export yolo8OBB save to Light-DataSet folder
+
+
+        }
+        // Update Execute handler to handle the revised ComboBox options.
+        private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var selected = (AutoLabelComboBox?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
+                if (string.IsNullOrEmpty(selected))
+                {
+                    SetStatus("Select an Auto Label action first.");
+                    return;
+                }
+
+                switch (selected)
+                {
+                    case "Auto label":
+                        SetStatus("Running auto-labeler...");
+                        try
+                        {
+                            var svc = new VisionAICam.Services.AutoLabelerService();
+                            bool added = await svc.RunAutoLabelingAsync(null, 0.5).ConfigureAwait(false);
+
+                            Dispatcher.Invoke(() =>
+                            {
+                                if (added)
+                                {
+                                    if (ProjectSession.Annotations != null)
+                                    {
+                                        Annotations = ProjectSession.Annotations;
+                                        RefreshAnnotations();
+                                    }
+                                    else
+                                    {
+                                        RefreshAnnotations();
+                                    }
+                                    SetStatus("Auto-labeling finished — annotations added.");
+                                }
+                                else
+                                {
+                                    SetStatus("Auto-labeling finished — no annotations were added.");
+                                }
+                                CheckAutoLabelEnable();
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            Dispatcher.Invoke(() => SetStatus($"Auto-label failed: {ex.Message}"));
+                        }
+                        break;
+
+                    case "Save Project":
+                        SaveProject_Click(sender, e);
+                        break;
+
+                    case "ExportYolo8n-obb":
+                        ExportYoloV8_OBB_Click(sender, e);
+                        break;
+
+                    case "Load DataSet(obb)":
+                        {
+                            var dlg = new Ookii.Dialogs.Wpf.VistaFolderBrowserDialog
+                            {
+                                Description = "Select folder containing OBB dataset (.txt annotation files)",
+                                UseDescriptionForTitle = true
+                            };
+                            if (dlg.ShowDialog() != true)
+                            {
+                                SetStatus("Load DataSet canceled.");
+                                break;
+                            }
+
+                            var folder = dlg.SelectedPath;
+                            SetStatus("Verifying OBB dataset format...");
+                            var (ok, report) = await Task.Run(() => VerifyObbFolder(folder));
+                            if (ok)
+                            {
+                                SetStatus("OBB dataset verification succeeded.");
+                                MessageBox.Show(report, "OBB Dataset Verified", MessageBoxButton.OK, MessageBoxImage.Information);
+                            }
+                            else
+                            {
+                                SetStatus("OBB dataset verification failed.");
+                                MessageBox.Show(report, "OBB Dataset Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            }
+                        }
+                        break;
+
+                    case "Train model":
+                        {
+                            SetStatus("Preparing training dataset...");
+                            try
+                            {
+                                var svc = new VisionAICam.Services.AutoLabelerService();
+                                // Run dataset preparation off UI thread
+                                bool ok = await Task.Run(() => svc.PrepareTrainingDataset(10, VisionAICam.YoloExportFormat.YoloV8));
+                                if (ok)
+                                {
+                                    SetStatus("Training dataset prepared. Invoke external training pipeline as needed.");
+                                    MessageBox.Show("Training dataset prepared. Run your training pipeline separately.", "Train model", MessageBoxButton.OK, MessageBoxImage.Information);
+                                }
+                                else
+                                {
+                                    SetStatus("Failed to prepare training dataset.");
+                                    MessageBox.Show("PrepareTrainingDataset returned false.", "Train model", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                SetStatus($"Train model failed: {ex.Message}");
+                            }
+                        }
+                        break;
+
+                    default:
+                        SetStatus("Unknown Auto Label action.");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Execute failed: {ex.Message}");
+            }
+        }
+
+        private void AutoLabelComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                // Re-evaluate whether Execute should be enabled for the newly selected action.
+                CheckAutoLabelEnable();
+
+                // Optionally update status so user sees the selected action
+                var selected = (AutoLabelComboBox?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(selected))
+                    SetStatus($"Auto Label action: {selected}");
+            }
+            catch
+            {
+                // Non-critical UI handler — swallow exceptions to avoid breaking the page.
+            }
+        }
+        //p Make enabling logic respect the newly added options.
+        private void CheckAutoLabelEnable()
+        {
+            try
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (AutoLabelExecuteButton == null || AutoLabelComboBox == null)
+                        return;
+
+                    var selected = (AutoLabelComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
+
+                    switch (selected)
+                    {
+                        case "Save Project":
+                            AutoLabelExecuteButton.IsEnabled = _currentProject != null;
+                            break;
+
+                        case "ExportYolo8n-obb":
+                            AutoLabelExecuteButton.IsEnabled = _currentProject != null && _currentProject.ImagePaths != null && _currentProject.ImagePaths.Count > 0;
+                            break;
+
+                        case "Load DataSet(obb)":
+                            // Always allow loading/verification
+                            AutoLabelExecuteButton.IsEnabled = true;
+                            break;
+
+                        case "Train model":
+                        case "Auto label":
+                            // Require per-class minimum annotations (same rule as before)
+                            if (_currentProject == null || _currentProject.ClassLabels == null || _currentProject.ClassLabels.Count == 0)
+                            {
+                                AutoLabelExecuteButton.IsEnabled = false;
+                                break;
+                            }
+
+                            const int requiredCount = 10;
+                            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var lbl in _currentProject.ClassLabels)
+                                counts[lbl] = 0;
+
+                            foreach (var ann in Annotations)
+                            {
+                                if (string.IsNullOrWhiteSpace(ann.Label)) continue;
+                                if (counts.ContainsKey(ann.Label)) counts[ann.Label]++;
+                            }
+
+                            bool allReached = _currentProject.ClassLabels.All(lbl => counts.TryGetValue(lbl, out var c) && c >= requiredCount);
+                            AutoLabelExecuteButton.IsEnabled = allReached;
+                            break;
+
+                        default:
+                            AutoLabelExecuteButton.IsEnabled = false;
+                            break;
+                    }
+                });
+            }
+            catch
+            {
+                // non-critical
+            }
+        }
+        private (bool ok, string report) VerifyObbFolder(string folderPath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+                    return (false, "Folder does not exist.");
+
+                var txtFiles = Directory.GetFiles(folderPath, "*.txt", SearchOption.TopDirectoryOnly);
+                if (txtFiles.Length == 0)
+                    return (false, "No .txt annotation files found in the selected folder.");
+
+                int totalFiles = txtFiles.Length;
+                int totalLines = 0;
+                int badLines = 0;
+                var sb = new System.Text.StringBuilder();
+                foreach (var f in txtFiles)
+                {
+                    var lines = File.ReadAllLines(f);
+                    for (int i = 0; i < lines.Length; i++)
+                    {
+                        var line = lines[i].Trim();
+                        if (string.IsNullOrEmpty(line)) continue;
+                        totalLines++;
+                        var tokens = line.Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                        // Accept either [class] + 8 values (9 tokens) OR exactly 8 numeric values
+                        if (tokens.Length == 9 || tokens.Length == 8)
+                        {
+                            // Quick numeric validation for coords
+                            int startIdx = tokens.Length == 9 ? 1 : 0;
+                            bool allNumeric = true;
+                            for (int t = startIdx; t < tokens.Length; t++)
+                            {
+                                if (!double.TryParse(tokens[t], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+                                {
+                                    allNumeric = false;
+                                    break;
+                                }
+                            }
+                            if (!allNumeric)
+                            {
+                                badLines++;
+                                sb.AppendLine($"{SWPath.GetFileName(f)}: line {i + 1} contains non-numeric coordinates.");
+                            }
+                        }
+                        else
+                        {
+                            badLines++;
+                            sb.AppendLine($"{SWPath.GetFileName(f)}: line {i + 1} wrong token count ({tokens.Length}). Expected 8 or 9 tokens.");
+                        }
+                    }
+                }
+
+                if (badLines == 0)
+                    return (true, $"OK: {totalFiles} .txt files, {totalLines} annotation lines validated.");
+                else
+                    return (false, $"Found {badLines} invalid lines across {totalFiles} files:\n{sb}");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Verification failed: {ex.Message}");
+            }
+        }
+        
+        private async Task AugmentCurrentProjectImagesAsync()
+        {
+            if (_currentProject == null || _imagePaths == null || _imagePaths.Count == 0)
+            {
+                SetStatus("No project or images to augment.");
+                return;
+            }
+
+            SetStatus("Starting augmentation...");
+
+            var originalList = _imagePaths.ToList(); // freeze list
+
+            var augList = new List<(string suffix, Matrix m)>
+    {
+        ("_flipH", VisionAICam.Services.ImageAugmentation.FlipHorizontalMatrix(_currentImageWidth)),
+        ("_flipV", VisionAICam.Services.ImageAugmentation.FlipVerticalMatrix(_currentImageHeight)),
+        ("_rot90", VisionAICam.Services.ImageAugmentation.Rotate90CWMatrix(_currentImageWidth, _currentImageHeight)),
+        ("_rot180", VisionAICam.Services.ImageAugmentation.Rotate180Matrix(_currentImageWidth, _currentImageHeight)),
+        ("_rot270", VisionAICam.Services.ImageAugmentation.Rotate270CWMatrix(_currentImageWidth, _currentImageHeight)),
+        ("_shearX", VisionAICam.Services.ImageAugmentation.ShearXMatrix(_currentImageWidth, _currentImageHeight, 0.2)),
+        ("_shearY", VisionAICam.Services.ImageAugmentation.ShearYMatrix(_currentImageWidth, _currentImageHeight, 0.2)),
+        ("_translate", VisionAICam.Services.ImageAugmentation.TranslateMatrix(20, 20)),
+        ("_persp", VisionAICam.Services.ImageAugmentation.PerspectiveMatrix(_currentImageWidth, _currentImageHeight, 0.05))
+    };
+
+            try
+            {
+                foreach (var srcPath in originalList)
+                {
+                    if (!File.Exists(srcPath)) continue;
+
+                    BitmapSource srcBmp = null;
+                    await Task.Run(() =>
+                    {
+                        var bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.UriSource = new Uri(srcPath);
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.EndInit();
+                        bmp.Freeze();
+                        srcBmp = bmp;
+                    });
+
+                    double w = srcBmp.PixelWidth;
+                    double h = srcBmp.PixelHeight;
+                    string baseName = System.IO.Path.GetFileNameWithoutExtension(srcPath);
+                    string ext = ".png";
+
+                    // same folder as source
+                    string folder = SWPath.GetDirectoryName(srcPath) ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+                    // collect annotations for this image (filename-match)
+                    var imageName = System.IO.Path.GetFileName(srcPath);
+                    var annsForImage = Annotations.Where(a => string.Equals(a.ImageName, imageName, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                    foreach (var (suffix, matrix) in augList)
+                    {
+                        BitmapSource transformed = null;
+                        try
+                        {
+                            transformed = await Task.Run(() => VisionAICam.Services.ImageAugmentation.TransformBitmap(srcBmp, matrix));
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Transform failed for {srcPath} {suffix}: {ex}");
+                            continue;
+                        }
+
+                        // ensure unique filename in same folder
+                        string outFile = System.IO.Path.Combine(folder, $"{baseName}{suffix}{ext}");
+                        int counter = 1;
+                        while (File.Exists(outFile))
+                        {
+                            outFile = System.IO.Path.Combine(folder, $"{baseName}{suffix}_{counter}{ext}");
+                            counter++;
+                        }
+
+                        try
+                        {
+                            var encoder = new PngBitmapEncoder();
+                            encoder.Frames.Add(BitmapFrame.Create(transformed));
+                            using var fs = File.Open(outFile, FileMode.Create, FileAccess.Write, FileShare.None);
+                            encoder.Save(fs);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Failed to save augmented image {outFile}: {ex}");
+                            continue;
+                        }
+
+                        // add augmented image to project and local lists
+                        _currentProject.ImagePaths.Add(outFile);
+                        _imagePaths.Add(outFile);
+
+                        // transform and copy annotations (if any)
+                        foreach (var ann in annsForImage)
+                        {
+                            var newAnn = new AnnotationRecord
+                            {
+                                ImageName = System.IO.Path.GetFileName(outFile),
+                                Label = ann.Label,
+                                AnnotationType = ann.AnnotationType,
+                                Points = ann.Points != null ? ann.Points.Select(p => new Point(p.X, p.Y)).ToList() : new List<Point>(),
+                                RawValues = ann.RawValues != null ? new List<double>(ann.RawValues) : null
+                            };
+
+                            if (newAnn.Points != null && newAnn.Points.Count > 0)
+                            {
+                                newAnn.Points = VisionAICam.Services.ImageAugmentation.TransformPoints(newAnn.Points, matrix, w, h);
+                            }
+
+                            if (newAnn.RawValues != null && newAnn.RawValues.Count == 8)
+                            {
+                                newAnn.RawValues = VisionAICam.Services.ImageAugmentation.TransformRawValuesOBB(newAnn.RawValues, matrix, w, h);
+                            }
+
+                            _currentProject.Annotations.Add(newAnn);
+                            Annotations.Add(newAnn);
+                        }
+
+                        // choose mode: ScaleDownIfLarger keeps small images padded (black) and scales down large ones.
+                        CropPadScaleMode mode = CropPadScaleMode.ScaleDownIfLarger;
+
+                        int offsetX = 0, offsetY = 0;
+                        transformed = EnsureCropPadScale(transformed, (int)w, (int)h, mode, out offsetX, out offsetY);
+
+                        // save final image
+                        try
+                        {
+                            var encoder = new PngBitmapEncoder();
+                            encoder.Frames.Add(BitmapFrame.Create(transformed));
+                            using var fs = File.Open(outFile, FileMode.Create, FileAccess.Write, FileShare.None);
+                            encoder.Save(fs);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Failed to save final augmented image {outFile}: {ex}");
+                            continue;
+                        }
+
+                        // adjust annotation points for offset (transformPoints subtracts offset)
+                        foreach (var ann in annsForImage)
+                        {
+                            if (ann.Points != null && ann.Points.Count > 0)
+                            {
+                                for (int i = 0; i < ann.Points.Count; i++)
+                                {
+                                    var p = ann.Points[i];
+                                    ann.Points[i] = new Point(p.X - offsetX, p.Y - offsetY);
+                                }
+                            }
+
+                            if (ann.RawValues != null && ann.RawValues.Count == 8)
+                            {
+                                // OBB: apply offset to all 8 values
+                                for (int i = 0; i < 8; i += 2)
+                                {
+                                    ann.RawValues[i] -= offsetX;
+                                    ann.RawValues[i + 1] -= offsetY;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // persist session
+                ProjectSession.CurrentProject = _currentProject;
+                ProjectSession.Annotations = Annotations;
+                ProjectSession.ImagePaths = _imagePaths;
+
+                // Ensure UI reflects the new image count and annotations
+                Dispatcher.Invoke(() =>
+                {
+                    RefreshAnnotations();
+                    UpdateClassStats();
+
+                    // Update the image progress text so the new total appears immediately.
+                    if (ImageProgressText != null)
+                    {
+                        if (_imagePaths != null && _imagePaths.Count > 0 && _currentImageIndex >= 0 && _currentImageIndex < _imagePaths.Count)
+                        {
+                            ImageProgressText.Text = $"Image {_currentImageIndex + 1} of {_imagePaths.Count} ({(int)(((_currentImageIndex + 1) * 100.0) / _imagePaths.Count)}%) - {System.IO.Path.GetFileName(_currentImagePath ?? "")}";
+                        }
+                        else
+                        {
+                            ImageProgressText.Text = $"No images loaded";
+                        }
+                    }
+
+                    SetStatus($"Augmentation finished. {_imagePaths.Count} images in project. Augmented images saved next to originals.");
+                });
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Augmentation failed: {ex.Message}");
+            }
+        }
+
+        // place inside the DataSetPage class (near other helpers)
+        private enum CropPadScaleMode
+        {
+            None,               // no scaling: center, crop if larger, pad if smaller
+            ScaleDownIfLarger,  // scale down when transformed image is larger than target; never upscale
+            ScaleToFill         // scale so image covers target (may crop), useful when you want "cover" behavior
+        }
+
+        // Replace previous EnsureCropAndPad/EnsureBitmapSize uses with this single helper.
+        // Returns final frozen BitmapSource sized to targetWidth/targetHeight and out offsets
+        // offsetX/offsetY such that finalPoint = transformedPoint - offset (useful to adjust annotation coords).
+        private BitmapSource EnsureCropPadScale(BitmapSource src, int targetWidth, int targetHeight, CropPadScaleMode mode, out int offsetX, out int offsetY)
+        {
+            offsetX = 0;
+            offsetY = 0;
+
+            if (src == null)
+                return null;
+
+            int srcW = src.PixelWidth;
+            int srcH = src.PixelHeight;
+
+            // If exact match, nothing to do.
+            if (srcW == targetWidth && srcH == targetHeight)
+            {
+                if (!src.IsFrozen) src.Freeze();
+                offsetX = 0;
+                offsetY = 0;
+                return src;
+            }
+
+            double drawLeft = 0.0;
+            double drawTop = 0.0;
+            double drawW = srcW;
+            double drawH = srcH;
+
+            switch (mode)
+            {
+                case CropPadScaleMode.None:
+                    // no scaling, draw at native size centered -> crop if larger, pad if smaller
+                    drawW = srcW;
+                    drawH = srcH;
+                    drawLeft = (targetWidth - drawW) / 2.0;
+                    drawTop = (targetHeight - drawH) / 2.0;
+                    break;
+
+                case CropPadScaleMode.ScaleDownIfLarger:
+                    // scale down so the transformed image fits inside target when it is larger.
+                    // Do NOT upscale small images (user asked to fill with black instead of upscaling).
+                    {
+                        double scale = Math.Min(1.0, Math.Min((double)targetWidth / srcW, (double)targetHeight / srcH));
+                        drawW = Math.Max(1.0, srcW * scale);
+                        drawH = Math.Max(1.0, srcH * scale);
+                        drawLeft = (targetWidth - drawW) / 2.0;
+                        drawTop = (targetHeight - drawH) / 2.0;
+                    }
+                    break;
+
+                case CropPadScaleMode.ScaleToFill:
+                    // scale so image covers the target (may crop). Upscales small images as needed.
+                    {
+                        double scale = Math.Max((double)targetWidth / srcW, (double)targetHeight / srcH);
+                        drawW = Math.Max(1.0, srcW * scale);
+                        drawH = Math.Max(1.0, srcH * scale);
+                        drawLeft = (targetWidth - drawW) / 2.0;
+                        drawTop = (targetHeight - drawH) / 2.0;
+                    }
+                    break;
+            }
+
+            // offset used for annotation adjustment: finalPoint = transformedPoint + drawOffset
+            // we follow existing convention where caller subtracts offsetX/offsetY from transformed points,
+            // therefore provide offsetX = -drawLeft
+            offsetX = (int)Math.Round(-drawLeft);
+            offsetY = (int)Math.Round(-drawTop);
+
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                // black background
+                dc.DrawRectangle(Brushes.Black, null, new Rect(0, 0, targetWidth, targetHeight));
+                // draw (scaled) transformed image at computed position; DrawImage will crop automatically if negative offsets
+                dc.DrawImage(src, new Rect(drawLeft, drawTop, drawW, drawH));
+            }
+
+            var rtb = new RenderTargetBitmap(
+                Math.Max(1, targetWidth),
+                Math.Max(1, targetHeight),
+                src.DpiX,
+                src.DpiY,
+                PixelFormats.Pbgra32);
+
+            RenderOptions.SetBitmapScalingMode(rtb, BitmapScalingMode.HighQuality);
+            rtb.Render(dv);
+            rtb.Freeze();
+            return rtb;
+        }
     }
 }

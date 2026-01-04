@@ -122,6 +122,7 @@
                                     <Button Content="Add Class" MinWidth="70" Click="AddClassButton_Click"/>
                                 </StackPanel>
                             </GroupBox>
+
                             <GroupBox Header="Drawing Mode"
                                       Margin="0,0,0,0"
                                       Foreground="#222"
@@ -136,6 +137,32 @@
                                         <ComboBoxItem Content="Rectangle" IsSelected="True"/>
                                         <ComboBoxItem Content="Polygon"/>
                                     </ComboBox>
+                                </StackPanel>
+                            </GroupBox>
+
+                            <!-- Auto-label button moved outside the Drawing Mode groupbox -->
+                            <GroupBox Header="Auto Label"
+                                      Margin="10,0,0,0"
+                                      Foreground="#222"
+                                      Background="#FFF5F5F5"
+                                      BorderBrush="#1976D2"
+                                      VerticalAlignment="Top"
+                                      HorizontalAlignment="Left">
+                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="#FFF5F5F5">
+                                    <ComboBox x:Name="AutoLabelComboBox"
+                                              MinWidth="220"
+                                              Margin="0,0,8,0"
+                                              SelectionChanged="AutoLabelComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Save Project"/>
+                                        <ComboBoxItem Content="ExportYolo8n-obb"/>
+                                        <ComboBoxItem Content="Load DataSet(obb)"/>
+                                        <ComboBoxItem Content="Train model"/>
+                                        <ComboBoxItem Content="Auto label" IsSelected="True"/>
+                                    </ComboBox>
+                                    <Button x:Name="AutoLabelExecuteButton"
+                                            Content="Execute"
+                                            MinWidth="80"
+                                            Click="AutoLabelExecuteButton_Click"/>
                                 </StackPanel>
                             </GroupBox>
                         </StackPanel>
