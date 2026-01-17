@@ -194,8 +194,88 @@ namespace VisionAICam.Pages
 
             // wire label combo selection and ensure badge updates on load
             LabelComboBox.SelectionChanged += LabelComboBox_SelectionChanged;
+
+            // inside the DataSetPage() constructor (after InitializeComponent();)
+            this.PreviewKeyDown += DataSetPage_PreviewKeyDown;
+        }
+        // Add these members/methods inside the DataSetPage class
+
+        // Convert current mouse position into the canvas/image logical coordinates (undo ZoomTransform).
+        private SWPoint GetMousePointUnscaled()
+        {
+            if (BoundingBoxCanvas == null)
+                return new SWPoint(0, 0);
+
+            var p = Mouse.GetPosition(BoundingBoxCanvas);
+
+            // If you have a ScaleTransform named ZoomTransform in XAML, invert it here.
+            // If ZoomTransform is null or other transforms exist, return raw position.
+            if (ZoomTransform != null)
+            {
+                double sx = ZoomTransform.ScaleX;
+                double sy = ZoomTransform.ScaleY;
+                double cx = ZoomTransform.CenterX;
+                double cy = ZoomTransform.CenterY;
+
+                if (Math.Abs(sx) > 1e-6 && Math.Abs(sy) > 1e-6)
+                {
+                    double x = (p.X - cx) / sx + cx;
+                    double y = (p.Y - cy) / sy + cy;
+                    return new SWPoint(x, y);
+                }
+            }
+
+            return p;
         }
 
+        // Tunnelled key handler: runs before focused controls receive the key.
+        // Consumes Space while drawing so controls/layout won't react and move the image.
+        private void DataSetPage_PreviewKeyDown(object? sender, KeyEventArgs e)
+        {
+            try
+            {
+                if (e.Key == Key.Space && _isDrawing && _currentDrawingShapeInfo != null)
+                {
+                    // Use unscaled pointer so zoom/transform doesn't cause coordinate jumps.
+                    var rawPos = GetMousePointUnscaled();
+                    var clamped = ClampPointToImage(rawPos);
+
+                    if (_currentDrawingMode == DrawingMode.Polygon)
+                    {
+                        if (_currentPolygonPoints.Count > 0)
+                            _currentPolygonPoints[_currentPolygonPoints.Count - 1] = clamped;
+                        else
+                            _currentPolygonPoints.Add(clamped);
+
+                        if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                            poly.Points = new PointCollection(_currentPolygonPoints);
+                    }
+                    else if (_currentDrawingMode == DrawingMode.FreePen)
+                    {
+                        if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                        {
+                            if (poly.Points.Count > 0)
+                                poly.Points[poly.Points.Count - 1] = clamped;
+                            else
+                                poly.Points.Add(clamped);
+                            _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
+                        }
+                    }
+                    else if (_currentDrawingMode == DrawingMode.Rectangle)
+                    {
+                        UpdateRectangle(clamped);
+                    }
+
+                    // Finish and prevent other controls from acting on Space (collapse/activate/etc).
+                    FinishDrawing_Click(this, new RoutedEventArgs());
+                    e.Handled = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"DataSetPage_PreviewKeyDown error: {ex}");
+            }
+        }
         private void LabelComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateSelectedClassBadge();
@@ -238,6 +318,15 @@ namespace VisionAICam.Pages
                 if (RightColumn == null || RightPanelToggleButton == null)
                     return;
 
+                // Capture mouse position relative to the canvas before layout change so we can correct drawing state after.
+                SWPoint mouseBefore = new SWPoint(0, 0);
+                try
+                {
+                    if (BoundingBoxCanvas != null)
+                        mouseBefore = Mouse.GetPosition(BoundingBoxCanvas);
+                }
+                catch { }
+
                 if (!_rightPanelCollapsed)
                 {
                     // collapse right panel
@@ -250,7 +339,6 @@ namespace VisionAICam.Pages
                     if (ClassStatsPanel != null)
                     {
                         ClassStatsPanel.Visibility = Visibility.Visible;
-                        // ensure the body is visible (expand internal panel)
                         if (ClassStatsBody != null) ClassStatsBody.Visibility = Visibility.Visible;
                         if (ClassStatsToggleButton != null) ClassStatsToggleButton.Content = "▾";
                         _classStatsOverlayShown = true;
@@ -272,16 +360,122 @@ namespace VisionAICam.Pages
                     RightPanelToggleButton.ToolTip = "Collapse Controls";
                     _rightPanelCollapsed = false;
 
-                    //// hide overlay when right panel is expanded (transient overlay)
-                    //if (ClassStatsPanel != null && ClassStatsPanel.Visibility == Visibility.Visible)
-                    //{
-                    //    ClassStatsPanel.Visibility = Visibility.Collapsed;
-                    //    _classStatsOverlayShown = false;
-                    //    if (ClassStatsDockToggleButton != null) ClassStatsDockToggleButton.Content = "▶";
-                    //}
-
                     SetStatus("Right panel expanded.");
                 }
+
+                // Force layout update and compute mouse displacement caused by the layout change.
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        if (BoundingBoxCanvas != null)
+                        {
+                            BoundingBoxCanvas.UpdateLayout();
+                            var mouseAfter = Mouse.GetPosition(BoundingBoxCanvas);
+                            double dx = mouseAfter.X - mouseBefore.X;
+                            double dy = mouseAfter.Y - mouseBefore.Y;
+
+                            // If layout change moved the canvas under the cursor, adjust internal state so drawing/dragging doesn't "slip".
+                            if (Math.Abs(dx) > 0.5 || Math.Abs(dy) > 0.5)
+                            {
+                                // Adjust pending / mouse-down reference used to begin a drag
+                                if (_mouseLeftDown)
+                                {
+                                    _mouseDownPoint = new SWPoint(_mouseDownPoint.X + dx, _mouseDownPoint.Y + dy);
+                                }
+
+                                // Adjust dragging start so the current drag remains smooth
+                                if (_isDraggingShape)
+                                {
+                                    _dragStartPoint = new SWPoint(_dragStartPoint.X + dx, _dragStartPoint.Y + dy);
+                                }
+
+                                // If user is drawing, shift the current visual and the stored start point(s)
+                                if (_isDrawing && _currentDrawingShapeInfo != null)
+                                {
+                                    // Shift visual shape
+                                    var shape = _currentDrawingShapeInfo.Shape;
+                                    if (shape is Rectangle rect)
+                                    {
+                                        Canvas.SetLeft(rect, Canvas.GetLeft(rect) + dx);
+                                        Canvas.SetTop(rect, Canvas.GetTop(rect) + dy);
+
+                                        // Update record points (two points for rectangle)
+                                        if (_currentDrawingShapeInfo.Record?.Points != null && _currentDrawingShapeInfo.Record.Points.Count >= 1)
+                                        {
+                                            for (int i = 0; i < _currentDrawingShapeInfo.Record.Points.Count; i++)
+                                            {
+                                                var p = _currentDrawingShapeInfo.Record.Points[i];
+                                                _currentDrawingShapeInfo.Record.Points[i] = new SWPoint(p.X + dx, p.Y + dy);
+                                            }
+                                        }
+
+                                        // Move label
+                                        Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, Canvas.GetLeft(_currentDrawingShapeInfo.LabelBlock) + dx);
+                                        Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, Canvas.GetTop(_currentDrawingShapeInfo.LabelBlock) + dy);
+                                    }
+                                    else if (shape is Polyline polyline)
+                                    {
+                                        // Shift each point
+                                        var pts = polyline.Points;
+                                        for (int i = 0; i < pts.Count; i++)
+                                            pts[i] = new Point(pts[i].X + dx, pts[i].Y + dy);
+                                        polyline.Points = new PointCollection(pts);
+
+                                        if (_currentDrawingShapeInfo.Record?.Points != null)
+                                        {
+                                            for (int i = 0; i < _currentDrawingShapeInfo.Record.Points.Count; i++)
+                                            {
+                                                var p = _currentDrawingShapeInfo.Record.Points[i];
+                                                _currentDrawingShapeInfo.Record.Points[i] = new SWPoint(p.X + dx, p.Y + dy);
+                                            }
+                                        }
+
+                                        // Move label (use existing offset)
+                                        Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, Canvas.GetLeft(_currentDrawingShapeInfo.LabelBlock) + dx);
+                                        Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, Canvas.GetTop(_currentDrawingShapeInfo.LabelBlock) + dy);
+                                    }
+                                    else if (shape is Polygon polygon)
+                                    {
+                                        var pts = polygon.Points;
+                                        for (int i = 0; i < pts.Count; i++)
+                                            pts[i] = new Point(pts[i].X + dx, pts[i].Y + dy);
+                                        polygon.Points = new PointCollection(pts);
+
+                                        if (_currentDrawingShapeInfo.Record?.Points != null)
+                                        {
+                                            for (int i = 0; i < _currentDrawingShapeInfo.Record.Points.Count; i++)
+                                            {
+                                                var p = _currentDrawingShapeInfo.Record.Points[i];
+                                                _currentDrawingShapeInfo.Record.Points[i] = new SWPoint(p.X + dx, p.Y + dy);
+                                            }
+                                        }
+
+                                        Canvas.SetLeft(_currentDrawingShapeInfo.LabelBlock, Canvas.GetLeft(_currentDrawingShapeInfo.LabelBlock) + dx);
+                                        Canvas.SetTop(_currentDrawingShapeInfo.LabelBlock, Canvas.GetTop(_currentDrawingShapeInfo.LabelBlock) + dy);
+                                    }
+
+                                    // Refresh handles for consistency
+                                    RefreshHandles(_currentDrawingShapeInfo);
+                                }
+
+                                // If handles exist for an active shape, shift them too
+                                if (_handles != null && _handles.Count > 0)
+                                {
+                                    foreach (var h in _handles)
+                                    {
+                                        Canvas.SetLeft(h, Canvas.GetLeft(h) + dx);
+                                        Canvas.SetTop(h, Canvas.GetTop(h) + dy);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"RightPanelToggleButton post-layout adjust error: {ex}");
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -3486,6 +3680,7 @@ namespace VisionAICam.Pages
 
 
         }
+        #region Auto-Label
         // Update Execute handler to handle the revised ComboBox options.
         private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
         {
@@ -3540,7 +3735,7 @@ namespace VisionAICam.Pages
                         break;
 
                     case "ExportYolo8n-obb":
-                        ExportYoloV8_OBB_Click(sender, e);
+                        ExportYolo8_OBB_Mini_Click(sender, e);
                         break;
 
                     case "Load DataSet(obb)":
@@ -3688,6 +3883,168 @@ namespace VisionAICam.Pages
                 // non-critical
             }
         }
+
+
+        // Mini export handler: creates a train-ready folder (no split) for YOLOv8 OBB.
+        // Adds images/ and labels/ and writes a simple data.yaml.
+        private void ExportYolo8_OBB_Mini_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv8 OBB mini export (no split)",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                SetStatus("YOLOv8 OBB mini export canceled.");
+                return;
+            }
+
+            string outputFolder = System.IO.Path.Combine(dialog.SelectedPath, $"Yolo8OBB_Mini_{DateTime.Now:yyyyMMdd_HHmmss}");
+
+            try
+            {
+                // Convert annotations to rotated boxes (non-destructive)
+                var projectForExport = Convert2RotatedBox(_currentProject);
+
+                ExportYoloV8_OBB_MiniSave(projectForExport, outputFolder);
+
+                SetStatus($"YOLOv8 OBB mini export complete: {outputFolder}");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"YOLOv8 OBB mini export failed: {ex.Message}");
+            }
+        }
+
+        // Helper: perform the actual copy + label writing for a no-split YOLOv8 OBB training folder.
+        private void ExportYoloV8_OBB_MiniSave(AnnotationProject project, string outputFolder)
+        {
+            if (project == null) throw new ArgumentNullException(nameof(project));
+            Directory.CreateDirectory(outputFolder);
+
+            string imagesOut = System.IO.Path.Combine(outputFolder, "images");
+            string labelsOut = System.IO.Path.Combine(outputFolder, "labels");
+            Directory.CreateDirectory(imagesOut);
+            Directory.CreateDirectory(labelsOut);
+
+            var classLabels = project.ClassLabels ?? new List<string>();
+
+            // Group annotations by image name — this ensures we export only images that have at least one annotation.
+            var annsByImage = (project.Annotations ?? Enumerable.Empty<AnnotationRecord>())
+                .Where(a => !string.IsNullOrWhiteSpace(a.ImageName))
+                .GroupBy(a => a.ImageName, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var grp in annsByImage)
+            {
+                string imageName = grp.Key;
+
+                try
+                {
+                    // Find source path for this image name
+                    var srcPath = (project.ImagePaths ?? Enumerable.Empty<string>())
+                        .FirstOrDefault(p => System.IO.Path.GetFileName(p).Equals(imageName, StringComparison.OrdinalIgnoreCase));
+
+                    if (string.IsNullOrEmpty(srcPath) || !File.Exists(srcPath))
+                    {
+                        Debug.WriteLine($"Export skipped: image file not found for annotation entries: {imageName}");
+                        continue;
+                    }
+
+                    string destImage = System.IO.Path.Combine(imagesOut, imageName);
+                    File.Copy(srcPath, destImage, overwrite: true);
+
+                    var lines = new List<string>();
+
+                    foreach (var ann in grp)
+                    {
+                        int classId = 0;
+                        if (!string.IsNullOrEmpty(ann.Label) && classLabels != null && classLabels.Count > 0)
+                        {
+                            int idx = classLabels.FindIndex(l => string.Equals(l, ann.Label, StringComparison.OrdinalIgnoreCase));
+                            classId = idx >= 0 ? idx : 0;
+                        }
+
+                        // Prefer RawValues for OBB (8 values), otherwise flatten Points as fallback.
+                        if (ann.AnnotationType == AnnotationType.RotatedBox && ann.RawValues != null && ann.RawValues.Count == 8)
+                        {
+                            var parts = ann.RawValues.Select(v => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+                            lines.Add(classId + " " + string.Join(" ", parts));
+                        }
+                        else if (ann.Points != null && ann.Points.Count >= 4)
+                        {
+                            var pts = ann.Points.Take(4).SelectMany(p => new[] {
+                        p.X.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                        p.Y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    });
+                            lines.Add(classId + " " + string.Join(" ", pts));
+                        }
+                        else if (ann.Points != null && ann.Points.Count > 0)
+                        {
+                            var pts = ann.Points.SelectMany(p => new[] {
+                        p.X.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
+                        p.Y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    });
+                            lines.Add(classId + " " + string.Join(" ", pts));
+                        }
+                        else
+                        {
+                            // unsupported annotation -> skip this annotation record
+                            continue;
+                        }
+                    }
+
+                    // Only write label file if there is at least one valid annotation line
+                    if (lines.Count > 0)
+                    {
+                        string labelFile = System.IO.Path.Combine(labelsOut, System.IO.Path.ChangeExtension(imageName, ".txt"));
+                        File.WriteAllLines(labelFile, lines);
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"No valid annotations to write for image: {imageName}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Export error for {imageName}: {ex}");
+                    // continue with other images
+                }
+            }
+
+            // Write a minimal data.yaml for training convenience
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"path: {outputFolder.Replace("\\", "/")}");
+                sb.AppendLine($"train: ./images"); // using same folder for train (no split)
+                sb.AppendLine($"val: ./images");
+                sb.AppendLine("names:");
+                if (classLabels != null && classLabels.Count > 0)
+                {
+                    for (int i = 0; i < classLabels.Count; i++)
+                        sb.AppendLine($"  {i}: {classLabels[i]}");
+                }
+                else
+                {
+                    sb.AppendLine("  0: class0");
+                }
+
+                File.WriteAllText(System.IO.Path.Combine(outputFolder, "data.yaml"), sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to write data.yaml: {ex}");
+            }
+        }
+
         private (bool ok, string report) VerifyObbFolder(string folderPath)
         {
             try
@@ -3695,47 +4052,64 @@ namespace VisionAICam.Pages
                 if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
                     return (false, "Folder does not exist.");
 
-                var txtFiles = Directory.GetFiles(folderPath, "*.txt", SearchOption.TopDirectoryOnly);
-                if (txtFiles.Length == 0)
-                    return (false, "No .txt annotation files found in the selected folder.");
+                // Search recursively because many OBB datasets store label files in nested folders (e.g. "labels/")
+                var txtFiles = Directory.EnumerateFiles(folderPath, "*.txt", SearchOption.AllDirectories).ToList();
+                if (txtFiles.Count == 0)
+                    return (false, "No .txt annotation files found in the selected folder (searched recursively). " +
+                                   "Make sure you selected the folder that contains the label .txt files (or the dataset root).");
 
-                int totalFiles = txtFiles.Length;
+                int totalFiles = txtFiles.Count;
                 int totalLines = 0;
                 int badLines = 0;
                 var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Found {totalFiles} .txt files (searching recursively). Showing up to first 20 problems:");
+
+                // Validate lines: accept files where last 8 tokens are numeric (handles optional leading class token).
                 foreach (var f in txtFiles)
                 {
-                    var lines = File.ReadAllLines(f);
+                    string[] lines;
+                    try
+                    {
+                        lines = File.ReadAllLines(f);
+                    }
+                    catch (Exception ex)
+                    {
+                        badLines++;
+                        sb.AppendLine($"{SWPath.GetFileName(f)}: FAILED to read file ({ex.Message})");
+                        continue;
+                    }
+
                     for (int i = 0; i < lines.Length; i++)
                     {
                         var line = lines[i].Trim();
                         if (string.IsNullOrEmpty(line)) continue;
                         totalLines++;
+
+                        // split on whitespace and commas
                         var tokens = line.Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
-                        // Accept either [class] + 8 values (9 tokens) OR exactly 8 numeric values
-                        if (tokens.Length == 9 || tokens.Length == 8)
-                        {
-                            // Quick numeric validation for coords
-                            int startIdx = tokens.Length == 9 ? 1 : 0;
-                            bool allNumeric = true;
-                            for (int t = startIdx; t < tokens.Length; t++)
-                            {
-                                if (!double.TryParse(tokens[t], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
-                                {
-                                    allNumeric = false;
-                                    break;
-                                }
-                            }
-                            if (!allNumeric)
-                            {
-                                badLines++;
-                                sb.AppendLine($"{SWPath.GetFileName(f)}: line {i + 1} contains non-numeric coordinates.");
-                            }
-                        }
-                        else
+                        if (tokens.Length < 8)
                         {
                             badLines++;
-                            sb.AppendLine($"{SWPath.GetFileName(f)}: line {i + 1} wrong token count ({tokens.Length}). Expected 8 or 9 tokens.");
+                            if (sb.Length < 8000) sb.AppendLine($"{SWPath.GetFileName(f)}: line {i + 1} has {tokens.Length} tokens (expected >=8).");
+                            continue;
+                        }
+
+                        // Look at the last 8 tokens (common OBB forms contain 8 coords; some files might include a class token at start)
+                        int startIdx = tokens.Length - 8;
+                        bool allNumeric = true;
+                        for (int t = startIdx; t < tokens.Length; t++)
+                        {
+                            if (!double.TryParse(tokens[t], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+                            {
+                                allNumeric = false;
+                                break;
+                            }
+                        }
+
+                        if (!allNumeric)
+                        {
+                            badLines++;
+                            if (sb.Length < 8000) sb.AppendLine($"{SWPath.GetFileName(f)}: line {i + 1} contains non-numeric coordinate(s).");
                         }
                     }
                 }
@@ -3750,7 +4124,13 @@ namespace VisionAICam.Pages
                 return (false, $"Verification failed: {ex.Message}");
             }
         }
-        
+
+
+        #endregion
+
+
+
+
         private async Task AugmentCurrentProjectImagesAsync()
         {
             if (_currentProject == null || _imagePaths == null || _imagePaths.Count == 0)
