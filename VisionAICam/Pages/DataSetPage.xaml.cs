@@ -93,6 +93,8 @@ namespace VisionAICam.Pages
         private readonly List<ShapeInfo> _shapeInfos = new();
         private List<ShapeInfo> _shape_infos => _shapeInfos;
 
+        public string DatasetFolder { get; private set; }
+
         // Small processing mode state for the floating menu
         private enum ImageProcessMode { None, Grayscale, Edges, Contours, ContourRects }
         private ImageProcessMode _selectedProcessingMode = ImageProcessMode.None;
@@ -2087,6 +2089,221 @@ namespace VisionAICam.Pages
             }
         }
 
+        private void ExportYolo8_OBB_Mini_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentProject == null || _currentProject.ImagePaths == null || _currentProject.ImagePaths.Count == 0)
+            {
+                SetStatus("No project or images to export.");
+                return;
+            }
+
+            var dialog = new VistaFolderBrowserDialog
+            {
+                Description = "Select output folder for YOLOv8 OBB mini export (creates train/val/test split)",
+                UseDescriptionForTitle = true
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                SetStatus("YOLOv8 OBB export canceled.");
+                return;
+            }
+
+            string outputFolder = SWPath.Combine(dialog.SelectedPath, $"Yolo8OBB_{DateTime.Now:yyyyMMdd_HHmmss}");
+
+            try
+            {
+                // Convert annotations to rotated boxes (non-destructive)
+                var projectForExport = Convert2RotatedBox(_currentProject);
+
+                // Temporary export folder
+                string tmpExport = SWPath.Combine(outputFolder, "tmp_export");
+                Directory.CreateDirectory(tmpExport);
+
+                // Export base images + normalized polygon OBB labels
+                ExportYoloV8_OBB_MiniSave(projectForExport, tmpExport);
+                SetStatus("Base export complete. Running augmentation...");
+
+                // Augment BEFORE splitting
+                string imagesOut = SWPath.Combine(tmpExport, "images");
+                string labelsOut = SWPath.Combine(tmpExport, "labels");
+
+                int minPerClass = 20;
+                var classLabelsList = projectForExport.ClassLabels ?? new List<string>();
+                var augmentFullReport = AugmentExportDatasetIfNeeded(imagesOut, labelsOut, classLabelsList, minPerClass);
+
+                SetStatus("Augmentation complete. Creating train/val/test split...");
+
+                if (!Directory.Exists(imagesOut) || !Directory.Exists(labelsOut))
+                {
+                    SetStatus("Export failed: images/ or labels/ missing after augmentation.");
+                    try { Directory.Delete(tmpExport, true); } catch { }
+                    return;
+                }
+
+                var allImages = Directory.EnumerateFiles(imagesOut)
+                    .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                f.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+                    .Select(SWPath.GetFileName)
+                    .ToList();
+
+                // If too few images, fallback to no split
+                if (allImages.Count < 3)
+                {
+                    WriteFallbackYaml(outputFolder, classLabelsList);
+                    MoveNoSplit(imagesOut, labelsOut, outputFolder);
+
+                    try { Directory.Delete(tmpExport, true); } catch { }
+                    SetStatus($"Exported {allImages.Count} images — dataset too small for split.");
+                    return;
+                }
+
+                // Ratios
+                double trainRatio = 0.7;
+                double valRatio = 0.2;
+                double testRatio = 0.1;
+
+                int total = allImages.Count;
+                int valCount = Math.Max(1, (int)Math.Round(total * valRatio));
+                int testCount = Math.Max(1, (int)Math.Round(total * testRatio));
+
+                if (valCount + testCount >= total)
+                {
+                    valCount = Math.Max(1, total / 6);
+                    testCount = Math.Max(1, total / 10);
+                }
+
+                int trainCount = total - valCount - testCount;
+                if (trainCount < 1)
+                    trainCount = Math.Max(1, total - valCount - testCount);
+
+                // Deterministic shuffle
+                var rng = new Random(123456);
+                var shuffled = allImages.OrderBy(_ => rng.Next()).ToList();
+
+                var valSet = new HashSet<string>(shuffled.Take(valCount));
+                var testSet = new HashSet<string>(shuffled.Skip(valCount).Take(testCount));
+                var trainSet = new HashSet<string>(shuffled.Skip(valCount + testCount));
+
+                // Create folders
+                string trainImagesDir = SWPath.Combine(outputFolder, "train", "images");
+                string trainLabelsDir = SWPath.Combine(outputFolder, "train", "labels");
+                string valImagesDir = SWPath.Combine(outputFolder, "val", "images");
+                string valLabelsDir = SWPath.Combine(outputFolder, "val", "labels");
+                string testImagesDir = SWPath.Combine(outputFolder, "test", "images");
+                string testLabelsDir = SWPath.Combine(outputFolder, "test", "labels");
+
+                Directory.CreateDirectory(trainImagesDir);
+                Directory.CreateDirectory(trainLabelsDir);
+                Directory.CreateDirectory(valImagesDir);
+                Directory.CreateDirectory(valLabelsDir);
+                Directory.CreateDirectory(testImagesDir);
+                Directory.CreateDirectory(testLabelsDir);
+
+                string ImgPath(string name) => SWPath.Combine(imagesOut, name);
+                string LabPath(string name) => SWPath.Combine(labelsOut, SWPath.ChangeExtension(name, ".txt"));
+
+                // Copy train
+                foreach (var name in trainSet)
+                {
+                    File.Copy(ImgPath(name), SWPath.Combine(trainImagesDir, name), true);
+                    var lab = LabPath(name);
+                    if (File.Exists(lab))
+                        File.Copy(lab, SWPath.Combine(trainLabelsDir, SWPath.GetFileName(lab)), true);
+                }
+
+                // Copy val
+                foreach (var name in valSet)
+                {
+                    File.Copy(ImgPath(name), SWPath.Combine(valImagesDir, name), true);
+                    var lab = LabPath(name);
+                    if (File.Exists(lab))
+                        File.Copy(lab, SWPath.Combine(valLabelsDir, SWPath.GetFileName(lab)), true);
+                }
+
+                // Copy test
+                foreach (var name in testSet)
+                {
+                    File.Copy(ImgPath(name), SWPath.Combine(testImagesDir, name), true);
+                    var lab = LabPath(name);
+                    if (File.Exists(lab))
+                        File.Copy(lab, SWPath.Combine(testLabelsDir, SWPath.GetFileName(lab)), true);
+                }
+
+                // Write final YAML
+                WriteOBB_Yaml(outputFolder, classLabelsList);
+
+                // Cleanup
+                try { Directory.Delete(tmpExport, true); } catch { }
+
+                SetStatus($"YOLOv8 OBB export complete: {outputFolder}. {augmentFullReport}");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"YOLOv8 OBB export failed: {ex.Message}");
+            }
+        }
+        private void WriteOBB_Yaml(string outputFolder, List<string> classLabels)
+        {
+            var sb = new System.Text.StringBuilder();
+
+            sb.AppendLine($"path: {outputFolder.Replace("\\", "/")}");
+            sb.AppendLine("train: ./train/images");
+            sb.AppendLine("val: ./val/images");
+            sb.AppendLine("test: ./test/images");
+
+            sb.AppendLine($"nc: {classLabels.Count}");
+
+            var names = classLabels.Select(n => $"'{n}'");
+            sb.AppendLine($"names: [{string.Join(", ", names)}]");
+
+            sb.AppendLine("task: obb");
+
+            sb.AppendLine("workspace:");
+            sb.AppendLine("project: Untitled Project");
+            sb.AppendLine("version:");
+            sb.AppendLine("license:");
+            sb.AppendLine("url:");
+
+            File.WriteAllText(SWPath.Combine(outputFolder, "data.yaml"), sb.ToString());
+        }
+
+        private void MoveNoSplit(string imagesOut, string labelsOut, string outputFolder)
+        {
+            string finalImages = SWPath.Combine(outputFolder, "images");
+            string finalLabels = SWPath.Combine(outputFolder, "labels");
+
+            if (Directory.Exists(finalImages)) Directory.Delete(finalImages, true);
+            if (Directory.Exists(finalLabels)) Directory.Delete(finalLabels, true);
+
+            Directory.Move(imagesOut, finalImages);
+            Directory.Move(labelsOut, finalLabels);
+        }
+        private void WriteFallbackYaml(string outputFolder, List<string> classLabels)
+        {
+            var sb = new System.Text.StringBuilder();
+
+            sb.AppendLine($"path: {outputFolder.Replace("\\", "/")}");
+            sb.AppendLine("train: ./images");
+            sb.AppendLine("val: ./images");
+            sb.AppendLine("test: ./images");
+
+            sb.AppendLine($"nc: {classLabels.Count}");
+
+            var names = classLabels.Select(n => $"'{n}'");
+            sb.AppendLine($"names: [{string.Join(", ", names)}]");
+
+            sb.AppendLine("task: obb");
+
+            sb.AppendLine("workspace:");
+            sb.AppendLine("project: Untitled Project");
+            sb.AppendLine("version:");
+            sb.AppendLine("license:");
+            sb.AppendLine("url:");
+
+            File.WriteAllText(SWPath.Combine(outputFolder, "data.yaml"), sb.ToString());
+        }
         private void ExportYoloV8_Click(object sender, RoutedEventArgs e)
         {
 
@@ -3752,6 +3969,7 @@ namespace VisionAICam.Pages
                             }
 
                             var folder = dlg.SelectedPath;
+                            DatasetFolder= folder;
                             SetStatus("Verifying OBB dataset format...");
                             var (ok, report) = await Task.Run(() => VerifyObbFolder(folder));
                             if (ok)
@@ -3769,26 +3987,63 @@ namespace VisionAICam.Pages
 
                     case "Train model":
                         {
-                            SetStatus("Preparing training dataset...");
+                            SetStatus("Preparing training dataset and launching training...");
+
+                            if (_currentProject == null || _currentProject.ImagePaths == null || _currentProject.ImagePaths.Count == 0)
+                            {
+                                SetStatus("No project or images available for training.");
+                                break;
+                            }
+
+                            var dlg = new VistaFolderBrowserDialog
+                            {
+                                Description = "Select output folder for YOLOv8 OBB training export (will create a subfolder)",
+                                UseDescriptionForTitle = true
+                            };
+
+                            if (dlg.ShowDialog() != true)
+                            {
+                                SetStatus("Training canceled by user.");
+                                break;
+                            }
+
+                            string exportFolder = System.IO.Path.Combine(dlg.SelectedPath, $"Yolo8OBB_Train_{DateTime.Now:yyyyMMdd_HHmmss}");
+
                             try
                             {
-                                var svc = new VisionAICam.Services.AutoLabelerService();
-                                // Run dataset preparation off UI thread
-                                bool ok = await Task.Run(() => svc.PrepareTrainingDataset(10, VisionAICam.YoloExportFormat.YoloV8));
-                                if (ok)
-                                {
-                                    SetStatus("Training dataset prepared. Invoke external training pipeline as needed.");
-                                    MessageBox.Show("Training dataset prepared. Run your training pipeline separately.", "Train model", MessageBoxButton.OK, MessageBoxImage.Information);
-                                }
-                                else
-                                {
-                                    SetStatus("Failed to prepare training dataset.");
-                                    MessageBox.Show("PrepareTrainingDataset returned false.", "Train model", MessageBoxButton.OK, MessageBoxImage.Warning);
-                                }
+                                // Export a non-destructive rotated-box dataset for training.
+                                var projectForExport = Convert2RotatedBox(_currentProject);
+
+                                ExportYoloV8_OBB_MiniSave(projectForExport, exportFolder);
+                                SetStatus($"Training dataset exported to: {exportFolder}");
                             }
                             catch (Exception ex)
                             {
-                                SetStatus($"Train model failed: {ex.Message}");
+                                SetStatus($"Failed to export training dataset: {ex.Message}");
+                                break;
+                            }
+
+                            // Launch training in the AutoLabelerService, update UI via callback.
+                            try
+                            {
+                                var svc = new VisionAICam.Services.AutoLabelerService();
+                                Action<string> updateStatus = s => Dispatcher.Invoke(() => SetStatus(s));
+
+                                // Use the newly exported training folder (exportFolder) — not DatasetFolder.
+                                //DatasetFolder = exportFolder;
+                                bool started = await svc.LaunchYOLOv8TrainingAsync(DatasetFolder, updateStatus).ConfigureAwait(false);
+
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (started)
+                                        SetStatus("Model training process started.");
+                                    else
+                                        SetStatus("Model training failed to start.");
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                Dispatcher.Invoke(() => SetStatus($"Model training failed to start: {ex.Message}"));
                             }
                         }
                         break;
@@ -3849,6 +4104,10 @@ namespace VisionAICam.Pages
                             break;
 
                         case "Train model":
+                            // Enable Train model when a project with images exists (no per-class minimum required).
+                            AutoLabelExecuteButton.IsEnabled = _currentProject != null && _currentProject.ImagePaths != null && _currentProject.ImagePaths.Count > 0;
+                            break;
+
                         case "Auto label":
                             // Require per-class minimum annotations (same rule as before)
                             if (_currentProject == null || _currentProject.ClassLabels == null || _currentProject.ClassLabels.Count == 0)
@@ -3887,43 +4146,260 @@ namespace VisionAICam.Pages
 
         // Mini export handler: creates a train-ready folder (no split) for YOLOv8 OBB.
         // Adds images/ and labels/ and writes a simple data.yaml.
-        private void ExportYolo8_OBB_Mini_Click(object sender, RoutedEventArgs e)
+
+
+        // Augments images/labels in place to ensure at least minPerClass images per class.
+        // Uses VisionAICam.Services.ImageAugmentation helpers and EnsureCropPadScale already in this class.
+        // Returns a short report string for status.
+        private string AugmentExportDatasetIfNeeded(string imagesDir, string labelsDir, List<string> classLabels, int minPerClass)
         {
-            if (_currentProject == null || _currentProject.ImagePaths == null || _currentProject.ImagePaths.Count == 0)
-            {
-                SetStatus("No project or images to export.");
-                return;
-            }
-
-            var dialog = new VistaFolderBrowserDialog
-            {
-                Description = "Select output folder for YOLOv8 OBB mini export (no split)",
-                UseDescriptionForTitle = true
-            };
-
-            if (dialog.ShowDialog() != true)
-            {
-                SetStatus("YOLOv8 OBB mini export canceled.");
-                return;
-            }
-
-            string outputFolder = System.IO.Path.Combine(dialog.SelectedPath, $"Yolo8OBB_Mini_{DateTime.Now:yyyyMMdd_HHmmss}");
-
             try
             {
-                // Convert annotations to rotated boxes (non-destructive)
-                var projectForExport = Convert2RotatedBox(_currentProject);
+                if (!Directory.Exists(imagesDir) || !Directory.Exists(labelsDir)) return "No augmentation performed (missing folders).";
 
-                ExportYoloV8_OBB_MiniSave(projectForExport, outputFolder);
+                // map classId -> image filenames (set)
+                var classToImages = new Dictionary<int, HashSet<string>>();
+                int numClasses = Math.Max(1, classLabels?.Count ?? 1);
+                for (int i = 0; i < numClasses; i++) classToImages[i] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                SetStatus($"YOLOv8 OBB mini export complete: {outputFolder}");
+                // collect existing label files and their lines
+                var imageLabelLines = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+                foreach (var txt in Directory.EnumerateFiles(labelsDir, "*.txt"))
+                {
+                    var name = SWPath.GetFileNameWithoutExtension(txt);
+                    var imgCandidates = Directory.EnumerateFiles(imagesDir)
+                        .Where(f => SWPath.GetFileNameWithoutExtension(f).Equals(name, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    string imgName = imgCandidates.FirstOrDefault() != null ? SWPath.GetFileName(imgCandidates.First()) : null;
+                    if (imgName == null) continue;
+
+                    var lines = File.ReadAllLines(txt).Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+                    if (lines.Count == 0) continue;
+                    imageLabelLines[imgName] = lines;
+
+                    foreach (var l in lines)
+                    {
+                        var tokens = l.Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (tokens.Length == 0) continue;
+                        if (int.TryParse(tokens[0], out int cid) && cid >= 0 && cid < numClasses)
+                        {
+                            classToImages[cid].Add(imgName);
+                        }
+                        else
+                        {
+                            // fallback: assign to class 0
+                            classToImages[0].Add(imgName);
+                        }
+                    }
+                }
+
+                // determine classes needing augmentation
+                var need = classToImages.Where(kv => kv.Value.Count < minPerClass)
+                                        .ToDictionary(kv => kv.Key, kv => kv.Value.ToList());
+
+                if (need.Count == 0) return "Augmentation not needed; class counts meet requirement.";
+
+                // prepare transforms similar to AugmentCurrentProjectImagesAsync
+                var transforms = new List<Func<int, int, System.Windows.Media.Matrix>>()
+                {
+                    (w,h) => VisionAICam.Services.ImageAugmentation.FlipHorizontalMatrix(w),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.FlipVerticalMatrix(h),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.Rotate90CWMatrix(w, h),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.Rotate180Matrix(w, h),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.Rotate270CWMatrix(w, h),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.ShearXMatrix(w, h, 0.12),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.ShearYMatrix(w, h, 0.12),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.TranslateMatrix(12, 12),
+                    (w,h) => VisionAICam.Services.ImageAugmentation.PerspectiveMatrix(w, h, 0.03)
+                };
+
+                int created = 0;
+                foreach (var kv in need)
+                {
+                    int classId = kv.Key;
+                    var available = kv.Value;
+                    if (available.Count == 0) continue; // no source images for this class
+
+                    int idx = 0;
+                    int tIndex = 0;
+                    while (classToImages[classId].Count < minPerClass && tIndex < transforms.Count * available.Count * 10)
+                    {
+                        string srcImgName = available[idx % available.Count];
+                        string srcImgPath = SWPath.Combine(imagesDir, srcImgName);
+                        string srcLblPath = SWPath.Combine(labelsDir, SWPath.ChangeExtension(srcImgName, ".txt"));
+                        if (!File.Exists(srcImgPath) || !File.Exists(srcLblPath)) { idx++; tIndex++; continue; }
+
+                        // load source image
+                        BitmapSource srcBmp;
+                        try
+                        {
+                            var bi = new BitmapImage();
+                            using (var fs = File.OpenRead(srcImgPath))
+                            {
+                                bi.BeginInit();
+                                bi.CacheOption = BitmapCacheOption.OnLoad;
+                                bi.StreamSource = fs;
+                                bi.EndInit();
+                                bi.Freeze();
+                            }
+                            srcBmp = bi;
+                        }
+                        catch
+                        {
+                            idx++; tIndex++; continue;
+                        }
+
+                        int w = srcBmp.PixelWidth;
+                        int h = srcBmp.PixelHeight;
+
+                        var mat = transforms[tIndex % transforms.Count].Invoke(w, h);
+
+                        BitmapSource transformed;
+                        try
+                        {
+                            transformed = VisionAICam.Services.ImageAugmentation.TransformBitmap(srcBmp, mat);
+                        }
+                        catch
+                        {
+                            idx++; tIndex++; continue;
+                        }
+
+                        // keep final size consistent with source
+                        int offsetX, offsetY;
+                        transformed = EnsureCropPadScale(transformed, w, h, CropPadScaleMode.ScaleDownIfLarger, out offsetX, out offsetY);
+
+                        // create unique output name
+                        string baseName = SWPath.GetFileNameWithoutExtension(srcImgName);
+                        string ext = SWPath.GetExtension(srcImgName);
+                        string outName = $"{baseName}_aug_{tIndex}{ext}";
+                        string outPath = SWPath.Combine(imagesDir, outName);
+                        int attempt = 1;
+                        while (File.Exists(outPath) && attempt < 1000)
+                        {
+                            outName = $"{baseName}_aug_{tIndex}_{attempt}{ext}";
+                            outPath = SWPath.Combine(imagesDir, outName);
+                            attempt++;
+                        }
+
+                        // save image
+                        try
+                        {
+                            BitmapEncoder encoder = (ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+                                ? (BitmapEncoder)new JpegBitmapEncoder { QualityLevel = 90 }
+                                : new PngBitmapEncoder();
+                            encoder.Frames.Add(BitmapFrame.Create(transformed));
+                            using var ofs = File.Open(outPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                            encoder.Save(ofs);
+                        }
+                        catch
+                        {
+                            idx++; tIndex++; continue;
+                        }
+
+                        // read label lines for source and transform coordinates per line
+                        var srcLines = File.ReadAllLines(srcLblPath).Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+                        var outLines = new List<string>();
+                        foreach (var line in srcLines)
+                        {
+                            var tokens = line.Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (tokens.Length < 8) continue;
+
+                            int leadClass = 0;
+                            int coordsStart = 0;
+                            if (tokens.Length >= 9 && int.TryParse(tokens[0], out int parsed))
+                            {
+                                leadClass = parsed;
+                                coordsStart = 1;
+                            }
+                            else
+                            {
+                                coordsStart = tokens.Length - 8;
+                            }
+
+                            var coordsTokens = tokens.Skip(coordsStart).Take(8).ToArray();
+                            var raw = new List<double>(8);
+                            bool ok = true;
+                            for (int i = 0; i < 8; i++)
+                            {
+                                if (!double.TryParse(coordsTokens[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double v))
+                                { ok = false; break; }
+                                raw.Add(v);
+                            }
+                            if (!ok) continue;
+
+                            // transform raw OBB coords
+                            List<double> transformedRaw;
+                            try
+                            {
+                                transformedRaw = VisionAICam.Services.ImageAugmentation.TransformRawValuesOBB(raw, mat, w, h);
+                            }
+                            catch
+                            {
+                                continue;
+                            }
+
+                            // apply offset correction
+                            for (int k = 0; k < 8; k += 2)
+                            {
+                                transformedRaw[k] -= offsetX;
+                                transformedRaw[k + 1] -= offsetY;
+                            }
+
+                            var parts = transformedRaw.Select(v => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+                            // keep leading class if present
+                            if (tokens.Length >= 9 && int.TryParse(tokens[0], out _))
+                                outLines.Add($"{leadClass} {string.Join(" ", parts)}");
+                            else
+                                outLines.Add(string.Join(" ", parts));
+                        }
+
+                        // write label file for augmented image
+                        try
+                        {
+                            File.WriteAllLines(SWPath.Combine(labelsDir, SWPath.ChangeExtension(outName, ".txt")), outLines);
+                        }
+                        catch
+                        {
+                            // ignore write error but keep moving
+                        }
+
+                        // register new image for all classes present in its label file
+                        foreach (var ol in outLines)
+                        {
+                            var toks = ol.Split(new[] { ' ', '\t', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                            if (toks.Length == 0) continue;
+                            if (int.TryParse(toks[0], out int cid) && cid >= 0 && cid < numClasses)
+                            {
+                                classToImages[cid].Add(outName);
+                            }
+                            else
+                            {
+                                classToImages[0].Add(outName);
+                            }
+                        }
+
+                        created++;
+                        idx++;
+                        tIndex++;
+
+                        if (created > 2000) break; // safety cap
+                    } // while per-class
+                } // foreach class
+
+                var reportSb = new System.Text.StringBuilder();
+                reportSb.AppendLine("Augmentation (export) finished.");
+                reportSb.AppendLine($"Files created: {created}");
+                foreach (var kvp in classToImages.OrderBy(k => k.Key))
+                    reportSb.AppendLine($"Class {kvp.Key}: {kvp.Value.Count} images");
+
+                return reportSb.ToString();
             }
             catch (Exception ex)
             {
-                SetStatus($"YOLOv8 OBB mini export failed: {ex.Message}");
+                Debug.WriteLine($"AugmentExportDatasetIfNeeded failed: {ex}");
+                return $"Augmentation failed: {ex.Message}";
             }
         }
-
         // Helper: perform the actual copy + label writing for a no-split YOLOv8 OBB training folder.
         private void ExportYoloV8_OBB_MiniSave(AnnotationProject project, string outputFolder)
         {
@@ -3961,6 +4437,19 @@ namespace VisionAICam.Pages
                     string destImage = System.IO.Path.Combine(imagesOut, imageName);
                     File.Copy(srcPath, destImage, overwrite: true);
 
+                    // determine image size
+                    int imgW = 1, imgH = 1;
+                    try
+                    {
+                        using var img = System.Drawing.Image.FromFile(srcPath);
+                        imgW = Math.Max(1, img.Width);
+                        imgH = Math.Max(1, img.Height);
+                    }
+                    catch
+                    {
+                        Debug.WriteLine($"Warning: unable to read image size for {srcPath}. Using 1x1 to avoid divide by zero.");
+                    }
+
                     var lines = new List<string>();
 
                     foreach (var ann in grp)
@@ -3972,33 +4461,66 @@ namespace VisionAICam.Pages
                             classId = idx >= 0 ? idx : 0;
                         }
 
-                        // Prefer RawValues for OBB (8 values), otherwise flatten Points as fallback.
+                        // Prefer RawValues (8 values); otherwise use first 4 Points.
+                        double[] normalized = null;
+
                         if (ann.AnnotationType == AnnotationType.RotatedBox && ann.RawValues != null && ann.RawValues.Count == 8)
                         {
-                            var parts = ann.RawValues.Select(v => v.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
-                            lines.Add(classId + " " + string.Join(" ", parts));
+                            var raw = ann.RawValues;
+                            // detect whether values are already normalized (<= 1.01)
+                            double maxVal = raw.Max();
+                            bool alreadyNormalized = maxVal <= 1.01;
+
+                            normalized = new double[8];
+                            if (alreadyNormalized)
+                            {
+                                // clamp just in case
+                                for (int i = 0; i < 8; i += 2)
+                                {
+                                    normalized[i] = Math.Clamp(raw[i], 0.0, 1.0);
+                                    normalized[i + 1] = Math.Clamp(raw[i + 1], 0.0, 1.0);
+                                }
+                            }
+                            else
+                            {
+                                // assume pixel coords -> normalize by image size
+                                normalized[0] = Math.Clamp(raw[0] / imgW, 0.0, 1.0);
+                                normalized[1] = Math.Clamp(raw[1] / imgH, 0.0, 1.0);
+                                normalized[2] = Math.Clamp(raw[2] / imgW, 0.0, 1.0);
+                                normalized[3] = Math.Clamp(raw[3] / imgH, 0.0, 1.0);
+                                normalized[4] = Math.Clamp(raw[4] / imgW, 0.0, 1.0);
+                                normalized[5] = Math.Clamp(raw[5] / imgH, 0.0, 1.0);
+                                normalized[6] = Math.Clamp(raw[6] / imgW, 0.0, 1.0);
+                                normalized[7] = Math.Clamp(raw[7] / imgH, 0.0, 1.0);
+                            }
                         }
                         else if (ann.Points != null && ann.Points.Count >= 4)
                         {
-                            var pts = ann.Points.Take(4).SelectMany(p => new[] {
-                        p.X.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
-                        p.Y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
-                    });
-                            lines.Add(classId + " " + string.Join(" ", pts));
-                        }
-                        else if (ann.Points != null && ann.Points.Count > 0)
-                        {
-                            var pts = ann.Points.SelectMany(p => new[] {
-                        p.X.ToString("F2", System.Globalization.CultureInfo.InvariantCulture),
-                        p.Y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
-                    });
-                            lines.Add(classId + " " + string.Join(" ", pts));
+                            // Points are System.Windows.Point (pixel coords) -> normalize
+                            normalized = new double[8];
+                            for (int i = 0; i < 4; i++)
+                            {
+                                var p = ann.Points[i];
+                                normalized[i * 2] = Math.Clamp(p.X / imgW, 0.0, 1.0);
+                                normalized[i * 2 + 1] = Math.Clamp(p.Y / imgH, 0.0, 1.0);
+                            }
                         }
                         else
                         {
-                            // unsupported annotation -> skip this annotation record
+                            // unsupported annotation format for OBB polygon export
                             continue;
                         }
+
+                        // Format line using invariant culture with 6 decimal places
+                        var line = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "{0} {1:F6} {2:F6} {3:F6} {4:F6} {5:F6} {6:F6} {7:F6} {8:F6}",
+                            classId,
+                            normalized[0], normalized[1],
+                            normalized[2], normalized[3],
+                            normalized[4], normalized[5],
+                            normalized[6], normalized[7]);
+
+                        lines.Add(line);
                     }
 
                     // Only write label file if there is at least one valid annotation line
