@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MVCameraSDK", "MvCameraCont
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BasicDemo", "MvCameraControlNet\BasicDemo\BasicDemo.csproj", "{D063BDD8-9149-4D51-B2CF-B2C5A098F5F9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BasicDemoWPF", "MvCameraControlNet\BasicDemoWPF\BasicDemoWPF.csproj", "{AA49201A-021B-4CAE-8558-9E61C87376F0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +93,14 @@ Global
 		{D063BDD8-9149-4D51-B2CF-B2C5A098F5F9}.Release|Any CPU.Build.0 = Release|Any CPU
 		{D063BDD8-9149-4D51-B2CF-B2C5A098F5F9}.Release|x64.ActiveCfg = Release|x64
 		{D063BDD8-9149-4D51-B2CF-B2C5A098F5F9}.Release|x64.Build.0 = Release|x64
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Debug|x64.ActiveCfg = Debug|x64
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Debug|x64.Build.0 = Debug|x64
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|x64.ActiveCfg = Release|x64
+		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
