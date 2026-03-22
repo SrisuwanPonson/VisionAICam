@@ -194,6 +194,7 @@ namespace VisionAICam.Pages
                             {
                                 _cartValues = cart.ToArray();
                             }
+
                         }
                         catch { /* ignore read errors */ }
 
@@ -301,16 +302,16 @@ namespace VisionAICam.Pages
                     await _robot.WriteRegisterPulseAsync(SlaveId, (ushort)RegisterMap.Holding.JogOrStepMode, PulseEdge.Falling);
 
                     
-                    //await _robot.WriteSingleRegisterAsync(SlaveId, (ushort)RegisterMap.Holding.JogStepSelection, stepMode);
+                    
                     
 
                     // 4) Start jog pulse → then axis pulse
 
-                    await _robot.WriteRegisterPulseAsync(SlaveId, axisReg,PulseEdge.Rising,100);
-                    while(true)
-                    {
-                        await Task.Delay(100);
-                    }
+                    await _robot.WriteRegisterPulseAsync(SlaveId, axisReg,PulseEdge.Rising,1000);
+                    //while(true)
+                    //{
+                    //    await Task.Delay(100);
+                    //}
                     
 
                    

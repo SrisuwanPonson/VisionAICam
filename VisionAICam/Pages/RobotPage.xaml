@@ -16,7 +16,7 @@
             <TextBlock Text="Connection" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                 <TextBlock Text="Host:" VerticalAlignment="Center" Width="50"/>
-                <TextBox x:Name="HostTextBox" Width="160" Text="192.168.1.10"/>
+                <TextBox x:Name="HostTextBox" Width="160" Text="192.168.1.6"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
