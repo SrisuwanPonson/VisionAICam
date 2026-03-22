@@ -13,6 +13,7 @@ using ClearEngine.Model.Inference;
 using VisionAICam.Pages;
 using VisionAICam.Services;
 
+
 namespace VisionAICam.Core
 {
     /// <summary>
@@ -41,6 +42,12 @@ namespace VisionAICam.Core
         private DataSetPage? _dataSetPage2;
         private UserPage? _userPage;
 
+        // RobotPage backing field (new)
+        private RobotPage? _robotPage;
+
+        // Backing field (add near other page fields)
+        private RobotService? _robotService;
+
         private MasterController() { }
 
         // Expose pages (created on UI thread)
@@ -52,6 +59,12 @@ namespace VisionAICam.Core
         public DiagnosticsPage DiagnosticsPage => EnsureOnUi(ref _diagnosticsPage, () => new DiagnosticsPage());
         public DataSetPage DataSetPage2 => EnsureOnUi(ref _dataSetPage2, () => new DataSetPage());
         public UserPage UserPage => EnsureOnUi(ref _userPage, () => new UserPage());
+
+        // RobotPage property (new) - leverages EnsureOnUi same as other pages
+        public RobotPage RobotPage => EnsureOnUi(ref _robotPage, () => new RobotPage());
+
+        // Expose RobotService (create on UI thread like pages)
+        public RobotService RobotService => EnsureOnUi(ref _robotService, () => new RobotService());
 
         public ILogger Logger => _logger;
 
@@ -205,6 +218,8 @@ namespace VisionAICam.Core
             await ShutdownAsync().ConfigureAwait(false);
             _cts?.Dispose();
             _initLock.Dispose();
+            try { _robotService?.Dispose(); } catch { }
+            _robotService = null;
         }
 
         public void Dispose()
@@ -212,6 +227,8 @@ namespace VisionAICam.Core
             try { ShutdownAsync().GetAwaiter().GetResult(); } catch { }
             _cts?.Dispose();
             _initLock.Dispose();
+            try { _robotService?.Dispose(); } catch { }
+            _robotService = null;
             GC.SuppressFinalize(this);
         }
 

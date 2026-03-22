@@ -40,13 +40,14 @@
         </Style>
 
         <!-- Rounded Navigation Button Style -->
+        <!-- width removed so buttons can shrink; MinWidth added to keep tappable size -->
         <Style x:Key="RoundedNavButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="110"/>
+            <Setter Property="MinWidth" Value="64"/>
             <Setter Property="Height" Value="40"/>
             <Setter Property="FontSize" Value="16"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Margin" Value="5,15"/>
+            <Setter Property="Margin" Value="6,8"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -80,30 +81,42 @@
                 </LinearGradientBrush>
             </DockPanel.Background>
 
-            <!-- Navigation Buttons -->
-            <Button Content="Account" Background="#FF5722" BorderBrush="#E64A19" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="UserButton_Click" Margin="30,15,10,15"/>
+            <!-- Use a UniformGrid to evenly distribute buttons and allow them to shrink -->
+            <UniformGrid x:Name="BottomNavGrid" Rows="1" Columns="9" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                <Button Content="Account" Background="#FF5722" BorderBrush="#E64A19" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="UserButton_Click"/>
 
-            <Button Content="Records" Background="#03A9F4" BorderBrush="#0288D1" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DataButton_Click"/>
+                <Button Content="Records" Background="#03A9F4" BorderBrush="#0288D1" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DataButton_Click"/>
 
-            <Button Content="Debug" Background="#4CAF50" BorderBrush="#388E3C" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DiagnosticButton_Click"/>
+                <Button Content="Debug" Background="#4CAF50" BorderBrush="#388E3C" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DiagnosticButton_Click"/>
 
-            <Button Content="Preferences" Background="#FFC107" BorderBrush="#FFA000" BorderThickness="2"
-        Foreground="#263238" Style="{StaticResource RoundedNavButtonStyle}" Click="SettingsButton_Click"/>
+                <Button Content="Preferences" Background="#FFC107" BorderBrush="#FFA000" BorderThickness="2"
+                        Foreground="#263238" Style="{StaticResource RoundedNavButtonStyle}" Click="SettingsButton_Click"/>
 
-            <Button Content="AI Core" Background="#00BCD4" BorderBrush="#0097A7" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="ModelButton_Click"/>
+                <Button Content="AI Core" Background="#00BCD4" BorderBrush="#0097A7" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="ModelButton_Click"/>
 
-            <Button Content="Sample" Background="#009688" BorderBrush="#00796B" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DataSetButton_Click"/>
+                <Button x:Name="NavigatorRobotButton"
+                        Content="Robot"
+                        ToolTip="Open Navigator Robot"
+                        Background="#00ACC1"
+                        BorderBrush="#008B9A"
+                        BorderThickness="2"
+                        Foreground="White"
+                        Style="{StaticResource RoundedNavButtonStyle}"
+                        Click="NavigatorRobotButton_Click"/>
 
-            <Button Content="Capture" Background="#9C27B0" BorderBrush="#7B1FA2" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="CameraButton_Click"/>
+                <Button Content="Sample" Background="#009688" BorderBrush="#00796B" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="DataSetButton_Click"/>
 
-            <Button Content="Run Task" Background="#3F51B5" BorderBrush="#303F9F" BorderThickness="2"
-        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="ProductionButton_Click"/>
+                <Button Content="Capture" Background="#9C27B0" BorderBrush="#7B1FA2" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="CameraButton_Click"/>
+
+                <Button Content="Run Task" Background="#3F51B5" BorderBrush="#303F9F" BorderThickness="2"
+                        Foreground="White" Style="{StaticResource RoundedNavButtonStyle}" Click="ProductionButton_Click"/>
+            </UniformGrid>
         </DockPanel>
 
         <!-- Left statistics panel -->

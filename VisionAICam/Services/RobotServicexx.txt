@@ -1,0 +1,603 @@
+﻿using System;
+using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
+using Modbus.Device; // NModbus4
+
+namespace VisionAICam.Services
+{
+    /// <summary>
+    /// Modbus TCP wrapper for MG400 control.
+    /// Implements Modbus helpers and float register helpers used by higher-level motion helpers.
+    /// </summary>
+    public class RobotService : IDisposable
+    {
+        private TcpClient? _tcp;
+        private ModbusIpMaster? _master;
+
+        // serialize access to the master because NModbus masters are not thread-safe
+        private readonly SemaphoreSlim _lock = new(1, 1);
+
+        /// <summary>
+        /// When true, the two 16-bit words that make a float are swapped (low-word first).
+        /// Default: false (high-word first).
+        /// </summary>
+        public bool SwapFloatWords { get; set; }
+
+        public event Action<bool>? ConnectionChanged;
+
+        public bool IsConnected => _tcp?.Connected == true && _master != null;
+
+        public async Task<bool> ConnectTcpAsync(string host, int port = 502, int timeoutMs = 2000)
+        {
+            Disconnect();
+            try
+            {
+                _tcp = new TcpClient();
+                var connectTask = _tcp.ConnectAsync(host, port);
+                var completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs)).ConfigureAwait(false);
+                if (completed != connectTask || !_tcp.Connected)
+                {
+                    Disconnect();
+                    ConnectionChanged?.Invoke(false);
+                    return false;
+                }
+
+                _tcp.ReceiveTimeout = timeoutMs;
+                _tcp.SendTimeout = timeoutMs;
+                _master = ModbusIpMaster.CreateIp(_tcp);
+                _master.Transport.Retries = 0;
+                ConnectionChanged?.Invoke(true);
+                return true;
+            }
+            catch
+            {
+                Disconnect();
+                ConnectionChanged?.Invoke(false);
+                return false;
+            }
+        }
+
+        public void Disconnect()
+        {
+            try { _master?.Dispose(); } catch { }
+            _master = null;
+            try { _tcp?.Close(); } catch { }
+            _tcp = null;
+            ConnectionChanged?.Invoke(false);
+        }
+
+        // Basic Modbus helpers (thread-safe wrappers around synchronous NModbus calls)
+
+        public async Task<ushort[]> ReadHoldingRegistersAsync(byte slaveId, ushort startAddress, ushort count)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                return await Task.Run(() => _master.ReadHoldingRegisters(slaveId, startAddress, count)).ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        public async Task WriteSingleRegisterAsync(byte slaveId, ushort address, ushort value)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await Task.Run(() => _master.WriteSingleRegister(slaveId, address, value)).ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        public async Task WriteMultipleRegistersAsync(byte slaveId, ushort startAddress, ushort[] values)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await Task.Run(() => _master.WriteMultipleRegisters(slaveId, startAddress, values)).ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        public async Task WriteSingleCoilAsync(byte slaveId, ushort coilAddress, bool value)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await Task.Run(() => _master.WriteSingleCoil(slaveId, coilAddress, value)).ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        public async Task<bool[]> ReadCoilsAsync(byte slaveId, ushort startAddress, ushort count)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                return await Task.Run(() => _master.ReadCoils(slaveId, startAddress, count)).ConfigureAwait(false);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+        }
+
+        // Read floats (each float stored as two consecutive registers)
+        public async Task<float[]> ReadFloatRegistersAsync(byte slaveId, ushort startAddress, ushort floatCount)
+        {
+            ushort regCount = (ushort)(floatCount * 2);
+            var regs = await ReadHoldingRegistersAsync(slaveId, startAddress, regCount).ConfigureAwait(false);
+            return ConvertRegistersToFloats(regs, SwapFloatWords);
+        }
+
+        // Write floats (each float becomes two registers).
+        public async Task WriteFloatRegistersAsync(byte slaveId, ushort startAddress, float[] values)
+        {
+            if (values == null) throw new ArgumentNullException(nameof(values));
+            // allocate register buffer (2 registers per float)
+            var regs = new ushort[values.Length * 2];
+            for (int i = 0; i < values.Length; i++)
+            {
+                CopyFloatToRegs(values[i], regs, i * 2, SwapFloatWords);
+            }
+
+            await WriteMultipleRegistersAsync(slaveId, startAddress, regs).ConfigureAwait(false);
+        }
+
+        // Helper: write a register as a short pulse (1 then 0)
+        public async Task WriteRegisterPulseAsync(byte slaveId, ushort registerAddress, int pulseMs = 100)
+        {
+            await WriteSingleRegisterAsync(slaveId, registerAddress, 1).ConfigureAwait(false);
+            await Task.Delay(pulseMs).ConfigureAwait(false);
+            await WriteSingleRegisterAsync(slaveId, registerAddress, 0). ConfigureAwait(false);
+        }
+
+        // Conversion helpers (big-word first by default; swapWords toggles low/high word order)
+        private static float[] ConvertRegistersToFloats(ushort[] regs, bool swapWords)
+        {
+            if (regs == null) throw new ArgumentNullException(nameof(regs));
+            if (regs.Length % 2 != 0) throw new ArgumentException("Register count must be even for float conversion.");
+            int count = regs.Length / 2;
+            var result = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                ushort a = regs[i * 2];
+                ushort b = regs[i * 2 + 1];
+                uint high, low;
+                if (!swapWords)
+                {
+                    high = a;
+                    low = b;
+                }
+                else
+                {
+                    high = b;
+                    low = a;
+                }
+                uint bits = (high << 16) | low;
+                result[i] = BitConverter.Int32BitsToSingle((int)bits);
+            }
+            return result;
+        }
+
+        private static void CopyFloatToRegs(float value, ushort[] dest, int destIndex, bool swapWords)
+        {
+            int bits = BitConverter.SingleToInt32Bits(value);
+            ushort high = (ushort)((bits >> 16) & 0xFFFF);
+            ushort low = (ushort)(bits & 0xFFFF);
+            if (!swapWords)
+            {
+                dest[destIndex] = high;
+                dest[destIndex + 1] = low;
+            }
+            else
+            {
+                dest[destIndex] = low;
+                dest[destIndex + 1] = high;
+            }
+        }
+
+        /// <summary>
+        /// Perform a jump move: move to a safe Z above the target, execute a PTP there,
+        /// then descend to the final Z and execute. Safe for simple pick/place where a
+        /// short lift is required to clear obstacles.
+        /// </summary>
+        public async Task JumpMoveAsync(
+            float targetX,
+            float targetY,
+            float targetZ,
+            float safeZOffset = 0.15f,
+            int liftDelayMs = 150,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            ct.ThrowIfCancellationRequested();
+
+            float safeZ = targetZ + safeZOffset;
+
+            // Move to safe height above target and execute
+            await WriteFloatRegistersAsync(slaveId, 3001, new[] { targetX, targetY, safeZ, 0.0f }).ConfigureAwait(false);
+            await Task.Delay(liftDelayMs, ct).ConfigureAwait(false);
+            await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+
+            ct.ThrowIfCancellationRequested();
+
+            // Descend to target and execute
+            await WriteFloatRegistersAsync(slaveId, 3001, new[] { targetX, targetY, targetZ, 0.0f }).ConfigureAwait(false);
+            await Task.Delay(Math.Max(50, liftDelayMs / 3), ct).ConfigureAwait(false);
+            await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Approximate blended movement by sending short waypoints with reduced delays.
+        /// True blending requires controller support; this is an approximation using PTP steps.
+        /// Waypoints must be flattened groups of 4 floats: x,y,z,rz.
+        /// </summary>
+        public async Task BlendedMoveAsync(
+            IReadOnlyList<float> waypointsFlattened,
+            int stepDelayMs = 40,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            if (waypointsFlattened == null) throw new ArgumentNullException(nameof(waypointsFlattened));
+            if (waypointsFlattened.Count % 4 != 0) throw new ArgumentException("Waypoints must be groups of 4 floats: x,y,z,rz", nameof(waypointsFlattened));
+
+            int pointCount = waypointsFlattened.Count / 4;
+
+            for (int i = 0; i < pointCount; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                float x = waypointsFlattened[i * 4 + 0];
+                float y = waypointsFlattened[i * 4 + 1];
+                float z = waypointsFlattened[i * 4 + 2];
+                float rz = waypointsFlattened[i * 4 + 3];
+
+                await WriteFloatRegistersAsync(slaveId, 3001, new[] { x, y, z, rz }).ConfigureAwait(false);
+
+                // Small delay to allow controller sampling.
+                // Reduce stepDelayMs to approximate blending (test carefully).
+                await Task.Delay(Math.Max(1, stepDelayMs), ct).ConfigureAwait(false);
+
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Perform an arc move around (centerX, centerY) in the XY plane at height z.
+        /// If radius is not provided, the method reads the current cartesian position (2100..)
+        /// and infers radius from current position to center. The arc is executed as a sequence
+        /// of PTP steps (write target registers 3001.., then pulse 3009).
+        /// </summary>
+        public async Task ArcMoveAsync(
+            float centerX,
+            float centerY,
+            float z,
+            float startAngleDeg,
+            float endAngleDeg,
+            int segments = 24,
+            float speed = 1.0f,
+            int stepDelayMsBase = 120,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            if (segments <= 0) throw new ArgumentOutOfRangeException(nameof(segments));
+
+            // Convert degrees -> radians and normalize
+            double start = startAngleDeg * Math.PI / 180.0;
+            double end = endAngleDeg * Math.PI / 180.0;
+            if (end <= start) end += 2 * Math.PI;
+
+            // Try to infer radius from current cartesian position (register block 2100: X,Y,Z,Rz)
+            float[] cart;
+            try
+            {
+                cart = await ReadFloatRegistersAsync(slaveId, 2100, 4).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Failed to read current cartesian position to infer arc radius.", ex);
+            }
+
+            float curX = cart.Length > 0 ? cart[0] : throw new InvalidOperationException("Current X not available.");
+            float curY = cart.Length > 1 ? cart[1] : throw new InvalidOperationException("Current Y not available.");
+
+            double dx = curX - centerX;
+            double dy = curY - centerY;
+            double radius = Math.Sqrt(dx * dx + dy * dy);
+            if (radius <= double.Epsilon) throw new InvalidOperationException("Computed radius is zero. Provide a valid center or move robot to start point.");
+
+            int stepDelayMs = Math.Max(10, (int)(stepDelayMsBase / Math.Max(0.01f, speed)));
+
+            // Generate arc points and execute as PTP steps
+            for (int i = 0; i <= segments; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                double t = (double)i / segments;
+                double angle = start + (end - start) * t;
+                float x = centerX + (float)(radius * Math.Cos(angle));
+                float y = centerY + (float)(radius * Math.Sin(angle));
+                float rz = 0.0f;
+
+                // write target registers (3001..) as floats: X,Y,Z,Rz
+                await WriteFloatRegistersAsync(slaveId, 3001, new[] { x, y, z, rz }).ConfigureAwait(false);
+
+                // allow controller to sample registers
+                await Task.Delay(stepDelayMs, ct).ConfigureAwait(false);
+
+                // pulse execute
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+
+                // small inter-step gap to avoid overloading controller/network
+                await Task.Delay(Math.Max(10, stepDelayMs / 6), ct).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Jog by performing a sequence of small PTP steps relative to the current cartesian position.
+        /// Example: _robot.JogAsync(0.01f, 0f, 0f, steps: 5, stepDelayMs: 120, ct: CancellationToken.None);
+        /// </summary>
+        public async Task JogAsync(
+            float dx,
+            float dy,
+            float dz,
+            int steps = 5,
+            int stepDelayMs = 120,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            if (steps <= 0) throw new ArgumentOutOfRangeException(nameof(steps));
+            ct.ThrowIfCancellationRequested();
+
+            // Read current Cartesian position (X,Y,Z,Rz) from 2100
+            var cur = await ReadFloatRegistersAsync(slaveId, 2100, 4).ConfigureAwait(false);
+            if (cur == null || cur.Length < 3) throw new InvalidOperationException("Failed to read current Cartesian position.");
+
+            float startX = cur[0];
+            float startY = cur[1];
+            float startZ = cur[2];
+            float rz = cur.Length > 3 ? cur[3] : 0f;
+
+            for (int i = 0; i < steps; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Compute cumulative target for this step (relative jog)
+                float targetX = startX + dx * (i + 1);
+                float targetY = startY + dy * (i + 1);
+                float targetZ = startZ + dz * (i + 1);
+
+                // Write target (X,Y,Z,Rz) and pulse execute
+                await WriteFloatRegistersAsync(slaveId, 3001, new[] { targetX, targetY, targetZ, rz }).ConfigureAwait(false);
+
+                // allow controller to sample registers
+                await Task.Delay(Math.Max(10, stepDelayMs), ct).ConfigureAwait(false);
+
+                // pulse execute register (3009)
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+
+                // small inter-step gap
+                await Task.Delay(10, ct).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Apply a simple offset to a target pose and write it to the motion target registers.
+        /// By default this only writes registers; set <paramref name="execute"/> to true to pulse the execute register after writing.
+        /// </summary>
+        public async Task OffsetMoveAsync(
+            float x,
+            float y,
+            float z,
+            float rz,
+            float offsetX = 0f,
+            float offsetY = 0f,
+            float offsetZ = 0f,
+            bool execute = false,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // Compute offset target
+            float tx = x + offsetX;
+            float ty = y + offsetY;
+            float tz = z + offsetZ;
+
+            // Write target registers (X,Y,Z,Rz) at 3001..
+            await WriteFloatRegistersAsync(slaveId, 3001, new[] { tx, ty, tz, rz }).ConfigureAwait(false);
+
+            if (execute)
+            {
+                // short delay to let controller sample registers before execute pulse
+                await Task.Delay(50, ct).ConfigureAwait(false);
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Apply a tool offset (simple translation) to a target pose and optionally execute the move.
+        /// Note: this applies only a translational offset (no rotation). For true tool-frame transforms
+        /// you'd need the robot's orientation and a full transform.
+        /// </summary>
+        public async Task ToolCoordinateMoveAsync(
+            float x,
+            float y,
+            float z,
+            float rz,
+            float toolTx,
+            float toolTy,
+            float toolTz,
+            bool execute = true,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            ct.ThrowIfCancellationRequested();
+
+            // Apply simple tool offset (world = target + toolOffset)
+            float wx = x + toolTx;
+            float wy = y + toolTy;
+            float wz = z + toolTz;
+
+            // Write world coordinates to target registers (3001..)
+            await WriteFloatRegistersAsync(slaveId, 3001, new[] { wx, wy, wz, rz }).ConfigureAwait(false);
+
+            if (execute)
+            {
+                // small delay to allow controller to sample the registers
+                await Task.Delay(50, ct).ConfigureAwait(false);
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Move from current Cartesian position to the given target by splitting the motion into
+        /// multiple PTP waypoints. The supplied <paramref name="speedFactor"/> scales a base step delay
+        /// to approximate faster or slower motion. This is an approximation (controller-level velocity control
+        /// is preferred when available).
+        /// </summary>
+        public async Task MoveWithVelocityAsync(
+            float targetX,
+            float targetY,
+            float targetZ,
+            float rz = 0f,
+            float speedFactor = 1.0f,
+            int segments = 4,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            if (segments <= 0) throw new ArgumentOutOfRangeException(nameof(segments));
+            ct.ThrowIfCancellationRequested();
+
+            // Read current Cartesian position (X,Y,Z,Rz) from 2100
+            var cur = await ReadFloatRegistersAsync(slaveId, 2100, 4).ConfigureAwait(false);
+            if (cur == null || cur.Length < 3) throw new InvalidOperationException("Failed to read current Cartesian position.");
+
+            float startX = cur[0];
+            float startY = cur[1];
+            float startZ = cur[2];
+            float startRz = cur.Length > 3 ? cur[3] : 0f;
+
+            // Base delay per step (ms). Tune if needed. speedFactor scales this.
+            const int baseStepDelayMs = 120;
+            int stepDelayMs = Math.Max(8, (int)(baseStepDelayMs / Math.Max(0.01f, speedFactor)));
+
+            // Generate and execute intermediate PTP waypoints
+            for (int i = 1; i <= segments; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                float t = (float)i / segments;
+
+                // Linear interpolation
+                float x = startX + (targetX - startX) * t;
+                float y = startY + (targetY - startY) * t;
+                float z = startZ + (targetZ - startZ) * t;
+                float rzInterpolated = startRz + (rz - startRz) * t;
+
+                // Write target registers and allow controller to sample
+                await WriteFloatRegistersAsync(slaveId, 3001, new[] { x, y, z, rzInterpolated }).ConfigureAwait(false);
+
+                // Delay scaled by speedFactor to approximate velocity; allow cancellation-aware wait
+                await Task.Delay(stepDelayMs, ct).ConfigureAwait(false);
+
+                // Pulse execute register
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+
+                // Small inter-step gap
+                await Task.Delay(Math.Max(8, stepDelayMs / 8), ct).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Execute a sequence of Cartesian waypoints as a continuous-like path by sending
+        /// successive PTP targets. Waypoints must be flattened groups of 4 floats: x,y,z,rz.
+        /// This is an approximation of continuous motion using rapid PTP steps (pulse per step).
+        /// </summary>
+        public async Task ContinuousPathAsync(
+            IReadOnlyList<float> waypointsFlattened,
+            int stepDelayMs = 60,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            if (waypointsFlattened == null) throw new ArgumentNullException(nameof(waypointsFlattened));
+            if (waypointsFlattened.Count % 4 != 0) throw new ArgumentException("Waypoints must be groups of 4 floats: x,y,z,rz", nameof(waypointsFlattened));
+            if (stepDelayMs < 0) throw new ArgumentOutOfRangeException(nameof(stepDelayMs));
+
+            int pointCount = waypointsFlattened.Count / 4;
+
+            for (int i = 0; i < pointCount; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                float x = waypointsFlattened[i * 4 + 0];
+                float y = waypointsFlattened[i * 4 + 1];
+                float z = waypointsFlattened[i * 4 + 2];
+                float rz = waypointsFlattened[i * 4 + 3];
+
+                // write target registers (X,Y,Z,Rz)
+                await WriteFloatRegistersAsync(slaveId, 3001, new[] { x, y, z, rz }).ConfigureAwait(false);
+
+                // allow controller to sample the registers
+                await Task.Delay(Math.Max(1, stepDelayMs), ct).ConfigureAwait(false);
+
+                // execute this waypoint (short pulse)
+                await WriteRegisterPulseAsync(slaveId, 3009).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Perform a full circle move around (centerX, centerY) in the XY plane at height z.
+        /// This uses the existing ArcMoveAsync implementation to perform a 360° arc.
+        /// </summary>
+        public async Task CircleMoveAsync(
+            float centerX,
+            float centerY,
+            float z,
+            int segments = 36,
+            float speed = 1.0f,
+            int stepDelayMsBase = 120,
+            CancellationToken ct = default,
+            byte slaveId = 1)
+        {
+            // Simple wrapper that runs a full 360° arc using the existing ArcMoveAsync implementation.
+            if (_master == null) throw new InvalidOperationException("Not connected");
+            if (segments <= 0) throw new ArgumentOutOfRangeException(nameof(segments));
+            ct.ThrowIfCancellationRequested();
+
+            // Use ArcMoveAsync from 0° -> 360°
+            await ArcMoveAsync(centerX, centerY, z, 0f, 360f, segments, speed, stepDelayMsBase, ct, slaveId).ConfigureAwait(false);
+        }
+
+        public void Dispose()
+        {
+            Disconnect();
+            _lock.Dispose();
+        }
+    }
+}

@@ -8,6 +8,15 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="HikCamera.cs" />
+	  <Compile Remove="HikCameraFactory.cs" />
+	  <Compile Remove="HikvisionCamera.cs" />
+	  <Compile Remove="MvCameraHandle.cs" />
+	  <Compile Remove="MvCameraNative.cs" />
+	  <Compile Remove="MvTypes.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
 		<PackageReference Include="OpenCvSharp4.runtime.win" Version="4.11.0.20250507" />
 		<PackageReference Include="OpenCvSharp4.WpfExtensions" Version="4.11.0.20250507" />

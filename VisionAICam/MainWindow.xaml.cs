@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.Linq;
+using System.Windows;
 using System.Windows.Controls;
 using VisionAICam.Pages;
 using System.ComponentModel;
@@ -21,6 +22,10 @@ namespace VisionAICam
             MainContent.Navigated -= MainContent_Navigated;
             MainContent.Navigated += MainContent_Navigated;
 
+            // Responsive nav buttons: adjust sizes on load and when window resizes
+            this.Loaded += (s, e) => AdjustNavButtons();
+            this.SizeChanged += (s, e) => AdjustNavButtons();
+
             if (IsAnotherInstanceRunning())
             {
                 //MessageBox.Show("Another instance of the application is already running.", "Instance Detected", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -40,8 +45,6 @@ namespace VisionAICam
             // Subscribe to window closing to perform final cleanup
             this.Closing -= MainWindow_Closing;
             this.Closing += MainWindow_Closing;
-
-            //MessageBox.Show("MainWindow has been created.", "Startup", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void MainContent_Navigated(object? sender, NavigationEventArgs e)
@@ -96,7 +99,6 @@ namespace VisionAICam
             var processes = System.Diagnostics.Process.GetProcessesByName(currentProcess.ProcessName);
             return processes.Length > 1;
         }
-
 
         private void StartStopButton_Click(object sender, RoutedEventArgs e)
         {
@@ -482,6 +484,73 @@ namespace VisionAICam
                 try { System.Diagnostics.Debug.WriteLine($"TryRunWithTimeout exception: {ex}"); } catch { }
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Click handler for the "Robot" navigator button.
+        /// Attempts to navigate to a Robot page exposed by MasterController (property name 'RobotPage').
+        /// If no such page exists, shows an informational message so the developer can add the page.
+        /// </summary>
+        private void NavigatorRobotButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Navigate using strongly-typed property exposed by MasterController
+                var robotPage = MasterController.Instance.RobotPage;
+                if (robotPage == null)
+                {
+                    MessageBox.Show("Robot page not available.", "Robot", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+
+                NavigateIfNotDuplicate<RobotPage>(robotPage, "Robot");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to open Robot page: {ex.Message}", "Robot", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// Adjust bottom navigation buttons so they shrink to fit at small window widths.
+        /// Uses the UniformGrid container 'BottomNavGrid' so all buttons are sized consistently.
+        /// </summary>
+        private void AdjustNavButtons()
+        {
+            try
+            {
+                if (BottomNavGrid == null) return;
+
+                var buttons = BottomNavGrid.Children.OfType<Button>().ToArray();
+                if (buttons.Length == 0) return;
+
+                // Determine available width inside the BottomNavGrid
+                double available = BottomNavGrid.ActualWidth;
+                if (double.IsNaN(available) || available <= 0)
+                {
+                    available = this.ActualWidth;
+                    if (double.IsNaN(available) || available <= 0)
+                        return;
+                }
+
+                // Leave a small gap for padding; compute target width per button
+                double gap = 6 * 2 * buttons.Length; // approximate total internal gaps (margins)
+                double target = Math.Floor((available - gap) / buttons.Length);
+
+                // Clamp width to a reasonable range so text is still readable
+                double min = 56;
+                double max = 180;
+                double width = Math.Max(min, Math.Min(max, target));
+
+                foreach (var btn in buttons)
+                {
+                    // Apply computed width. Buttons can still expand if window larger.
+                    btn.Width = width;
+                    // Slightly reduce font when buttons are narrow
+                    btn.FontSize = width < 80 ? 13 : 16;
+                }
+            }
+            catch { /* best-effort, never throw during resize */ }
         }
     }
 }

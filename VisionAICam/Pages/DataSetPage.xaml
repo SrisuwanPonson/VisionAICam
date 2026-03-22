@@ -141,7 +141,9 @@
                             </GroupBox>
 
                             <!-- Auto-label button moved outside the Drawing Mode groupbox -->
-                            <GroupBox Header="Auto Label"
+                            <GroupBox x:Name="AutoLabelGroupBox"
+                                      Header="Auto Label"
+                                      Visibility="Collapsed"
                                       Margin="10,0,0,0"
                                       Foreground="#222"
                                       Background="#FFF5F5F5"
