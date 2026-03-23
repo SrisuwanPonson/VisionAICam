@@ -299,11 +299,12 @@ namespace VisionAICam.Pages
                     //await _robot.WriteSingleRegisterAsync(SlaveId, (ushort)RegisterMap.Holding.HmiReadyToSwitch, 1);//set 1 to enable
                     await _robot.WriteSingleRegisterAsync(SlaveId, (ushort)RegisterMap.Holding.HmiSwitchToJogMode, 1);//set 1 to switch mode
                     await _robot.WriteSingleRegisterAsync(SlaveId, (ushort)RegisterMap.Holding.GlobalSpeedPercent, 50);
-                    await _robot.WriteRegisterPulseAsync(SlaveId, (ushort)RegisterMap.Holding.JogOrStepMode, PulseEdge.Falling);
+                    await _robot.WriteRegisterPulseAsync(SlaveId, (ushort)RegisterMap.Holding.CartesianOrJoint, PulseEdge.Falling,100);
+                    //await _robot.WriteSingleRegisterAsync(SlaveId, (ushort)RegisterMap.Holding.CartesianOrJoint, 0);
+                    //var valuex=_robot.ReadFloatHoldingRegistersAsync(SlaveId,(ushort)RegisterMap.Holding.CartesianOrJoint)
 
-                    
-                    
-                    
+
+
 
                     // 4) Start jog pulse → then axis pulse
 

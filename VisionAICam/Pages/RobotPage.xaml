@@ -42,10 +42,12 @@
             <!-- Manual Move -->
             <TextBlock Text="Manual Move" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,8"/>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <RadioButton x:Name="JogModeRadio" GroupName="Mode" IsChecked="True" Content="Jog" Width="80"/>
-                <RadioButton x:Name="StepModeRadio" GroupName="Mode" Content="Step" Width="80"/>
-            </StackPanel>
+            <GroupBox Header="Mode" Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="JogModeRadio" GroupName="Mode" IsChecked="True" Content="Jog" Width="80"/>
+                    <RadioButton x:Name="StepModeRadio" GroupName="Mode" Content="Step" Width="80"/>
+                </StackPanel>
+            </GroupBox>
 
             <TextBlock Text="Step Value" Margin="0,6,0,6"/>
             <UniformGrid Columns="4" Margin="0,0,0,12">
@@ -55,23 +57,35 @@
                 <ToggleButton x:Name="Step10Button" Click="StepToggle_Click">10</ToggleButton>
             </UniformGrid>
 
-            <!-- Cartesian -->
-            <TextBlock Text="Cartesian (meters)" FontSize="16" FontWeight="SemiBold" Margin="0,6,0,6"/>
-            <StackPanel>
-                <TextBlock> X: <Run x:Name="XValRun">--</Run></TextBlock>
-                <TextBlock> Y: <Run x:Name="YValRun">--</Run></TextBlock>
-                <TextBlock> Z: <Run x:Name="ZValRun">--</Run></TextBlock>
-                <TextBlock> R: <Run x:Name="RValRun">--</Run></TextBlock>
-            </StackPanel>
+            <!-- Cartesian and Joints side-by-side -->
+            <Grid Margin="0,6,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Joints -->
-            <TextBlock Text="Joints (deg)" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,6"/>
-            <StackPanel>
-                <TextBlock> J1: <Run x:Name="J1ValRun">--</Run></TextBlock>
-                <TextBlock> J2: <Run x:Name="J2ValRun">--</Run></TextBlock>
-                <TextBlock> J3: <Run x:Name="J3ValRun">--</Run></TextBlock>
-                <TextBlock> J4: <Run x:Name="J4ValRun">--</Run></TextBlock>
-            </StackPanel>
+                <!-- Cartesian -->
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Cartesian (mm)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <StackPanel>
+                        <TextBlock> X: <Run x:Name="XValRun">--</Run></TextBlock>
+                        <TextBlock> Y: <Run x:Name="YValRun">--</Run></TextBlock>
+                        <TextBlock> Z: <Run x:Name="ZValRun">--</Run></TextBlock>
+                        <TextBlock> R: <Run x:Name="RValRun">--</Run></TextBlock>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Joints -->
+                <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                    <TextBlock Text="Joints (deg)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <StackPanel>
+                        <TextBlock> J1: <Run x:Name="J1ValRun">--</Run></TextBlock>
+                        <TextBlock> J2: <Run x:Name="J2ValRun">--</Run></TextBlock>
+                        <TextBlock> J3: <Run x:Name="J3ValRun">--</Run></TextBlock>
+                        <TextBlock> J4: <Run x:Name="J4ValRun">--</Run></TextBlock>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
 
         </StackPanel>
 

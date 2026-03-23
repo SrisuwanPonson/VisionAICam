@@ -108,7 +108,7 @@ namespace VisionAICam.Modbus
             // HMI / Jog controls
             HmiSwitchToJogMode = 1300,     // PLC 41301
             HmiReadyToSwitch = 1301,
-            JogOrStepMode = 1302,
+            CartesianOrJoint = 1302,
             JogStepSelection = 1303,
             GlobalSpeedPercent = 1304,
             StepDistance_mm = 1305,        // F32 at 1305..1306

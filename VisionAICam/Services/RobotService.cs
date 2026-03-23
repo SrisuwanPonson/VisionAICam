@@ -166,6 +166,15 @@ namespace VisionAICam.Services
                 _lock.Release();
             }
         }
+        public async Task<ushort> ReadSingleRegisterAsync(byte slaveId, ushort registerAddress)
+        {
+            // Read exactly 1 holding register
+            ushort[] regs = await ReadHoldingRegistersAsync(slaveId, registerAddress, 1)
+                                    .ConfigureAwait(false);
+
+            return regs[0];
+        }
+
 
         // Read floats from holding registers (each float stored as two consecutive registers)
         public async Task<float[]> ReadFloatHoldingRegistersAsync(byte slaveId, ushort startAddress, ushort floatCount)
@@ -229,27 +238,55 @@ namespace VisionAICam.Services
 
 
         public async Task WriteRegisterPulseAsync(
-     byte slaveId,
-     ushort registerAddress,
-     PulseEdge edge = PulseEdge.Rising,
-     int pulseMs = 40)
+      byte slaveId,
+      ushort registerAddress,
+      PulseEdge edge = PulseEdge.Rising,
+      int pulseMs = 40)
+        {
+            // Read actual current value
+            ushort current = await ReadSingleRegisterAsync(slaveId, registerAddress)
+                                    .ConfigureAwait(false);
+
+            // Perform the pulse once
+            await GeneratePulse(slaveId, registerAddress, current, edge, pulseMs);
+
+            // Read again to verify
+            ushort after = await ReadSingleRegisterAsync(slaveId, registerAddress)
+                                    .ConfigureAwait(false);
+
+            // If the register did not return to expected state, retry once
+            ushort expectedEnd = (edge == PulseEdge.Rising) ? (ushort)0 : (ushort)1;
+
+            if (after != expectedEnd)
+            {
+                // Retry pulse
+                await GeneratePulse(slaveId, registerAddress, after, edge, pulseMs);
+            }
+        }
+
+        private async Task GeneratePulse(
+            byte slaveId,
+            ushort registerAddress,
+            ushort current,
+            PulseEdge edge,
+            int pulseMs)
         {
             if (edge == PulseEdge.Rising)
             {
-                // Ensure starting state is LOW
-                await WriteSingleRegisterAsync(slaveId, registerAddress, 0).ConfigureAwait(false);
-
                 // Rising edge: 0 → 1 → 0
+                if (current != 0)
+                    await WriteSingleRegisterAsync(slaveId, registerAddress, 0).ConfigureAwait(false);
+
                 await WriteSingleRegisterAsync(slaveId, registerAddress, 1).ConfigureAwait(false);
                 await Task.Delay(pulseMs).ConfigureAwait(false);
                 await WriteSingleRegisterAsync(slaveId, registerAddress, 0).ConfigureAwait(false);
             }
             else
             {
-                // Ensure starting state is HIGH
-                await WriteSingleRegisterAsync(slaveId, registerAddress, 1).ConfigureAwait(false);
-
                 // Falling edge: 1 → 0 → 1
+                if (current != 1)
+                    await WriteSingleRegisterAsync(slaveId, registerAddress, 1).ConfigureAwait(false);
+
                 await WriteSingleRegisterAsync(slaveId, registerAddress, 0).ConfigureAwait(false);
                 await Task.Delay(pulseMs).ConfigureAwait(false);
                 await WriteSingleRegisterAsync(slaveId, registerAddress, 1).ConfigureAwait(false);
