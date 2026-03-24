@@ -63,7 +63,7 @@ namespace VisionAICam.Core
         // RobotPage property (new) - leverages EnsureOnUi same as other pages
         public RobotPage RobotPage => EnsureOnUi(ref _robotPage, () => new RobotPage());
 
-        // Expose RobotService (create on UI thread like pages)
+        // Expose RobotService (create on UI thread like pages if not already created)
         public RobotService RobotService => EnsureOnUi(ref _robotService, () => new RobotService());
 
         public ILogger Logger => _logger;
@@ -147,6 +147,69 @@ namespace VisionAICam.Core
                     {
                         try { _logger.LogError($"MasterController: engine init error: {ex}"); } catch { }
                     }
+                }
+
+                // --- Create and register RobotService; attempt background connect using persisted settings ---
+                try
+                {
+                    var settingsForRobot = settings ?? SettingsManager.Load();
+
+                    var robot = new RobotService();
+
+                    // apply persisted swap flag
+                    if (settingsForRobot != null)
+                        robot.SwapFloatWords = settingsForRobot.SwapFloatWords;
+
+                    // store and register the service so other consumers obtain the same instance
+                    _robotService = robot;
+                    RegisterService(robot);
+
+                    // If a host is configured, attempt a non-blocking background connect so startup isn't delayed/fails.
+                    if (!string.IsNullOrWhiteSpace(settingsForRobot?.MasterControllerIp))
+                    {
+                        string host = settingsForRobot.MasterControllerIp;
+                        int port = settingsForRobot.MasterControllerPort;
+                        progress?.Report($"Starting background robot connect to {host}:{port}...");
+
+                        // Fire-and-forget connect: do not await here so InitializeAsync completes quickly.
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                bool ok = await robot.ConnectTcpAsync(host, port).ConfigureAwait(false);
+                                try { _logger.LogInfo($"MasterController: RobotService background connect to {host}:{port} {(ok ? "succeeded" : "failed")}"); } catch { }
+                                // Report progress (best-effort)
+                                try { progress?.Report(ok ? "Robot connected." : "Robot not connected."); } catch { }
+                            }
+                            catch (Exception ex)
+                            {
+                                try { _logger.LogError($"MasterController: RobotService background connect error: {ex}"); } catch { }
+                                try { progress?.Report("Robot connect failed (background)."); } catch { }
+                            }
+                        });
+                    }
+                    else
+                    {
+                        progress?.Report("No robot host configured.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    try { _logger.LogError($"MasterController: RobotService initialization failed: {ex}"); } catch { }
+                }
+
+                // Add this block immediately after registering the RobotService in InitializeAsync
+                try
+                {
+                    // Force creation of the PredictionStore singleton and register it with MasterController
+                    var predictionStore = VisionAICam.Services.PredictionStore.Instance;
+                    RegisterService(predictionStore);
+                    progress?.Report("Prediction store ready.");
+                }
+                catch (Exception ex)
+                {
+                    try { _logger.LogError($"MasterController: PredictionStore init failed: {ex}"); } catch { }
+                    progress?.Report("Prediction store initialization failed (continuing).");
                 }
 
                 _initialized = true;

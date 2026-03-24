@@ -27,5 +27,10 @@ namespace VisionAICam
         public bool InferencePrewarm { get; set; } = false;
         public int SamplingInterval { get; set; }=40; // in milliseconds
         public double PolygonAutoCloseThreshold { get; set; } = 12.0;
+
+        // Master controller / robot connection settings
+        public string MasterControllerIp { get; set; } = "192.168.1.6";
+        public int MasterControllerPort { get; set; } = 502;
+        public bool SwapFloatWords { get; set; } = false;
     }
 }

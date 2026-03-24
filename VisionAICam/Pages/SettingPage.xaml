@@ -221,6 +221,36 @@
                     <TextBlock Text="© 2024 VisionAICam Team"/>
                 </StackPanel>
             </TabItem>
+
+            <!-- 🤖 Robot Settings -->
+            <TabItem Header="Robot">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="180"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Master Controller IP:" VerticalAlignment="Center"/>
+        <TextBox x:Name="RobotIpTextBox" Grid.Row="0" Grid.Column="1" MinWidth="240"/>
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" VerticalAlignment="Center"/>
+        <TextBox x:Name="RobotPortTextBox" Grid.Row="1" Grid.Column="1" MinWidth="120"/>
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Swap float words:" VerticalAlignment="Center"/>
+        <CheckBox x:Name="RobotSwapWordsCheckBox" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center"/>
+
+        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,8,0,0">
+            <Button x:Name="RobotConnectButton" Content="Connect" Width="100" Click="RobotConnectButton_Click"/>
+            <TextBlock x:Name="RobotStatusTextBlock" Margin="12,6,0,0" Foreground="Gray" Text="Not connected"/>
+        </StackPanel>
+    </Grid>
+</TabItem>
         </TabControl>
 
         <!-- Save Button -->

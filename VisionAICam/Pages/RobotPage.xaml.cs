@@ -5,9 +5,12 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Threading;
-using VisionAICam.Services;
+using System.ComponentModel;
 using VisionAICam.Modbus;
+using VisionAICam.Services;
+using VisionAICam.Core;
 
 namespace VisionAICam.Pages
 {
@@ -34,8 +37,33 @@ namespace VisionAICam.Pages
 
         private void RobotPage_Loaded(object? sender, RoutedEventArgs e)
         {
-            _robot = new RobotService();
-            _robot.ConnectionChanged += Robot_ConnectionChanged;
+            // Use the shared RobotService from MasterController (created/connected at startup)
+            try
+            {
+                _robot = MasterController.Instance.RobotService;
+                DataContext = _robot;
+                _robot.ConnectionChanged += Robot_ConnectionChanged;
+                _robot.PropertyChanged += Robot_PropertyChanged;
+
+                // Immediately update UI from current state (handles the case where the service
+                // connected before this page was created)
+                Robot_PropertyChanged(_robot, new PropertyChangedEventArgs(nameof(RobotService.IsConnected)));
+            }
+            catch
+            {
+                _robot = new RobotService();
+                DataContext = _robot;
+                _robot.ConnectionChanged += Robot_ConnectionChanged;
+                _robot.PropertyChanged += Robot_PropertyChanged;
+
+                Robot_PropertyChanged(_robot, new PropertyChangedEventArgs(nameof(RobotService.IsConnected)));
+            }
+
+            // Load UI settings from persisted settings file
+            var settings = SettingsManager.Load();
+            HostTextBox.Text = settings.MasterControllerIp;
+            PortTextBox.Text = settings.MasterControllerPort.ToString();
+            SwapWordsCheckBox.IsChecked = settings.SwapFloatWords;
         }
 
         private void RobotPage_Unloaded(object? sender, RoutedEventArgs e)
@@ -44,7 +72,7 @@ namespace VisionAICam.Pages
             if (_robot != null)
             {
                 _robot.ConnectionChanged -= Robot_ConnectionChanged;
-                _robot.Dispose();
+                _robot.PropertyChanged -= Robot_PropertyChanged;
                 _robot = null;
             }
         }
@@ -416,6 +444,30 @@ namespace VisionAICam.Pages
                     MessageBox.Show($"Joint move failed: {ex.Message}", "Manual Move", MessageBoxButton.OK, MessageBoxImage.Error);
                 }));
             }
+        }
+
+        private void Robot_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(RobotService.IsConnected)) return;
+
+            // Marshal UI updates to the UI thread
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                bool connected = _robot?.IsConnected == true;
+                StatusTextBlock.Text = connected ? "Connected" : "Disconnected";
+                ConnectButton.Content = connected ? "Disconnect" : "Connect";
+                ConnectButton.IsEnabled = true;
+
+                if (connected)
+                {
+                    StartPolling();
+                }
+                else
+                {
+                    StopPolling();
+                    ResetDisplays();
+                }
+            }));
         }
     }
 }

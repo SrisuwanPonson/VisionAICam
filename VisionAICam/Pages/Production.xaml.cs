@@ -1,4 +1,5 @@
-﻿using ClearEngine.Devices.Camera; // use camera class library
+﻿
+using ClearEngine.Devices.Camera; // use camera class library
 using ClearEngine.Logging; // <- use the new logger library
 using ClearEngine.Model.Inference;
 using OpenCvSharp;
@@ -27,6 +28,7 @@ namespace VisionAICam.Pages
     {
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string ClassName { get; set; } = "";
+        public string ClassId { get; set; } = ""; // <- add this
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
         public string Task { get; set; } = ""; // "detect" or "obb"
@@ -405,6 +407,26 @@ namespace VisionAICam.Pages
                                 catch (Exception ex)
                                 {
                                     try { _logger.LogError($"Failed to add detection results to MasterController: {ex}"); } catch { }
+                                }
+
+                                // Persist latest predictions via the store registered in MasterController (non-blocking).
+                                try
+                                {
+                                    var store = MasterController.Instance.GetService<VisionAICam.Services.PredictionStore>();
+                                    if (store != null)
+                                    {
+                                        // Use delta update to write only changed records, or ReplaceDetectionResultsAsync to replace all.
+                                        _ = store.ReplaceDetectionResultsDeltaAsync(mapped);
+                                    }
+                                    else
+                                    {
+                                        // Fallback to direct singleton if for some reason MasterController didn't register it.
+                                        _ = VisionAICam.Services.PredictionStore.Instance.ReplaceDetectionResultsDeltaAsync(mapped);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    try { _logger.LogError($"Failed to persist predictions via PredictionStore: {ex}"); } catch { }
                                 }
                             }
                             finally

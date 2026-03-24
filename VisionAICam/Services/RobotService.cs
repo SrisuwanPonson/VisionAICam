@@ -2,6 +2,7 @@
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using System.ComponentModel;
 using Modbus.Device; // NModbus4
 using VisionAICam.Modbus;
 
@@ -11,19 +12,21 @@ namespace VisionAICam.Services
     /// Modbus TCP wrapper for MG400 control.
     /// Implements Modbus helpers and float register helpers used by higher-level motion helpers.
     /// </summary>
-
     public enum PulseEdge
     {
         Rising,   // 0 → 1 → 0
         Falling   // 1 → 0 → 1
     }
-    public class RobotService : IDisposable
+
+    public class RobotService : IDisposable, INotifyPropertyChanged
     {
         private TcpClient? _tcp;
         private ModbusIpMaster? _master;
 
         // serialize access to the master because NModbus masters are not thread-safe
         private readonly SemaphoreSlim _lock = new(1, 1);
+
+        private bool _isConnected; // backing field for observable property
 
         /// <summary>
         /// When true, the two 16-bit words that make a float are swapped (low-word first).
@@ -39,7 +42,21 @@ namespace VisionAICam.Services
 
         public event Action<bool>? ConnectionChanged;
 
-        public bool IsConnected => _tcp?.Connected == true && _master != null;
+        // INotifyPropertyChanged implementation
+        public event PropertyChangedEventHandler? PropertyChanged;
+        private void OnPropertyChanged(string propName) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
+
+        // Observable connection property (use this for UI binding)
+        public bool IsConnected
+        {
+            get => _isConnected;
+            private set
+            {
+                if (_isConnected == value) return;
+                _isConnected = value;
+                OnPropertyChanged(nameof(IsConnected));
+            }
+        }
 
         public async Task<bool> ConnectTcpAsync(string host, int port = 502, int timeoutMs = 2000)
         {
@@ -52,6 +69,7 @@ namespace VisionAICam.Services
                 if (completed != connectTask || !_tcp.Connected)
                 {
                     Disconnect();
+                    IsConnected = false;
                     ConnectionChanged?.Invoke(false);
                     return false;
                 }
@@ -60,12 +78,14 @@ namespace VisionAICam.Services
                 _tcp.SendTimeout = timeoutMs;
                 _master = ModbusIpMaster.CreateIp(_tcp);
                 _master.Transport.Retries = 0;
+                IsConnected = true;
                 ConnectionChanged?.Invoke(true);
                 return true;
             }
             catch
             {
                 Disconnect();
+                IsConnected = false;
                 ConnectionChanged?.Invoke(false);
                 return false;
             }
@@ -77,6 +97,9 @@ namespace VisionAICam.Services
             _master = null;
             try { _tcp?.Close(); } catch { }
             _tcp = null;
+
+            // update observable state and notify listeners
+            IsConnected = false;
             ConnectionChanged?.Invoke(false);
         }
 
@@ -205,12 +228,12 @@ namespace VisionAICam.Services
                 ushort high = regs[i * 2];
                 ushort low = regs[i * 2 + 1];
 
-                // FIX: MG400 needs word swap because your library reverses them
+                // Use converter allowing swap options
                 result[i] = F32Converter.FromRegisters(
                     high,
                     low,
-                    swapWords: true,
-                    swapBytes: false
+                    swapWords: SwapFloatWords,
+                    swapBytes: SwapBytesInWord
                 );
             }
 
@@ -235,13 +258,11 @@ namespace VisionAICam.Services
         }
 
         // Helper: write a register as a short pulse (1 then 0)
-
-
         public async Task WriteRegisterPulseAsync(
-      byte slaveId,
-      ushort registerAddress,
-      PulseEdge edge = PulseEdge.Rising,
-      int pulseMs = 40)
+          byte slaveId,
+          ushort registerAddress,
+          PulseEdge edge = PulseEdge.Rising,
+          int pulseMs = 40)
         {
             // Read actual current value
             ushort current = await ReadSingleRegisterAsync(slaveId, registerAddress)

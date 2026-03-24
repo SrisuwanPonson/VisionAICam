@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <PackageReference Include="EasyModbusTCP" Version="5.6.0" />
+    <PackageReference Include="LiteDB" Version="5.0.21" />
     <PackageReference Include="NModbus4" Version="2.1.0" />
     <PackageReference Include="Ookii.Dialogs.Wpf" Version="5.0.1" />
     <PackageReference Include="OpenCvSharp4" Version="4.11.0.20250507" />
