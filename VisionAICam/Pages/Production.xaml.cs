@@ -1,5 +1,4 @@
-﻿
-using ClearEngine.Devices.Camera; // use camera class library
+﻿using ClearEngine.Devices.Camera; // use camera class library
 using ClearEngine.Logging; // <- use the new logger library
 using ClearEngine.Model.Inference;
 using OpenCvSharp;
@@ -12,6 +11,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -28,7 +28,7 @@ namespace VisionAICam.Pages
     {
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string ClassName { get; set; } = "";
-        public string ClassId { get; set; } = ""; // <- add this
+        public string ClassId { get; set; } = ""; // optional
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2"
         public string Task { get; set; } = ""; // "detect" or "obb"
@@ -76,6 +76,30 @@ namespace VisionAICam.Pages
             ["cat"] = Brushes.Yellow as SolidColorBrush,
             ["dog"] = Brushes.Blue as SolidColorBrush
         };
+
+        // Map class name -> id. Only use user-configured AppSettings.ClassIdMap.
+        // If no mapping exists, return 0 (caller will skip sending).
+        private static ushort MapClassToId(string? className)
+        {
+            if (string.IsNullOrWhiteSpace(className)) return 0;
+
+            try
+            {
+                var settings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+                if (settings?.ClassIdMap != null && settings.ClassIdMap.Count > 0)
+                {
+                    if (settings.ClassIdMap.TryGetValue(className.Trim(), out var uid))
+                        return uid;
+                }
+            }
+            catch
+            {
+                // swallow - if config can't be read we will not send
+            }
+
+            // No mapping => do not send
+            return 0;
+        }
 
         public Production()
         {
@@ -396,6 +420,14 @@ namespace VisionAICam.Pages
 
                                     // Update the per-frame summary (clears previous and shows counts for this frame)
                                     UpdateFrameSummary(mapped);
+
+                                    // Safely send first detection if present
+                                    if (mapped != null && mapped.Count > 0)
+                                    {
+                                        var firstClassName = mapped[0].ClassName;
+                                        // fire-and-forget so camera loop not blocked
+                                        _ = System.Threading.Tasks.Task.Run(() => SendFirstDetectionToRobotUsingServiceAsync(firstClassName));
+                                    }
                                 });
 
                                 // --- after building `mapped` (Collection<DetectionResult>)
@@ -679,6 +711,38 @@ namespace VisionAICam.Pages
             else
             {
                 MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // Add this helper method inside Production (non-blocking, swallows errors)
+        private async Task SendFirstDetectionToRobotUsingServiceAsync(string className)
+        {
+            try
+            {
+                var robot = MasterController.Instance.GetService<RobotService>() ?? MasterController.Instance.RobotService;
+                if (robot == null || !robot.IsConnected) return;
+
+                byte slaveId = 1; // adjust if needed
+
+                // Read register address and mapping from settings (fallbacks included)
+                ushort registerAddress = 10;
+                try
+                {
+                    var settings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+                    if (settings != null) registerAddress = settings.RobotRegisterAddress;
+                }
+                catch { /* swallow */ }
+
+                ushort value = MapClassToId(className);
+                if (value == 0) return; // unknown class, skip
+
+                // write without blocking camera loop (await here because RobotService is async; caller uses Task.Run/_)
+                await robot.WriteSingleRegisterAsync(slaveId, registerAddress, value).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                try { _logger.LogError($"SendFirstDetectionToRobotUsingServiceAsync failed: {ex}"); } catch { }
+                // swallow - do not crash camera loop
             }
         }
     }

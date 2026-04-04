@@ -1,4 +1,5 @@
-﻿<Page x:Class="VisionAICam.Pages.SettingPage"
+﻿
+<Page x:Class="VisionAICam.Pages.SettingPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Title="Settings">
@@ -91,7 +92,7 @@
                         <TextBox x:Name="CaptureFolderPathText"
                                  MinWidth="260"
                                  IsReadOnly="True"/>
-                        <Button Content="Browse..." Margin="10,0" ToolTip="Implement Browse handler in code-behind" x:Name="BrowseCaptureFolderButton" Click="BrowseCaptureFolderButton_Click"/>
+                        <Button Content="Browse..." Margin="10,0" x:Name="BrowseCaptureFolderButton" Click="BrowseCaptureFolderButton_Click"/>
                     </WrapPanel>
                 </Grid>
             </TabItem>
@@ -117,13 +118,13 @@
                 </StackPanel>
             </TabItem>
 
-            <!-- Inference Settings (model path removed) -->
+            <!-- Inference Settings -->
             <TabItem Header="Inference">
                 <Grid Margin="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/> <!-- Python DLL -->
                         <RowDefinition Height="Auto"/> <!-- Runtime -->
-                        <RowDefinition Height="Auto"/> <!-- Sampling Interval (new) -->
+                        <RowDefinition Height="Auto"/> <!-- Sampling Interval -->
                         <RowDefinition Height="Auto"/> <!-- Engine Options -->
                         <RowDefinition Height="*"/>    <!-- Status / Notes -->
                     </Grid.RowDefinitions>
@@ -145,7 +146,6 @@
                         <ComboBoxItem Content="Other"/>
                     </ComboBox>
 
-                    <!-- New: SamplingInterval bound to AppSettings.SamplingInterval -->
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Sampling Interval (ms):" VerticalAlignment="Center"/>
                     <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,4,0,4">
                         <Slider x:Name="SamplingIntervalSlider"
@@ -179,10 +179,8 @@
                 </Grid>
             </TabItem>
 
-            <!-- 🎨 General Preferences -->  
+            <!-- 🎨 Preferences -->
             <TabItem Header="Preferences">
-                <!-- IMPORTANT: TabItem can only have a single child.
-                     Wrap the Header controls in a single container (StackPanel) to avoid "invalid markup". -->
                 <StackPanel Margin="12">
                     <WrapPanel>
                         <TextBlock Text="Theme:" VerticalAlignment="Center"/>
@@ -192,7 +190,6 @@
                         </ComboBox>
                     </WrapPanel>
 
-                    <!-- Polygon auto-close threshold control -->
                     <StackPanel Orientation="Horizontal" Margin="12,8,0,0" VerticalAlignment="Center">
                         <TextBlock Text="Polygon auto-close threshold (px):" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <Slider
@@ -224,37 +221,61 @@
 
             <!-- 🤖 Robot Settings -->
             <TabItem Header="Robot">
-    <Grid Margin="12">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="180"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="180"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="Master Controller IP:" VerticalAlignment="Center"/>
-        <TextBox x:Name="RobotIpTextBox" Grid.Row="0" Grid.Column="1" MinWidth="240"/>
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Master Controller IP:" VerticalAlignment="Center"/>
+                    <TextBox x:Name="RobotIpTextBox" Grid.Row="0" Grid.Column="1" MinWidth="240"/>
 
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" VerticalAlignment="Center"/>
-        <TextBox x:Name="RobotPortTextBox" Grid.Row="1" Grid.Column="1" MinWidth="120"/>
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Port:" VerticalAlignment="Center"/>
+                    <TextBox x:Name="RobotPortTextBox" Grid.Row="1" Grid.Column="1" MinWidth="120"/>
 
-        <TextBlock Grid.Row="2" Grid.Column="0" Text="Swap float words:" VerticalAlignment="Center"/>
-        <CheckBox x:Name="RobotSwapWordsCheckBox" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Swap float words:" VerticalAlignment="Center"/>
+                    <CheckBox x:Name="RobotSwapWordsCheckBox" Grid.Row="2" Grid.Column="1" VerticalAlignment="Center"/>
 
-        <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,8,0,0">
-            <Button x:Name="RobotConnectButton" Content="Connect" Width="100" Click="RobotConnectButton_Click"/>
-            <TextBlock x:Name="RobotStatusTextBlock" Margin="12,6,0,0" Foreground="Gray" Text="Not connected"/>
-        </StackPanel>
-    </Grid>
-</TabItem>
+                    <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,8,0,0">
+                        <Button x:Name="RobotConnectButton" Content="Connect" Width="100" Click="RobotConnectButton_Click"/>
+                        <TextBlock x:Name="RobotStatusTextBlock" Margin="12,6,0,0" Foreground="Gray" Text="Not connected"/>
+                    </StackPanel>
+
+                    <Separator Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8"/>
+
+                    <!-- Modbus mapping UI -->
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Register address:" VerticalAlignment="Top"/>
+                    <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Vertical">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="RobotRegisterAddressTextBox" Width="120" VerticalAlignment="Center"/>
+                            <Button x:Name="SaveRobotSettingsButton" Content="Save Map" Width="80" Margin="12,0,0,0"/>
+                            <Button x:Name="ReloadRobotSettingsButton" Content="Reload" Width="60" Margin="6,0,0,0"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Class → ID mapping (comma list maps to 1,2,.. or use lines 'name=number')"
+                                   FontSize="11" Foreground="Gray" Margin="0,8,0,6"/>
+
+                        <TextBox x:Name="ClassIdMapTextBox"
+                                 AcceptsReturn="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 Height="140"
+                                 TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
         </TabControl>
 
         <!-- Save Button -->
         <Button Content="Save"
+                x:Name="SaveButton"
                 Width="120"
                 Height="36"
                 Margin="0,0,0,10"

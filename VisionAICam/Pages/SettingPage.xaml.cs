@@ -1,4 +1,5 @@
-﻿using System;
+﻿
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -8,6 +9,7 @@ using VisionAICam; // For AppSettings and SettingsManager
 using System.IO;
 using VisionAICam.Core;
 using VisionAICam.Services;
+using System.Linq;
 
 namespace VisionAICam.Pages
 {
@@ -29,6 +31,12 @@ namespace VisionAICam.Pages
             if (BrowsePythonDllButton != null)
                 BrowsePythonDllButton.Click += BrowsePythonDllButton_Click;
 
+            // Wire robot settings buttons (if present in XAML)
+            if (SaveRobotSettingsButton != null)
+                SaveRobotSettingsButton.Click += SaveRobotSettings_Click;
+            if (ReloadRobotSettingsButton != null)
+                ReloadRobotSettingsButton.Click += ReloadRobotSettings_Click;
+
             // In the constructor (after InitializeComponent) wire slider <-> textbox (if controls exist in XAML):
             if (PolygonAutoCloseThresholdSlider != null)
             {
@@ -38,6 +46,17 @@ namespace VisionAICam.Pages
                     if (PolygonAutoCloseThresholdTextBox != null)
                         PolygonAutoCloseThresholdTextBox.Text = PolygonAutoCloseThresholdSlider.Value.ToString("0.##");
                 };
+            }
+
+            // Load robot settings UI initially (defensive)
+            try
+            {
+                LoadRobotSettingsTo_ui();
+            }
+            catch (Exception ex)
+            {
+                // non-fatal but log so you can diagnose issues
+                try { MasterController.Instance.Logger.LogError($"LoadRobotSettingsTo_ui failed: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(ex); }
             }
         }
 
@@ -153,6 +172,17 @@ namespace VisionAICam.Pages
                     PolygonAutoCloseThresholdSlider.Value = _appSettings.PolygonAutoCloseThreshold;
                 if (PolygonAutoCloseThresholdTextBox != null)
                     PolygonAutoCloseThresholdTextBox.Text = _appSettings.PolygonAutoCloseThreshold.ToString("0.##");
+            }
+
+            // Also populate robot-specific UI
+            try
+            {
+                LoadRobotSettingsTo_ui();
+            }
+            catch (Exception ex)
+            {
+                // non-fatal but log so you can diagnose issues
+                try { MasterController.Instance.Logger.LogError($"LoadRobotSettingsTo_ui failed: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(ex); }
             }
         }
 
@@ -286,6 +316,9 @@ namespace VisionAICam.Pages
             {
                 UpdateRobotUi(false);
             }
+
+            // Also populate robot settings UI after robot/service initialization
+            try { LoadRobotSettingsTo_ui(); } catch { }
         }
 
         private void Robot_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -390,5 +423,129 @@ namespace VisionAICam.Pages
                 RobotConnectButton.IsEnabled = true;
             }
         }
+
+        // ---------- Robot settings UI helpers ----------
+
+        // Populate the robot register address and class-id mapping textboxes from settings
+        private void LoadRobotSettingsTo_ui()
+        {
+            try
+            {
+                var s = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+                if (s == null)
+                {
+                    if (RobotRegisterAddressTextBox != null) RobotRegisterAddressTextBox.Text = "10";
+                    if (ClassIdMapTextBox != null) ClassIdMapTextBox.Text = string.Empty;
+                    return;
+                }
+
+                if (RobotRegisterAddressTextBox != null)
+                    RobotRegisterAddressTextBox.Text = s.RobotRegisterAddress.ToString();
+
+                // Build runtime map from AppSettings (ClassIdMap is provided by AppSettings implementation)
+                var map = s.ClassIdMap ?? new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
+
+                if (map.Count == 0)
+                {
+                    if (ClassIdMapTextBox != null) ClassIdMapTextBox.Text = string.Empty;
+                    return;
+                }
+
+                var ordered = map.OrderBy(kv => kv.Value).ToList();
+
+                // Check if mapping is sequential 1..N
+                bool isSequential = true;
+                for (int i = 0; i < ordered.Count; i++)
+                {
+                    if (ordered[i].Value != (ushort)(i + 1))
+                    {
+                        isSequential = false;
+                        break;
+                    }
+                }
+
+                if (ClassIdMapTextBox != null)
+                {
+                    if (isSequential)
+                        ClassIdMapTextBox.Text = string.Join(",", ordered.Select(kv => kv.Key));
+                    else
+                        ClassIdMapTextBox.Text = string.Join(Environment.NewLine, ordered.Select(kv => $"{kv.Key}={kv.Value}"));
+                }
+            }
+            catch (Exception ex)
+            {
+                try { MasterController.Instance.Logger.LogError($"LoadRobotSettingsTo_ui failed: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(ex); }
+            }
+        }
+
+        // Reload button handler
+        private void ReloadRobotSettings_Click(object sender, RoutedEventArgs e)
+        {
+            LoadRobotSettingsTo_ui();
+        }
+
+        // Save robot register address + class->id mapping from UI into AppSettings and persist
+        private void SaveRobotSettings_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var s = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load() ?? new AppSettings();
+
+                if (ushort.TryParse(RobotRegisterAddressTextBox?.Text?.Trim() ?? "", out ushort reg))
+                    s.RobotRegisterAddress = reg;
+
+                var map = new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
+                var raw = (ClassIdMapTextBox?.Text ?? "").Trim();
+
+                if (!string.IsNullOrEmpty(raw))
+                {
+                    // If contains '=' or ':' treat as explicit name->id lines
+                    if (raw.Contains('=') || raw.Contains(':'))
+                    {
+                        var lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var rawLine in lines)
+                        {
+                            var line = rawLine.Trim();
+                            if (string.IsNullOrEmpty(line)) continue;
+                            char sep = line.Contains('=') ? '=' : (line.Contains(':') ? ':' : '\0');
+                            if (sep == '\0') continue;
+                            var parts = line.Split(sep);
+                            if (parts.Length != 2) continue;
+                            var name = parts[0].Trim();
+                            if (ushort.TryParse(parts[1].Trim(), out ushort id) && !string.IsNullOrEmpty(name))
+                                map[name] = id;
+                        }
+                    }
+                    else
+                    {
+                        // Treat as comma-separated ordered names -> ids 1..N
+                        var parts = raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                       .Select(p => p.Trim())
+                                       .Where(p => !string.IsNullOrEmpty(p))
+                                       .ToArray();
+                        for (int i = 0; i < parts.Length; i++)
+                        {
+                            var name = parts[i];
+                            ushort id = (ushort)(i + 1);
+                            map[name] = id;
+                        }
+                    }
+                }
+
+                if (map.Count > 0)
+                    s.ClassIdMap = map;
+
+                // Persist
+                SettingsManager.Save(s);
+                try { MasterController.Instance.RegisterService(s); } catch { }
+                MessageBox.Show("Robot settings saved.", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to save robot settings: {ex.Message}", "Settings", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ---------- End robot settings helpers ----------
     }
 }
