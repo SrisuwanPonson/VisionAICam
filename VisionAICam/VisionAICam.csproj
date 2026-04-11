@@ -59,13 +59,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<None Update="Native\MvCameraControl.Net.dll">
-			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
-
-		<None Update="Native\**\*.*">
-			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
-		</None>
 
 		<None Update="Pages\train_yolov8.py">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>

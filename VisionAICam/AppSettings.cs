@@ -43,6 +43,22 @@ namespace VisionAICam
         // NEW: Robot register address to write the mapped class id into
         public ushort RobotRegisterAddress { get; set; } = 10;
 
+        // Reference color defaults (will be persisted in settings XML)
+        // Red reference (example default: R=121,G=51,B=55)
+        public byte RefRedR { get; set; } = 121;
+        public byte RefRedG { get; set; } = 51;
+        public byte RefRedB { get; set; } = 55;
+
+        // Green reference (example default: R=77,G=93,B=85)
+        public byte RefGreenR { get; set; } = 77;
+        public byte RefGreenG { get; set; } = 93;
+        public byte RefGreenB { get; set; } = 85;
+
+        // Blue reference (example default: R=43,G=66,B=103)
+        public byte RefBlueR { get; set; } = 43;
+        public byte RefBlueG { get; set; } = 66;
+        public byte RefBlueB { get; set; } = 103;
+
         // XML-friendly list persisted by existing XmlSerializer.
         // Use ClassIdMap (non-serialized) at runtime for convenient lookups.
         public List<ClassIdEntry> ClassIdEntries { get; set; } = new List<ClassIdEntry>
@@ -83,6 +99,43 @@ namespace VisionAICam
                     foreach (var kv in value)
                         ClassIdEntries.Add(new ClassIdEntry { Name = kv.Key, Id = kv.Value });
                 }
+            }
+        }
+
+        // Convenience tuple-like accessors for runtime use (not serialized directly)
+        [XmlIgnore]
+        public (byte R, byte G, byte B) RefRed
+        {
+            get => (RefRedR, RefRedG, RefRedB);
+            set
+            {
+                RefRedR = value.R;
+                RefRedG = value.G;
+                RefRedB = value.B;
+            }
+        }
+
+        [XmlIgnore]
+        public (byte R, byte G, byte B) RefGreen
+        {
+            get => (RefGreenR, RefGreenG, RefGreenB);
+            set
+            {
+                RefGreenR = value.R;
+                RefGreenG = value.G;
+                RefGreenB = value.B;
+            }
+        }
+
+        [XmlIgnore]
+        public (byte R, byte G, byte B) RefBlue
+        {
+            get => (RefBlueR, RefBlueG, RefBlueB);
+            set
+            {
+                RefBlueR = value.R;
+                RefBlueG = value.G;
+                RefBlueB = value.B;
             }
         }
     }

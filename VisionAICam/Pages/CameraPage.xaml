@@ -4,14 +4,12 @@
       Title="CameraPage">
 
     <Page.Resources>
-        <!-- Page background gradient -->
         <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#263238" Offset="0"/>
             <GradientStop Color="#37474F" Offset="0.5"/>
             <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
 
-        <!-- Rounded Button Style -->
         <Style x:Key="RoundedButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#FF1976D2"/>
             <Setter Property="Foreground" Value="White"/>
@@ -35,7 +33,6 @@
             </Setter>
         </Style>
 
-        <!-- Rounded ComboBox Style -->
         <Style x:Key="RoundedComboBoxStyle" TargetType="ComboBox">
             <Setter Property="Background" Value="#FFF0F4FF"/>
             <Setter Property="Foreground" Value="#FF1A237E"/>
@@ -60,114 +57,269 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 🎛️ Camera Controls -->
-        <StackPanel Orientation="Horizontal" Grid.Row="0" VerticalAlignment="Center" Margin="0,0,0,12">
-            <ComboBox x:Name="CameraComboBox"
-                      Style="{StaticResource RoundedComboBoxStyle}"
-                      ToolTip="Select camera device"
-                      SelectionChanged="CameraComboBox_SelectionChanged"/>
-            <Button x:Name="SelectCameraButton"
-                   Content="Select"
-                   Style="{StaticResource RoundedButtonStyle}"
-                   ToolTip="Start camera"
-                   Width="120"
-                   Click="SelectCameraButton_Click_1"/>
-            <Button x:Name="StopCameraButton"
-                   Content="Stop"
-                   Style="{StaticResource RoundedButtonStyle}"
-                   Background="#FFD32F2F"
-                   BorderBrush="#FFC62828"
-                   ToolTip="Stop camera"
-                   Width="120"
-                   Click="StopCameraButton_Click"/>
-        </StackPanel>
+        <TabControl Grid.Row="0" Grid.RowSpan="4" Margin="0">
+            <TabItem Header="General">
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <!-- expander with camera controls -->
+                        <RowDefinition Height="*"/>
+                        <!-- preview + right column -->
+                    </Grid.RowDefinitions>
 
-        <!-- 🎚️ Camera Parameters -->
-        <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,12" HorizontalAlignment="Left">
-            <StackPanel Margin="0,0,24,0">
-                <TextBlock Text="Brightness" FontWeight="Bold" Foreground="#FFFFFF"/>
-                <Slider x:Name="BrightnessSlider" Minimum="0" Maximum="255" Width="140"
-                        ValueChanged="BrightnessSlider_ValueChanged"/>
-            </StackPanel>
-            <StackPanel Margin="0,0,24,0">
-                <TextBlock Text="Contrast" FontWeight="Bold" Foreground="#FFFFFF"/>
-                <Slider x:Name="ContrastSlider" Minimum="0" Maximum="255" Width="140"
-                        ValueChanged="ContrastSlider_ValueChanged"/>
-            </StackPanel>
-            <StackPanel>
-                <TextBlock Text="Exposure" FontWeight="Bold" Foreground="#FFFFFF"/>
-                <Slider x:Name="ExposureSlider" Minimum="-10" Maximum="10" Width="140"
-                        ValueChanged="ExposureSlider_ValueChanged"/>
-            </StackPanel>
-        </StackPanel>
+                    <!-- Collapsible camera/control area -->
+                    <Expander x:Name="ControlExpander"
+                              Grid.Row="0"
+                              IsExpanded="True"
+                              Expanded="ControlExpander_Expanded"
+                              Collapsed="ControlExpander_Collapsed"
+                              BorderThickness="0"
+                              Background="Transparent" Margin="0,0,0,8">
+                        <Expander.Header>
+                            <DockPanel LastChildFill="False">
+                                <Button x:Name="CollapseButton"
+                                        Content="▾"
+                                        Width="28"
+                                        Height="24"
+                                        Margin="0,0,8,0"
+                                        Click="CollapseButton_Click"
+                                        DockPanel.Dock="Left"/>
+                                <TextBlock Text="Controls" VerticalAlignment="Center"/>
+                            </DockPanel>
+                        </Expander.Header>
 
-        <!-- 🏷️ Image Preparation -->
-        <GroupBox Header="Image Preparation" Grid.Row="2" Margin="0,0,0,12">
-            <Grid Margin="23,10,10,10" Height="76">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="180"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,12">
+                                <ComboBox x:Name="CameraComboBox"
+                                          Style="{StaticResource RoundedComboBoxStyle}"
+                                          ToolTip="Select camera device"
+                                          SelectionChanged="CameraComboBox_SelectionChanged"/>
+                                <Button x:Name="SelectCameraButton"
+                                       Content="Select"
+                                       Style="{StaticResource RoundedButtonStyle}"
+                                       ToolTip="Start camera"
+                                       Width="120"
+                                       Click="SelectCameraButton_Click_1"/>
+                                <Button x:Name="StopCameraButton"
+                                       Content="Stop"
+                                       Style="{StaticResource RoundedButtonStyle}"
+                                       Background="#FFD32F2F"
+                                       BorderBrush="#FFC62828"
+                                       ToolTip="Stop camera"
+                                       Width="120"
+                                       Click="StopCameraButton_Click"/>
+                            </StackPanel>
 
-                <!-- Object Class -->
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Object Class:" VerticalAlignment="Center" Foreground="#FFFFFF"/>
-                <ComboBox x:Name="ClassComboBox"
-                          Grid.Row="0" Grid.Column="1"
-                          Style="{StaticResource RoundedComboBoxStyle}"
-                          ToolTip="Select object class for labeling">
-                    <ComboBoxItem Content="WallPlug"/>
-                    <ComboBoxItem Content="Screw"/>
-                    <ComboBoxItem Content="Anchor"/>
-                    <ComboBoxItem Content="Bracket"/>
-                    <ComboBoxItem Content="Clip"/>
-                </ComboBox>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12" HorizontalAlignment="Left">
+                                <StackPanel Margin="0,0,24,0">
+                                    <TextBlock Text="Brightness" FontWeight="Bold"/>
+                                    <Slider x:Name="BrightnessSlider" Minimum="0" Maximum="255" Width="140"
+                                            ValueChanged="BrightnessSlider_ValueChanged"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,24,0">
+                                    <TextBlock Text="Contrast" FontWeight="Bold"/>
+                                    <Slider x:Name="ContrastSlider" Minimum="0" Maximum="255" Width="140"
+                                            ValueChanged="ContrastSlider_ValueChanged"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <TextBlock Text="Exposure" FontWeight="Bold"/>
+                                    <Slider x:Name="ExposureSlider" Minimum="-10" Maximum="10" Width="140"
+                                            ValueChanged="ExposureSlider_ValueChanged"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Expander>
 
-                <!-- Snapshot Button -->
-                <Button x:Name="SnapshotButton"
-                       Grid.Row="0" Grid.Column="2"
-                       Content="Snapshot"
-                       Style="{StaticResource RoundedButtonStyle}"
-                       Background="#FF388E3C"
-                       BorderBrush="#FF2E7D32"
-                       ToolTip="Capture image with selected class/category"
-                       Width="120"
-                       Click="SnapshotButton_Click"/>
+                    <!-- Main preview + right Image Preparation (moved here) -->
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                <!-- Category -->
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Category:" VerticalAlignment="Top" Foreground="#FFFFFF" Margin="0,15,0,0"/>
-                <ComboBox x:Name="CategoryComboBox"
-                          Grid.Row="1" Grid.Column="1"
-                          Style="{StaticResource RoundedComboBoxStyle}"
-                          ToolTip="Select category for classification" Margin="0,5,12,-5">
-                    <ComboBoxItem Content="Fastener"/>
-                    <ComboBoxItem Content="Anchor"/>
-                    <ComboBoxItem Content="Fixture"/>
-                    <ComboBoxItem Content="Electrical"/>
-                    <ComboBoxItem Content="Tool"/>
-                </ComboBox>
-                <Label x:Name="lblSaveStatus" Grid.Column="2" Content="--" 
-                      HorizontalAlignment="Center" Margin="0,6,0,0" Grid.Row="1" 
-                      VerticalAlignment="Top" Width="120" Foreground="White"/>
-            </Grid>
-        </GroupBox>
+                        <!-- Left: Live preview with overlays -->
+                        <Border Grid.Column="0"
+                                BorderBrush="#90CAF9"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Background="#FFFFFF"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                Margin="0,0,12,0">
+                            <Grid>
+                                <Image x:Name="CameraImage" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                                <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" Background="Transparent"/>
+                            </Grid>
+                        </Border>
 
-        <!-- 📷 Camera Image Display -->
-        <Border Grid.Row="3"
-                BorderBrush="#90CAF9"
-                BorderThickness="1"
-                CornerRadius="8"
-                Background="#FFFFFF"
-                HorizontalAlignment="Stretch"
-                VerticalAlignment="Stretch">
-            <Image x:Name="CameraImage"
-                   Stretch="Uniform"
-                   HorizontalAlignment="Stretch"
-                   VerticalAlignment="Stretch"/>
-        </Border>
+                        <!-- Right: Image Preparation group (moved here). Gain/Offset/WhiteBalance removed. -->
+                        <Border Grid.Column="1"
+                                BorderBrush="#90CAF9"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Background="#FFF8FAFF"
+                                Padding="8">
+                            <StackPanel VerticalAlignment="Top" Margin="4">
+                                <!-- small toggle button kept to preserve existing toggle behavior -->
+                                <DockPanel LastChildFill="False" Margin="0,0,0,6">
+                                    <Button x:Name="ImgPrepToggleButton" Content="▾" Width="28" Height="24" DockPanel.Dock="Right" Margin="0,0,0,0" Click="ImgPrepToggleButton_Click"/>
+                                </DockPanel>
+
+                                <GroupBox
+    x:Name="ImagePrepGroupBox"
+    Header="Image Preparation"
+    Margin="0"
+    HorizontalAlignment="Stretch">
+
+                                    <Grid Margin="12"
+          Height="Auto"
+          HorizontalAlignment="Stretch">
+
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 0: Object Class label -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 1: Object Class ComboBox -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 2: Category label -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 3: Category ComboBox -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 4: Snapshot -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Row 5: Save Status Label -->
+                                        </Grid.RowDefinitions>
+
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Row 0 -->
+                                        <TextBlock Grid.Row="0" Grid.Column="0"
+                   Text="Object Class:" VerticalAlignment="Center"/>
+
+                                        <!-- Row 1 -->
+                                        <ComboBox x:Name="ClassComboBox"
+                  Grid.Row="1" Grid.Column="0"
+                  Grid.ColumnSpan="2"
+                  Margin="0,4,0,4"
+                  HorizontalAlignment="Stretch"
+                  Style="{StaticResource RoundedComboBoxStyle}"/>
+
+                                        <!-- Row 2 -->
+                                        <TextBlock Grid.Row="2" Grid.Column="0"
+                   Text="Category:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+
+                                        <!-- Row 3 -->
+                                        <ComboBox x:Name="CategoryComboBox"
+                  Grid.Row="3" Grid.Column="0"
+                  Grid.ColumnSpan="2"
+                  Margin="0,4,0,4"
+                  HorizontalAlignment="Stretch"
+                  Style="{StaticResource RoundedComboBoxStyle}"/>
+
+                                        <!-- Row 4 -->
+                                        <Button x:Name="SnapshotButton"
+                Grid.Row="4" Grid.Column="0"
+                Content="Snapshot"
+                Style="{StaticResource RoundedButtonStyle}"
+                Background="#FF388E3C"
+                BorderBrush="#FF2E7D32"
+                Width="80"
+                HorizontalAlignment="Left"
+                Margin="0,5,0,5"
+                Click="SnapshotButton_Click"/>
+
+                                        <!-- Row 5: Save Status Label -->
+                                        <TextBlock x:Name="lblSaveStatus"
+                   Grid.Row="5" Grid.Column="0"
+                   Grid.ColumnSpan="2"
+                   Text=""
+                   Foreground="Green"
+                   FontWeight="SemiBold"
+                   Margin="0,4,0,0"/>
+                                    </Grid>
+                                </GroupBox>
+
+                                <!-- keep calibration status visible on General tab -->
+                                <Label x:Name="CalibStatus" Content="Ready" Margin="0,12,0,0"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- Calibrate tab: cloned preview + reference color editors -->
+            <TabItem Header="Calibrate">
+                <Grid Margin="12">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <!-- header buttons -->
+                        <RowDefinition Height="*"/>
+                        <!-- rest -->
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Header buttons -->
+                    <StackPanel Orientation="Horizontal" Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,8" HorizontalAlignment="Left">
+                        <Button x:Name="AutoCalibrateButton" Content="Start Calibration" Style="{StaticResource RoundedButtonStyle}" Width="160" Click="AutoCalibrateButton_Click"/>
+                        <Button x:Name="ApplyCalibButton" Content="Apply" Style="{StaticResource RoundedButtonStyle}" Width="120"/>
+                        <Button x:Name="ResetCalibButton" Content="Reset" Style="{StaticResource RoundedButtonStyle}" Width="120" Background="#FFE0E0E0" Foreground="#FF000000"/>
+                    </StackPanel>
+
+                    <!-- Left: Cloned preview area (image + overlay) -->
+                    <Border Grid.Row="1" Grid.Column="0"
+                            BorderBrush="#90CAF9"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Background="#FFFFFF"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch"
+                            Margin="0,0,12,0">
+                        <Grid>
+                            <Image x:Name="CalibImage" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                            <Canvas x:Name="CalibOverlayCanvas" IsHitTestVisible="False" Background="Transparent"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Right: reference color boxes and edit controls -->
+                    <Border Grid.Row="1" Grid.Column="1"
+                            BorderBrush="#90CAF9"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Background="#FFF8FAFF"
+                            Padding="8">
+                        <StackPanel VerticalAlignment="Top" Margin="4">
+                            <TextBlock Text="Calibration references" FontWeight="Bold" Margin="0,0,0,8"/>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
+                                <Border x:Name="RectRed" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF795337"/>
+                                <TextBox x:Name="TxtRefRed" Width="120" IsReadOnly="True" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnEditRed" Content="Edit" Width="60" Click="EditSaveRef_Click"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
+                                <Border x:Name="RectGreen" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF4D5D55"/>
+                                <TextBox x:Name="TxtRefGreen" Width="120" IsReadOnly="True" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnEditGreen" Content="Edit" Width="60" Click="EditSaveRef_Click"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
+                                <Border x:Name="RectBlue" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF2B4267"/>
+                                <TextBox x:Name="TxtRefBlue" Width="120" IsReadOnly="True" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnEditBlue" Content="Edit" Width="60" Click="EditSaveRef_Click"/>
+                            </StackPanel>
+
+                            <Label x:Name="CalibTabStatus" Content="Ready" Margin="0,12,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
     </Grid>
 </Page>
