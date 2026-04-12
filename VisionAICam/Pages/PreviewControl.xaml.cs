@@ -57,6 +57,10 @@ namespace VisionAICam.Pages
                 OverlayCanvas.Width = Math.Max(OverlayCanvas.Width, PreviewImage.ActualWidth);
                 OverlayCanvas.Height = Math.Max(OverlayCanvas.Height, PreviewImage.ActualHeight);
 
+                // Resolve themed brushes (fallback to sensible defaults)
+                var accent = Application.Current.TryFindResource("AccentBrush") as Brush ?? new SolidColorBrush(Color.FromRgb(25, 118, 210));
+                var textBrush = Application.Current.TryFindResource("TextPrimaryBrush") as Brush ?? Brushes.Black;
+
                 if (_overlayRects == null)
                 {
                     _overlayRects = new System.Windows.Shapes.Rectangle[3];
@@ -66,6 +70,7 @@ namespace VisionAICam.Pages
                         var rect = new System.Windows.Shapes.Rectangle
                         {
                             Fill = Brushes.Transparent,
+                            Stroke = accent,
                             StrokeThickness = 3,
                             Visibility = Visibility.Collapsed
                         };
@@ -75,10 +80,7 @@ namespace VisionAICam.Pages
                         var tb = new TextBlock
                         {
                             FontSize = 12,
-                            Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
-                            Foreground = Brushes.White,
-                            Padding = new Thickness(4, 2, 4, 2),
-                            TextWrapping = TextWrapping.Wrap,
+                            Foreground = textBrush,
                             Visibility = Visibility.Collapsed
                         };
                         OverlayCanvas.Children.Add(tb);
@@ -86,100 +88,44 @@ namespace VisionAICam.Pages
                     }
                 }
 
-                Brush[] strokeBrushes = new Brush[3];
-                try
+                // Position and show overlays
+                for (int i = 0; i < _overlayRects.Length; i++)
                 {
-                    strokeBrushes[0] = new SolidColorBrush(Color.FromRgb(236, 10, 10));
-                    strokeBrushes[1] = new SolidColorBrush(Color.FromRgb(10, 236, 10));
-                    strokeBrushes[2] = new SolidColorBrush(Color.FromRgb(10, 10, 236));
-                    foreach (var b in strokeBrushes) if (b is SolidColorBrush sb) sb.Freeze();
-                }
-                catch
-                {
-                    strokeBrushes[0] = Brushes.Red;
-                    strokeBrushes[1] = Brushes.Lime;
-                    strokeBrushes[2] = Brushes.DodgerBlue;
-                }
-
-                GeneralTransform imageToCanvas;
-                try { imageToCanvas = PreviewImage.TransformToVisual(OverlayCanvas); }
-                catch { imageToCanvas = null!; }
-
-                for (int i = 0; i < 3; i++)
-                {
-                    if (i >= sourceRects.Count)
+                    if (i < sourceRects.Count)
                     {
-                        if (_overlayRects[i] != null) _overlayRects[i].Visibility = Visibility.Collapsed;
-                        if (_overlayLabels[i] != null) _overlayLabels[i].Visibility = Visibility.Collapsed;
-                        continue;
-                    }
+                        var sr = sourceRects[i];
+                        double x = offsetX + sr.X * scale;
+                        double y = offsetY + sr.Y * scale;
+                        double w = sr.Width * scale;
+                        double h = sr.Height * scale;
 
-                    var s = sourceRects[i];
+                        var r = _overlayRects[i];
+                        Canvas.SetLeft(r, x);
+                        Canvas.SetTop(r, y);
+                        r.Width = Math.Max(0, w);
+                        r.Height = Math.Max(0, h);
+                        r.Visibility = Visibility.Visible;
 
-                    var tlImg = new System.Windows.Point(offsetX + s.X * scale, offsetY + s.Y * scale);
-                    var brImg = new System.Windows.Point(offsetX + (s.X + s.Width) * scale, offsetY + (s.Y + s.Height) * scale);
-
-                    Point tlCanvas, brCanvas;
-                    try
-                    {
-                        if (imageToCanvas != null)
-                        {
-                            tlCanvas = imageToCanvas.Transform(tlImg);
-                            brCanvas = imageToCanvas.Transform(brImg);
-                        }
+                        var lb = _overlayLabels[i];
+                        if (overlayLabelTexts != null && i < overlayLabelTexts.Length)
+                            lb.Text = overlayLabelTexts[i];
                         else
-                        {
-                            tlCanvas = tlImg;
-                            brCanvas = brImg;
-                        }
-                    }
-                    catch
-                    {
-                        tlCanvas = tlImg;
-                        brCanvas = brImg;
-                    }
+                            lb.Text = string.Empty;
 
-                    double left = Math.Min(tlCanvas.X, brCanvas.X);
-                    double top = Math.Min(tlCanvas.Y, brCanvas.Y);
-                    double w = Math.Max(2.0, Math.Abs(brCanvas.X - tlCanvas.X));
-                    double h = Math.Max(2.0, Math.Abs(brCanvas.Y - tlCanvas.Y));
-
-                    var rect = _overlayRects[i];
-                    rect.Width = w;
-                    rect.Height = h;
-                    rect.Stroke = strokeBrushes[Math.Min(i, strokeBrushes.Length - 1)];
-                    Canvas.SetLeft(rect, left);
-                    Canvas.SetTop(rect, top);
-                    rect.Visibility = Visibility.Visible;
-
-                    var label = _overlayLabels[i];
-                    string? text = (overlayLabelTexts != null && i < overlayLabelTexts.Length) ? overlayLabelTexts[i] : null;
-                    if (!string.IsNullOrEmpty(text))
-                    {
-                        label.Text = text;
-                        label.Measure(new Size(OverlayCanvas.ActualWidth, OverlayCanvas.ActualHeight));
-                        double lblW = label.DesiredSize.Width;
-                        double lblH = label.DesiredSize.Height;
-
-                        double lblLeft = left;
-                        double lblTop = top + h + 6;
-
-                        if (lblLeft + lblW > OverlayCanvas.ActualWidth) lblLeft = Math.Max(2.0, OverlayCanvas.ActualWidth - lblW - 2.0);
-                        if (lblTop + lblH > OverlayCanvas.ActualHeight) lblTop = Math.Max(2.0, top - lblH - 6.0);
-
-                        Canvas.SetLeft(label, lblLeft);
-                        Canvas.SetTop(label, lblTop);
-                        label.Visibility = Visibility.Visible;
+                        Canvas.SetLeft(lb, x + 4);
+                        Canvas.SetTop(lb, y + 4);
+                        lb.Visibility = Visibility.Visible;
                     }
                     else
                     {
-                        label.Visibility = Visibility.Collapsed;
+                        _overlayRects[i].Visibility = Visibility.Collapsed;
+                        _overlayLabels[i].Visibility = Visibility.Collapsed;
                     }
                 }
             }
             catch
             {
-                // tolerate overlay errors
+                // tolerate overlay draw errors
             }
         }
     }

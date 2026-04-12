@@ -138,5 +138,13 @@ namespace VisionAICam
                 RefBlueB = value.B;
             }
         }
+
+        // Add this property to your AppSettings class (insert among other persisted properties)
+       
+
+        // Add these three persisted tolerance properties to your AppSettings class.
+        public double TolerancePercentR { get; set; } = 15.0;
+        public double TolerancePercentG { get; set; } = 15.0;
+        public double TolerancePercentB { get; set; } = 15.0;
     }
 }

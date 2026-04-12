@@ -1,0 +1,33 @@
+<Window x:Class="VisionAICam.Pages.CalibDecisionDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update References or Auto-tune?"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        MinWidth="520"
+        Background="{StaticResource SurfaceBrush}"
+        Foreground="{StaticResource TextPrimaryBrush}">
+    <!-- Local resources were removed; dialog now reuses app-wide theme resources -->
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Choose an action" FontWeight="Bold" FontSize="16" Margin="0,0,0,8"/>
+        <TextBlock Grid.Row="1" TextWrapping="Wrap" Margin="0,0,0,12">
+      Choose "Save" to save the current measurements as the stored references and finish calibration.
+      Choose "Tune" to keep the existing stored references and attempt an automatic tune of camera controls (brightness/contrast/exposure) to match the stored references.
+      Press "Cancel" to abort.
+        </TextBlock>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="BtnSetReference" Content="Save" Width="84" Margin="0,0,8,0" Click="BtnSetReference_Click" Style="{StaticResource PrimaryButton}"/>
+            <Button x:Name="BtnContinue" Content="Tune" Width="72" Margin="0,0,8,0" IsDefault="True" Click="BtnContinue_Click" Style="{StaticResource PrimaryButton}"/>
+            <Button x:Name="BtnCancel" Content="Cancel" Width="72" IsCancel="True" Click="BtnCancel_Click" Style="{StaticResource PrimaryButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>

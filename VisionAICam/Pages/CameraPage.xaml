@@ -57,7 +57,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0" Grid.RowSpan="4" Margin="0">
+        <TabControl x:Name="MainTabControl" Grid.Row="0" Grid.RowSpan="4" Margin="0">
             <TabItem Header="General">
                 <Grid Margin="8">
                     <Grid.RowDefinitions>
@@ -127,10 +127,21 @@
                                             ValueChanged="ExposureSlider_ValueChanged"/>
                                 </StackPanel>
                             </StackPanel>
+
+                            <!-- New Save button for camera sliders (explicit save required) -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12" HorizontalAlignment="Left">
+                                <Button x:Name="SaveCameraButton"
+                                        Content="Save Settings"
+                                        Style="{StaticResource RoundedButtonStyle}"
+                                        Width="140"
+                                        IsEnabled="False"
+                                        Click="SaveCameraSettingsButton_Click"/>
+                                <TextBlock x:Name="SaveStatusSmall" Text="" Foreground="Green" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </StackPanel>
                         </StackPanel>
                     </Expander>
 
-                    <!-- Main preview + right Image Preparation (moved here) -->
+                    <!-- Main preview + right Image Preparation (moved here). -->
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*"/>
@@ -152,7 +163,7 @@
                             </Grid>
                         </Border>
 
-                        <!-- Right: Image Preparation group (moved here). Gain/Offset/WhiteBalance removed. -->
+                        <!-- Right: Image Preparation group (moved here). -->
                         <Border Grid.Column="1"
                                 BorderBrush="#90CAF9"
                                 BorderThickness="1"
@@ -160,20 +171,19 @@
                                 Background="#FFF8FAFF"
                                 Padding="8">
                             <StackPanel VerticalAlignment="Top" Margin="4">
-                                <!-- small toggle button kept to preserve existing toggle behavior -->
                                 <DockPanel LastChildFill="False" Margin="0,0,0,6">
                                     <Button x:Name="ImgPrepToggleButton" Content="▾" Width="28" Height="24" DockPanel.Dock="Right" Margin="0,0,0,0" Click="ImgPrepToggleButton_Click"/>
                                 </DockPanel>
 
                                 <GroupBox
-    x:Name="ImagePrepGroupBox"
-    Header="Image Preparation"
-    Margin="0"
-    HorizontalAlignment="Stretch">
+                                    x:Name="ImagePrepGroupBox"
+                                    Header="Image Preparation"
+                                    Margin="0"
+                                    HorizontalAlignment="Stretch">
 
                                     <Grid Margin="12"
-          Height="Auto"
-          HorizontalAlignment="Stretch">
+                                          Height="Auto"
+                                          HorizontalAlignment="Stretch">
 
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
@@ -316,6 +326,66 @@
                             </StackPanel>
 
                             <Label x:Name="CalibTabStatus" Content="Ready" Margin="0,12,0,0"/>
+
+                            <!-- Inline decision panel for measured values -->
+                            <Border x:Name="CalibDecisionPanel"
+                                    Visibility="Collapsed"
+                                    Background="#FFF7F7FF"
+                                    BorderBrush="#FF9AA8DA"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="8"
+                                    Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Measured values captured. Update stored references or run auto-tune?" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button x:Name="CalibDecisionSaveButton" Content="Save" Width="84" Click="CalibDecision_SaveRefs_Click" Margin="0,0,8,0"/>
+                                        <Button x:Name="CalibDecisionAutoTuneButton" Content="Tune" Width="72" Click="CalibDecision_AutoTune_Click" Margin="0,0,8,0"/>
+                                        <Button x:Name="CalibDecisionCancelButton" Content="Cancel" Width="80" Click="CalibDecision_Cancel_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Inline calibration-complete prompt (moved to Calibrate tab) -->
+                            <Border x:Name="CalibCompletePanel"
+                                    Visibility="Collapsed"
+                                    Background="#FFFDF3E0"
+                                    BorderBrush="#FFCC8A1A"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="8"
+                                    Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="Station calibration complete." FontWeight="Bold" Margin="0,0,0,6"/>
+                                    <TextBlock Text="Save current Brightness / Contrast / Exposure to application settings?" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button x:Name="CalibSaveButton" Content="Save Settings" Style="{StaticResource RoundedButtonStyle}" Width="120" Click="CalibSaveButton_Click" Margin="0,0,8,0"/>
+                                        <Button x:Name="CalibDontSaveButton" Content="Don't Save" Style="{StaticResource RoundedButtonStyle}" Width="120" Click="CalibDontSaveButton_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Inline sample-prep panel (paste near CalibDecisionPanel inside the same StackPanel) -->
+                            <Border x:Name="SamplePreparePanel"
+                                    Visibility="Collapsed"
+                                    Background="#FFFFFFFF"
+                                    BorderBrush="#FFB0BEC5"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="12"
+                                    Margin="0,8,0,0">
+                                <StackPanel>
+                                    <TextBlock x:Name="SamplePrepareTitle" Text="Adjust preview boxes" FontWeight="Bold" FontSize="16" Margin="0,0,0,8"/>
+                                    <TextBlock x:Name="SamplePrepareText" TextWrapping="Wrap" Margin="0,0,0,12">
+                                        Please adjust the three boxes so each is centered inside its target color area.
+                                        Click OK when ready, or Cancel to abort.
+                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button x:Name="SamplePrepareOk" Content="OK" Width="88" Margin="0,0,8,0" IsDefault="True" Click="SamplePrepareOk_Click"/>
+                                        <Button x:Name="SamplePrepareCancel" Content="Cancel" Width="88" IsCancel="True" Click="SamplePrepareCancel_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </Border>
                 </Grid>

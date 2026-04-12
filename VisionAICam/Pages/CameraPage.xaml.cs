@@ -26,6 +26,12 @@ namespace VisionAICam.Pages
         // Suppress saving while programmatically setting slider values
         private bool _suspendSliderSave = false;
 
+        // Track pending (unsaved) camera slider values and dirty state
+        private bool _cameraSettingsDirty = false;
+        private double _pendingBrightness = 128.0;
+        private double _pendingContrast = 128.0;
+        private double _pendingExposure = -6.0;
+
         private List<System.Windows.Rect>? _overlaySourceRects;
         private System.Windows.Shapes.Rectangle[]? _overlayRects;
         private TextBlock[]? _overlayLabels;
@@ -41,12 +47,31 @@ namespace VisionAICam.Pages
         private (byte R, byte G, byte B)? _refRed;
         private (byte R, byte G, byte B)? _refGreen;
         private (byte R, byte G, byte B)? _refBlue;
+        double toleranceR;
+        double toleranceG;
+        double toleranceB;
+
+        // TaskCompletionSource for inline decision panel
+        private TaskCompletionSource<MessageBoxResult>? _calibDecisionTcs;
+        private TaskCompletionSource<bool>? _samplePrepareTcs;
 
         public CameraPage()
         {
             InitializeComponent();
 
             _appSettings = SettingsManager.Load();
+
+            // load persisted per-channel tolerances (fallback to 5.0)
+            try
+            {
+                toleranceR = _appSettings?.TolerancePercentR ?? 20.0;
+                toleranceG = _appSettings?.TolerancePercentG ?? 20.0;
+                toleranceB = _appSettings?.TolerancePercentB ?? 20.0;
+            }
+            catch
+            {
+                toleranceR = toleranceG = toleranceB = 15.0;
+            }
 
             // Apply persisted reference colors to runtime refs and UI rects
             try
@@ -76,7 +101,7 @@ namespace VisionAICam.Pages
 
             // ensure calibration preview follows layout changes as well
             CalibImage.SizeChanged += CalibImage_SizeChanged;
-            CalibImage.LayoutUpdated += CalibImage_LayoutUpdated;
+            CalibImage.LayoutUpdated += CameraImage_LayoutUpdated;
 
             if (_appSettings != null)
             {
@@ -84,12 +109,26 @@ namespace VisionAICam.Pages
                 try
                 {
                     BrightnessSlider.Value = _appSettings!.Brightness;
-                    ContrastSlider.Value = _appSettings.Contrast;
-                    ExposureSlider.Value = _appSettings.Exposure;
+                    ContrastSlider.Value = _appSettings!.Contrast;
+                    ExposureSlider.Value = _appSettings!.Exposure;
+
+                    // initialize pending values from persisted settings so explicit Save is meaningful
+                    _pendingBrightness = BrightnessSlider.Value;
+                    _pendingContrast = ContrastSlider.Value;
+                    _pendingExposure = ExposureSlider.Value;
                 }
                 catch { }
                 finally { _suspendSliderSave = false; }
             }
+
+            // Ensure Save button state consistent at startup
+            try
+            {
+                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
+                if (lblSaveStatus != null && string.IsNullOrEmpty(lblSaveStatus.Text)) lblSaveStatus.Text = "";
+            }
+            catch { }
         }
 
         private void CalibImage_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -325,6 +364,16 @@ namespace VisionAICam.Pages
                         BrightnessSlider.Value = _camera.GetProperty(VideoCaptureProperties.Brightness);
                         ContrastSlider.Value = _camera.GetProperty(VideoCaptureProperties.Contrast);
                         ExposureSlider.Value = _camera.GetProperty(VideoCaptureProperties.Exposure);
+
+                        // ensure pending values reflect actual device values
+                        _pendingBrightness = BrightnessSlider.Value;
+                        _pendingContrast = ContrastSlider.Value;
+                        _pendingExposure = ExposureSlider.Value;
+
+                        // clear dirty state after syncing from device
+                        _cameraSettingsDirty = false;
+                        if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
+                        if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
                     }
                     catch { }
                 });
@@ -382,14 +431,20 @@ namespace VisionAICam.Pages
 
             try
             {
+                // Apply to live camera immediately if running
                 if (_camera != null && _camera.IsOpened)
                     _camera.SetProperty(VideoCaptureProperties.Brightness, e.NewValue);
+            }
+            catch { }
 
-                if (_appSettings != null)
-                {
-                    _appSettings.Brightness = e.NewValue;
-                    SettingsManager.Save(_appSettings);
-                }
+            // store pending value until user explicitly saves
+            _pendingBrightness = e.NewValue;
+            _cameraSettingsDirty = true;
+            try
+            {
+                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
+                if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
             }
             catch { }
         }
@@ -402,12 +457,16 @@ namespace VisionAICam.Pages
             {
                 if (_camera != null && _camera.IsOpened)
                     _camera.SetProperty(VideoCaptureProperties.Contrast, e.NewValue);
+            }
+            catch { }
 
-                if (_appSettings != null)
-                {
-                    _appSettings.Contrast = e.NewValue;
-                    SettingsManager.Save(_appSettings);
-                }
+            _pendingContrast = e.NewValue;
+            _cameraSettingsDirty = true;
+            try
+            {
+                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
+                if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
             }
             catch { }
         }
@@ -420,12 +479,16 @@ namespace VisionAICam.Pages
             {
                 if (_camera != null && _camera.IsOpened)
                     _camera.SetProperty(VideoCaptureProperties.Exposure, e.NewValue);
+            }
+            catch { }
 
-                if (_appSettings != null)
-                {
-                    _appSettings.Exposure = e.NewValue;
-                    SettingsManager.Save(_appSettings);
-                }
+            _pendingExposure = e.NewValue;
+            _cameraSettingsDirty = true;
+            try
+            {
+                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
+                if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
             }
             catch { }
         }
@@ -700,71 +763,208 @@ namespace VisionAICam.Pages
                 return results;
             });
         }
-
-        private async Task<bool> AutoTuneToRefsAsync(List<System.Windows.Rect> rois, int tolerance = 10)
+        
+        private async Task<(bool Success, (byte R, byte G, byte B)? Box1, (byte R, byte G, byte B)? Box2, (byte R, byte G, byte B)? Box3, double Brightness, double Contrast, double Exposure)> AutoTuneToRefsAsync(List<System.Windows.Rect> rois, int tolerance = 2)
         {
-            if (_camera == null || !_camera.IsOpened) return false;
-            if (!_refRed.HasValue || !_refGreen.HasValue || !_refBlue.HasValue) return false;
+            if (_camera == null || !_camera.IsOpened) return (false, null, null, null, 0, 0, 0);
+            if (!_refRed.HasValue || !_refGreen.HasValue || !_refBlue.HasValue) return (false, null, null, null, 0, 0, 0);
 
             try
             {
-                double curB = 0, curC = 0, curE = 0;
-                try { curB = _camera.GetProperty(VideoCaptureProperties.Brightness); } catch { }
-                try { curC = _camera.GetProperty(VideoCaptureProperties.Contrast); } catch { }
-                try { curE = _camera.GetProperty(VideoCaptureProperties.Exposure); } catch { }
+                // Local readonly reference copies — tuning must not overwrite stored refs.
+                var refRedLocal = _refRed.Value;
+                var refGreenLocal = _refGreen.Value;
+                var refBlueLocal = _refBlue.Value;
 
-                var baselineSamples = await SampleRoisAsync(rois);
-                double bestErr = ComputeErrorAgainstRefs(baselineSamples);
-                double bestB = curB, bestC = curC, bestE = curE;
+                // Read initial camera properties
+                double currentB = SafeGet(VideoCaptureProperties.Brightness);
+                double currentC = SafeGet(VideoCaptureProperties.Contrast);
+                double currentE = SafeGet(VideoCaptureProperties.Exposure);
 
-                double[][] offsetSets = { new double[] { -30, -15, 0, 15, 30 }, new double[] { -8, -4, 0, 4, 8 } };
+                double bestB = currentB, bestC = currentC, bestE = currentE;
 
-                foreach (var offsets in offsetSets)
+                // Initial sample + error
+                var baseline = await SampleRoisAsync(rois);
+                if (baseline == null || baseline.Count < rois.Count)
+                    return (false, null, null, null, currentB, currentC, currentE);
+
+                double bestErr = ComputeErrorAgainstRefs(baseline);
+
+                // If already within tolerance, return current readings
+                if (bestErr <= tolerance)
                 {
-                    foreach (var off in offsets)
-                    {
-                        double cand = bestB + off;
-                        try { _camera.SetProperty(VideoCaptureProperties.Brightness, cand); } catch { }
-                        try { _camera.SetProperty(VideoCaptureProperties.Contrast, bestC); } catch { }
-                        try { _camera.SetProperty(VideoCaptureProperties.Exposure, bestE); } catch { }
-
-                        await Task.Delay(200);
-                        var samples = await SampleRoisAsync(rois);
-                        double err = ComputeErrorAgainstRefs(samples);
-                        if (err < bestErr) { bestErr = err; bestB = cand; }
-                    }
-
-                    foreach (var off in offsets)
-                    {
-                        double cand = bestC + off;
-                        try { _camera.SetProperty(VideoCaptureProperties.Brightness, bestB); } catch { }
-                        try { _camera.SetProperty(VideoCaptureProperties.Contrast, cand); } catch { }
-                        try { _camera.SetProperty(VideoCaptureProperties.Exposure, bestE); } catch { }
-
-                        await Task.Delay(200);
-                        var samples = await SampleRoisAsync(rois);
-                        double err = ComputeErrorAgainstRefs(samples);
-                        if (err < bestErr) { bestErr = err; bestC = cand; }
-                    }
-
-                    foreach (var off in offsets)
-                    {
-                        double cand = bestE + off;
-                        try { _camera.SetProperty(VideoCaptureProperties.Brightness, bestB); } catch { }
-                        try { _camera.SetProperty(VideoCaptureProperties.Contrast, bestC); } catch { }
-                        try { _camera.SetProperty(VideoCaptureProperties.Exposure, cand); } catch { }
-
-                        await Task.Delay(200);
-                        var samples = await SampleRoisAsync(rois);
-                        double err = ComputeErrorAgainstRefs(samples);
-                        if (err < bestErr) { bestErr = err; bestE = cand; }
-                    }
+                    return (true, baseline.ElementAtOrDefault(0), baseline.ElementAtOrDefault(1), baseline.ElementAtOrDefault(2), currentB, currentC, currentE);
                 }
 
-                try { _camera.SetProperty(VideoCaptureProperties.Brightness, bestB); } catch { }
-                try { _camera.SetProperty(VideoCaptureProperties.Contrast, bestC); } catch { }
-                try { _camera.SetProperty(VideoCaptureProperties.Exposure, bestE); } catch { }
+                // Tuning policy:
+                // - Try small signed steps for each property (positive & negative) and combinations.
+                // - Accept any candidate that reduces the error.
+                // - If none improve, reduce the step and try again (finer search).
+                // - Stop when error <= tolerance or step becomes very small or max iterations reached.
 
+                const int maxIters = 30;
+                const int settleMs = 200;
+                double step = 6.0;             // initial step size (camera property units)
+                const double minStep = 0.25;   // stop when step smaller than this
+                const double stepShrink = 0.5; // shrink factor when no improvement
+                const double stepGrow = 1.15;  // grow factor after improvement (bounded)
+
+                var lastReadings = baseline.ToArray();
+
+                for (int iter = 0; iter < maxIters; iter++)
+                {
+                    // Read latest camera-reported values
+                    currentB = SafeGet(VideoCaptureProperties.Brightness);
+                    currentC = SafeGet(VideoCaptureProperties.Contrast);
+                    currentE = SafeGet(VideoCaptureProperties.Exposure);
+
+                    // Build candidate deltas: try +/- step on each control and useful combinations.
+                    var deltas = new List<(double dB, double dC, double dE)>();
+
+                    // Individual moves
+                    deltas.Add((step, 0, 0));
+                    deltas.Add((-step, 0, 0));
+                    deltas.Add((0, step, 0));
+                    deltas.Add((0, -step, 0));
+                    deltas.Add((0, 0, step));
+                    deltas.Add((0, 0, -step));
+
+                    // Pairwise combinations
+                    deltas.Add((step, step, 0));
+                    deltas.Add((step, -step, 0));
+                    deltas.Add((-step, step, 0));
+                    deltas.Add((-step, -step, 0));
+
+                    deltas.Add((step, 0, step));
+                    deltas.Add((step, 0, -step));
+                    deltas.Add((-step, 0, step));
+                    deltas.Add((-step, 0, -step));
+
+                    deltas.Add((0, step, step));
+                    deltas.Add((0, step, -step));
+                    deltas.Add((0, -step, step));
+                    deltas.Add((0, -step, -step));
+
+                    // Full combination (coarse)
+                    deltas.Add((step, step, step));
+                    deltas.Add((-step, -step, -step));
+                    deltas.Add((step, -step, step));
+                    deltas.Add((-step, step, -step));
+
+                    bool anyImproved = false;
+                    double bestCandidateErr = bestErr;
+                    double candBestB = bestB, candBestC = bestC, candBestE = bestE;
+                    (byte R, byte G, byte B)?[] candBestSamples = lastReadings;
+
+                    // Evaluate each candidate (apply, wait, sample, evaluate), pick the best that improves
+                    foreach (var (dB, dC, dE) in deltas)
+                    {
+                        double tryB = currentB + dB;
+                        double tryC = currentC + dC;
+                        double tryE = currentE + dE;
+
+                        // Apply candidate
+                        SafeSet(VideoCaptureProperties.Brightness, tryB);
+                        SafeSet(VideoCaptureProperties.Contrast, tryC);
+                        SafeSet(VideoCaptureProperties.Exposure, tryE);
+
+                        // Allow camera to adjust
+                        await Task.Delay(settleMs);
+
+                        // Sample and compute error
+                        var samples = await SampleRoisAsync(rois);
+                        if (samples == null || samples.Count < rois.Count)
+                        {
+                            // revert to previous camera state and continue
+                            SafeSet(VideoCaptureProperties.Brightness, currentB);
+                            SafeSet(VideoCaptureProperties.Contrast, currentC);
+                            SafeSet(VideoCaptureProperties.Exposure, currentE);
+                            await Task.Delay(80);
+                            continue;
+                        }
+
+                        double err = ComputeErrorAgainstRefs(samples);
+
+                        if (err < bestCandidateErr - 1e-9) // strict improvement
+                        {
+                            anyImproved = true;
+                            bestCandidateErr = err;
+
+                            // read back actual applied properties reported by camera
+                            candBestB = SafeGet(VideoCaptureProperties.Brightness);
+                            candBestC = SafeGet(VideoCaptureProperties.Contrast);
+                            candBestE = SafeGet(VideoCaptureProperties.Exposure);
+
+                            candBestSamples = samples.ToArray();
+                        }
+
+                        // Revert to current state before trying next candidate to maintain consistent baseline
+                        SafeSet(VideoCaptureProperties.Brightness, currentB);
+                        SafeSet(VideoCaptureProperties.Contrast, currentC);
+                        SafeSet(VideoCaptureProperties.Exposure, currentE);
+
+                        // brief pause to allow revert to take effect (keeps camera stable between candidates)
+                        await Task.Delay(80);
+                    }
+
+                    if (anyImproved)
+                    {
+                        // Accept the best found candidate
+                        bestErr = bestCandidateErr;
+                        bestB = candBestB;
+                        bestC = candBestC;
+                        bestE = candBestE;
+                        lastReadings = candBestSamples;
+
+                        // Apply accepted values and allow settle
+                        SafeSet(VideoCaptureProperties.Brightness, bestB);
+                        SafeSet(VideoCaptureProperties.Contrast, bestC);
+                        SafeSet(VideoCaptureProperties.Exposure, bestE);
+                        await Task.Delay(settleMs);
+
+                        // Slightly increase step to converge faster when progress is being made
+                        step = Math.Min(20.0, step * stepGrow);
+                    }
+                    else
+                    {
+                        // No candidate improved -> shrink step and try more precise adjustments
+                        step = Math.Max(minStep, step * stepShrink);
+                    }
+
+                    // Update overlay quickly to show latest measured values and refs
+                    try
+                    {
+                        _overlayLabelTexts ??= new string[rois.Count];
+                        for (int i = 0; i < Math.Min(rois.Count, lastReadings.Length); i++)
+                        {
+                            var v = lastReadings[i];
+                            string measText = v.HasValue ? $"Meas:{v.Value.R},{v.Value.G},{v.Value.B}" : "Meas:---";
+                            // Correct per-channel reference text (previous code mistakenly used refGreenLocal for red's G/B).
+                            string refText = i == 0 ? $"{refRedLocal.R},{refRedLocal.G},{refRedLocal.B}"
+                                               : i == 1 ? $"{refGreenLocal.R},{refGreenLocal.G},{refGreenLocal.B}"
+                                                        : $"{refBlueLocal.R},{refBlueLocal.G},{refBlueLocal.B}";
+                            _overlayLabelTexts[i] = v.HasValue ? $"{measText}\nRef:{refText}" : $"Meas:---\nRef:{refText}";
+                        }
+                        await Dispatcher.BeginInvoke(() => { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); });
+                    }
+                    catch { /* ignore UI issues */ }
+
+                    // Termination conditions
+                    if (bestErr <= tolerance) break;
+                    if (step <= minStep + 1e-9) break;
+                }
+
+                // Apply final best-known settings to device
+                SafeSet(VideoCaptureProperties.Brightness, bestB);
+                SafeSet(VideoCaptureProperties.Contrast, bestC);
+                SafeSet(VideoCaptureProperties.Exposure, bestE);
+                await Task.Delay(150);
+
+                // Final sample for return
+                var finalSamples = await SampleRoisAsync(rois);
+                var finalReadings = (finalSamples != null && finalSamples.Count >= rois.Count) ? finalSamples.ToArray() : lastReadings;
+
+                // Update UI sliders without triggering save during assignment
                 await Dispatcher.BeginInvoke(() =>
                 {
                     _suspendSliderSave = true;
@@ -773,27 +973,129 @@ namespace VisionAICam.Pages
                         BrightnessSlider.Value = bestB;
                         ContrastSlider.Value = bestC;
                         ExposureSlider.Value = bestE;
+
+                        // update pending values to match tuned results
+                        _pendingBrightness = bestB;
+                        _pendingContrast = bestC;
+                        _pendingExposure = bestE;
+
+                        // reflect that these are now unsaved until user presses Save
+                        _cameraSettingsDirty = true;
+                        if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
+                        if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
+                        if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
                     }
                     catch { }
                     finally { _suspendSliderSave = false; }
                 });
 
-                if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
-                _appSettings.Brightness = bestB;
-                _appSettings.Contrast = bestC;
-                _appSettings.Exposure = bestE;
-                try { SettingsManager.Save(_appSettings); } catch { }
+                // Persist final camera properties and APPLY them to the running camera immediately
+                try
+                {
+                    if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
 
-                return true;
+                    _appSettings.Brightness = bestB;
+                    _appSettings.Contrast = bestC;
+                    _appSettings.Exposure = bestE;
+
+                    // persist per-channel tolerances as well (keeps UI/behavior consistent)
+                    _appSettings.TolerancePercentR = toleranceR;
+                    _appSettings.TolerancePercentG = toleranceG;
+                    _appSettings.TolerancePercentB = toleranceB;
+
+                    // Apply to current camera (explicitly call ICamera.SetProperty in addition to SafeSet)
+                    try
+                    {
+                        if (_camera != null && _camera.IsOpened)
+                        {
+                            _camera.SetProperty(VideoCaptureProperties.Brightness, bestB);
+                            _camera.SetProperty(VideoCaptureProperties.Contrast, bestC);
+                            _camera.SetProperty(VideoCaptureProperties.Exposure, bestE);
+                        }
+                    }
+                    catch { /* tolerate device write error */ }
+
+                    try { SettingsManager.Save(_appSettings); } catch { /* tolerate save error */ }
+
+                    // after AutoTune we saved final tuned values into persisted settings; clear dirty flag
+                    _cameraSettingsDirty = false;
+                    if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
+                    try { if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved"; } catch { }
+                }
+                catch { /* tolerate persistence errors */ }
+
+                // Read back actual camera-reported final values
+                double finalB = SafeGet(VideoCaptureProperties.Brightness);
+                double finalC = SafeGet(VideoCaptureProperties.Contrast);
+                double finalE = SafeGet(VideoCaptureProperties.Exposure);
+
+                return (true, finalReadings.ElementAtOrDefault(0), finalReadings.ElementAtOrDefault(1), finalReadings.ElementAtOrDefault(2), finalB, finalC, finalE);
             }
             catch
             {
-                return false;
+                return (false, null, null, null, 0, 0, 0);
+            }
+        }
+        // Safe wrappers for reading/writing camera properties (avoid CS0103)
+        private double SafeGet(VideoCaptureProperties prop)
+        {
+            try
+            {
+                if (_camera != null && _camera.IsOpened)
+                    return _camera.GetProperty(prop);
+            }
+            catch
+            {
+                // tolerate device read errors
+            }
+
+            // Fall back to slider values when available (keeps UI and returned values consistent)
+            try
+            {
+                return prop switch
+                {
+                    VideoCaptureProperties.Brightness => BrightnessSlider?.Value ?? 0.0,
+                    VideoCaptureProperties.Contrast => ContrastSlider?.Value ?? 0.0,
+                    VideoCaptureProperties.Exposure => ExposureSlider?.Value ?? 0.0,
+                    _ => 0.0
+                };
+            }
+            catch
+            {
+                return 0.0;
             }
         }
 
-        private const double AutoTunePromptThresholdPercent = 5.0;
-        private const int AutoTuneTolerance = 3;
+        private void SafeSet(VideoCaptureProperties prop, double value)
+        {
+            try
+            {
+                if (_camera != null && _camera.IsOpened)
+                    _camera.SetProperty(prop, value);
+            }
+            catch
+            {
+                // tolerate device set errors
+            }
+
+            // Keep UI sliders in sync when calling SafeSet from non-UI threads
+            try
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (prop == VideoCaptureProperties.Brightness && BrightnessSlider != null) BrightnessSlider.Value = value;
+                        if (prop == VideoCaptureProperties.Contrast && ContrastSlider != null) ContrastSlider.Value = value;
+                        if (prop == VideoCaptureProperties.Exposure && ExposureSlider != null) ExposureSlider.Value = value;
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+        private double AutoTunePromptThresholdPercent;
+        //private const int AutoTuneTolerance = 3;
 
         private static double PercentDifference((byte R, byte G, byte B) measured, (byte R, byte G, byte B) reference)
         {
@@ -803,6 +1105,13 @@ namespace VisionAICam.Pages
             double refMag = Math.Sqrt(rr * rr + rg * rg + rb * rb);
             if (refMag < 1e-6) return 100.0;
             return (dist / refMag) * 100.0;
+        }
+
+        private static double ChannelPercentDiff(byte measured, byte reference)
+        {
+            // If reference is zero, treat identical zero as 0% diff; otherwise 100% (can't normalize)
+            if (reference == 0) return measured == 0 ? 0.0 : 100.0;
+            return Math.Abs(measured - reference) / (double)reference * 100.0;
         }
 
         private void UpdateRefTextDisplays()
@@ -896,9 +1205,9 @@ namespace VisionAICam.Pages
                             {
                                 var parts = _overlayLabelTexts[i].Split(new[] { '\n' }, 2);
                                 string meas = parts.Length > 0 ? parts[0] : _overlayLabelTexts[i];
-                                string refLine = i == 0 && _refRed.HasValue ? $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}"
-                                       : i == 1 && _refGreen.HasValue ? $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}"
-                                       : i == 2 && _refBlue.HasValue ? $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}" : "";
+                                string refLine = i == 0 ? $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}"
+                                                   : i == 1 ? $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}"
+                                                            : i == 2 ? $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}" : "";
                                 _overlayLabelTexts[i] = string.IsNullOrEmpty(refLine) ? meas : $"{meas}\nRef:{refLine}";
                             }
 
@@ -944,7 +1253,18 @@ namespace VisionAICam.Pages
 
             await Dispatcher.BeginInvoke(() => { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); });
 
-            if (AskUser("Please adjust the three boxes so each is centered inside its target color area.\nClick OK when ready, or Cancel to abort.", "Adjust Boxes", MessageBoxButton.OKCancel) != MessageBoxResult.OK)
+            bool ok;
+            try
+            {
+                ok = await ShowSamplePreparePanelAsync(
+                    "Please adjust the three boxes so each is centered inside its target color area.\nClick OK when ready, or Cancel to abort.");
+            }
+            catch
+            {
+                ok = false;
+            }
+
+            if (ok != true)
             {
                 SetCalibStatus("Measurement cancelled by user.");
                 return;
@@ -985,12 +1305,27 @@ namespace VisionAICam.Pages
             UpdateRefTextDisplays();
 
             // Clarified prompt so user knows which choice updates stored refs vs continues with auto-tune.
-            var updateRefs = AskUser(
-                "Choose Yes to update and save the stored reference values with these measurements and finish calibration.\n\n" +
-                "Choose No to keep the existing stored references and attempt an automatic tune of camera controls (brightness/contrast/exposure) to match the stored references.\n\n" +
-                "Press Cancel to abort.",
-                "Update References or Auto-tune?",
-                MessageBoxButton.YesNoCancel);
+            MessageBoxResult updateRefs;
+            try
+            {
+                if (CalibDecisionPanel != null)
+                {
+                    // Inline panel on Calibrate tab (must have ShowCalibDecisionPanelAsync implemented)
+                    updateRefs = await ShowCalibDecisionPanelAsync();
+                }
+                else
+                {
+                    // Fallback modal dialog
+                    var dlg = new CalibDecisionDialog();
+                    try { dlg.Owner = System.Windows.Window.GetWindow(this); } catch { }
+                    bool? modalResult = dlg.ShowDialog();
+                    updateRefs = dlg.SelectedResult;
+                }
+            }
+            catch
+            {
+                updateRefs = MessageBoxResult.Cancel;
+            }
 
             if (updateRefs == MessageBoxResult.Yes)
             {
@@ -1027,7 +1362,7 @@ namespace VisionAICam.Pages
                                     string meas = parts.Length > 0 ? parts[0] : _overlayLabelTexts[i];
                                     string refLine = i == 0 ? $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}"
                                                    : i == 1 ? $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}"
-                                                            : $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}";
+                                                            : i == 2 ? $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}" : "";
                                     _overlayLabelTexts[i] = $"{meas}\nRef:{refLine}";
                                 }
 
@@ -1053,8 +1388,6 @@ namespace VisionAICam.Pages
             }
             else if (updateRefs == MessageBoxResult.No)
             {
-                // Auto-tune brightness/contrast/exposure to try to reach stored references within 2% tolerance.
-                const double tolerancePercent = 2.0;
                 try
                 {
                     if (_overlaySourceRects == null || _overlaySourceRects.Count < 3)
@@ -1069,14 +1402,22 @@ namespace VisionAICam.Pages
                         return;
                     }
 
-                    // Check whether tuning is required (any measured box outside tolerance)
+                    // Check whether tuning is required (any measured box outside per-channel tolerance)
                     bool needTune = false;
                     for (int i = 0; i < 3; i++)
                     {
                         var measured = sampled[i]!.Value;
                         var reference = i == 0 ? _refRed.Value : i == 1 ? _refGreen.Value : _refBlue.Value;
-                        double pct = PercentDifference(measured, reference);
-                        if (pct > tolerancePercent) { needTune = true; break; }
+
+                        double pr = ChannelPercentDiff(measured.R, reference.R);
+                        double pg = ChannelPercentDiff(measured.G, reference.G);
+                        double pb = ChannelPercentDiff(measured.B, reference.B);
+
+                        if (pr > toleranceR || pg > toleranceG || pb > toleranceB)
+                        {
+                            needTune = true;
+                            break;
+                        }
                     }
 
                     if (!needTune)
@@ -1085,33 +1426,55 @@ namespace VisionAICam.Pages
                         return;
                     }
 
-                    SetCalibStatus("Auto-tuning camera controls...");
-                    bool tuned = await AutoTuneToRefsAsync(rois, tolerance: 2);
-                    if (!tuned)
+                    SetCalibStatus("Tuning camera controls...");
+
+                    // pass numeric tolerance as max of per-channel tolerances (AutoTune expects single int)
+                    int tolInt = Math.Max((int)Math.Round(toleranceR), Math.Max((int)Math.Round(toleranceG), (int)Math.Round(toleranceB)));
+                    tolInt = Math.Max(1, tolInt);
+
+                    var tuneResult = await AutoTuneToRefsAsync(rois, tolerance: tolInt);
+                    if (!tuneResult.Success)
                     {
                         SetCalibStatus("Auto-tune failed.");
                         return;
                     }
 
-                    // Give camera a short moment to settle and re-sample
-                    await Task.Delay(250);
-                    var postSamples = await SampleRoisAsync(rois);
+                    // Use returned per-box RGB readings (Box1, Box2, Box3) for post-check
+                    var postReadings = new[] { tuneResult.Box1, tuneResult.Box2, tuneResult.Box3 };
 
                     bool success = true;
                     var diffs = new double[3];
+
+                    // Also compute per-channel maxima across boxes for better reporting
+                    double[] perBoxR = new double[3];
+                    double[] perBoxG = new double[3];
+                    double[] perBoxB = new double[3];
+
                     for (int i = 0; i < 3; i++)
                     {
-                        if (postSamples[i] == null)
+                        if (postReadings[i] == null)
                         {
                             success = false;
                             diffs[i] = double.PositiveInfinity;
+                            perBoxR[i] = perBoxG[i] = perBoxB[i] = double.PositiveInfinity;
                             continue;
                         }
 
-                        var measured = postSamples[i]!.Value;
+                        var measured = postReadings[i]!.Value;
                         var reference = i == 0 ? _refRed.Value : i == 1 ? _refGreen.Value : _refBlue.Value;
-                        diffs[i] = PercentDifference(measured, reference);
-                        if (diffs[i] > tolerancePercent) success = false;
+
+                        double pr = ChannelPercentDiff(measured.R, reference.R);
+                        double pg = ChannelPercentDiff(measured.G, reference.G);
+                        double pb = ChannelPercentDiff(measured.B, reference.B);
+
+                        // store the worst channel percent for reporting
+                        diffs[i] = Math.Max(pr, Math.Max(pg, pb));
+
+                        perBoxR[i] = pr;
+                        perBoxG[i] = pg;
+                        perBoxB[i] = pb;
+
+                        if (pr > toleranceR || pg > toleranceG || pb > toleranceB) success = false;
                     }
 
                     if (success)
@@ -1122,7 +1485,7 @@ namespace VisionAICam.Pages
                         {
                             for (int i = 0; i < _overlayLabelTexts.Length && i < 3; i++)
                             {
-                                var meas = postSamples[i] != null ? $"{postSamples[i]!.Value.R},{postSamples[i]!.Value.G},{postSamples[i]!.Value.B}" : "Meas:---";
+                                var meas = postReadings[i] != null ? $"{postReadings[i]!.Value.R},{postReadings[i]!.Value.G},{postReadings[i]!.Value.B}" : "Meas:---";
                                 var refLine = i == 0 ? $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}"
                                             : i == 1 ? $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}"
                                                      : $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}";
@@ -1134,9 +1497,26 @@ namespace VisionAICam.Pages
                     }
                     else
                     {
+                        // Find maximum error percentage (overall, per-box, per-channel)
+                        double overallMax = diffs.Where(d => double.IsFinite(d)).DefaultIfEmpty(0.0).Max();
+                        double maxR = perBoxR.Where(v => double.IsFinite(v)).DefaultIfEmpty(0.0).Max();
+                        double maxG = perBoxG.Where(v => double.IsFinite(v)).DefaultIfEmpty(0.0).Max();
+                        double maxB = perBoxB.Where(v => double.IsFinite(v)).DefaultIfEmpty(0.0).Max();
+
                         SetCalibStatus("Auto-tune completed but targets not reached.");
-                        string details = $"Auto-tune finished; values outside {tolerancePercent}%:\n";
-                        for (int i = 0; i < 3; i++) details += $"Box {i + 1}: {(double.IsFinite(diffs[i]) ? diffs[i].ToString("F2") + "%" : "N/A")}\n";
+
+                        double maxTol = Math.Max(toleranceR, Math.Max(toleranceG, toleranceB));
+
+                        string details =
+                            $"Auto-tune finished; targets not reached.\n\n" +
+                            $"Overall worst error: {overallMax:F2}% (tolerance used: R:{toleranceR:F2}%, G:{toleranceG:F2}%, B:{toleranceB:F2}%)\n\n" +
+                            $"Per-box worst errors:\n" +
+                            $" Box 1: {(double.IsFinite(diffs[0]) ? diffs[0].ToString("F2") + "%" : "N/A")}\n" +
+                            $" Box 2: {(double.IsFinite(diffs[1]) ? diffs[1].ToString("F2") + "%" : "N/A")}\n" +
+                            $" Box 3: {(double.IsFinite(diffs[2]) ? diffs[2].ToString("F2") + "%" : "N/A")}\n\n" +
+                            $"Per-channel worst errors: R:{maxR:F2}%, G:{maxG:F2}%, B:{maxB:F2}%\n\n" +
+                            $"Tolerances: R:{toleranceR:F2}%, G:{toleranceG:F2}%, B:{toleranceB:F2}%";
+
                         MessageBox.Show(details, "Auto-tune Result", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                 }
@@ -1176,9 +1556,10 @@ namespace VisionAICam.Pages
         {
             if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
 
-            double brightness = BrightnessSlider?.Value ?? _appSettings.Brightness;
-            double contrast = ContrastSlider?.Value ?? _appSettings.Contrast;
-            double exposure = ExposureSlider?.Value ?? _appSettings.Exposure;
+            // use pending (unsaved) values to persist
+            double brightness = _pendingBrightness;
+            double contrast = _pendingContrast;
+            double exposure = _pendingExposure;
 
             try
             {
@@ -1191,19 +1572,25 @@ namespace VisionAICam.Pages
             }
             catch { }
 
+            // Persist to settings
             _appSettings.Brightness = brightness;
             _appSettings.Contrast = contrast;
             _appSettings.Exposure = exposure;
             try { SettingsManager.Save(_appSettings); } catch { }
 
+            // Clear dirty state and update UI
+            _cameraSettingsDirty = false;
             try
             {
-                if (lblSaveStatus != null)
-                {
-                    lblSaveStatus.Text = "Saved";
-                    await Task.Delay(1500);
-                    lblSaveStatus.Text = "--";
-                }
+                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved";
+                if (lblSaveStatus != null) lblSaveStatus.Text = "Saved";
+
+                await Task.Delay(1500);
+
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
+                // keep the main lblSaveStatus visible a bit longer, but clear if desired:
+                if (lblSaveStatus != null) lblSaveStatus.Text = "--";
             }
             catch { }
         }
@@ -1283,10 +1670,59 @@ namespace VisionAICam.Pages
                 }
             }
 
-            SetCalibStatus("Auto-calibrate: sampled and annotated.");
+            FinishCalibrationAndPromptSave();
         }
+        private void FinishCalibrationAndPromptSave()
+        {
+            try
+            {
+                // Ensure UI update runs on UI thread
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        // switch to Calibrate tab (index 1) so the inline prompt is visible on the Calibrate page only
+                        try
+                        {
+                            if (MainTabControl != null && MainTabControl.Items.Count > 1)
+                                MainTabControl.SelectedIndex = 1;
+                        }
+                        catch { /* tolerate tab switch errors */ }
 
-        // Toggle the moved Image Preparation GroupBox
+                        // hide overlay visuals immediately
+                        ClearOverlayVisuals();
+
+                        // show inline calibration-complete prompt (user can Save or Don't Save)
+                        ShowCalibrationCompletePrompt();
+                    }
+                    catch
+                    {
+                        // fallback: show a modal prompt if inline prompt fails
+                        try
+                        {
+                            var result = MessageBox.Show(
+                                "Station calibration complete.\n\nSave current Brightness / Contrast / Exposure to application settings?",
+                                "Station Calibration Complete",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Question);
+
+                            if (result == MessageBoxResult.Yes)
+                            {
+                                // reuse existing save handler to persist current sliders
+                                _ = Task.Run(() =>
+                                {
+                                    Dispatcher.BeginInvoke(async () => await Task.Run(() => SaveCameraSettingsButton_Click(null!, null!)));
+                                });
+                            }
+
+                            SetCalibStatus(result == MessageBoxResult.Yes ? "Calibration complete — settings saved." : "Calibration complete — settings not saved.");
+                        }
+                        catch { }
+                    }
+                });
+            }
+            catch { }
+        }
         private void ImgPrepToggleButton_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -1304,7 +1740,298 @@ namespace VisionAICam.Pages
                     ImgPrepToggleButton.Content = "▾";
                 }
             }
-            catch { /* ignore UI toggle errors */ }
+            catch
+            {
+                // tolerate UI toggle errors
+            }
+        }
+        // Clear any existing overlay visuals (rectangles, labels) from the UI and internal state.
+        private void ClearOverlayVisuals()
+        {
+            try
+            {
+                // Clear logical overlay data
+                _overlaySourceRects = null;
+                _overlayLabelTexts = null;
+
+                // Collapse any existing overlay shapes/labels on UI
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (_overlayRects != null)
+                        {
+                            foreach (var r in _overlayRects) if (r != null) r.Visibility = Visibility.Collapsed;
+                        }
+                        if (_overlayLabels != null)
+                        {
+                            foreach (var l in _overlayLabels) if (l != null) l.Visibility = Visibility.Collapsed;
+                        }
+                        if (_calibOverlayRects != null)
+                        {
+                            foreach (var r in _calibOverlayRects) if (r != null) r.Visibility = Visibility.Collapsed;
+                        }
+                        if (_calibOverlayLabels != null)
+                        {
+                            foreach (var l in _calibOverlayLabels) if (l != null) l.Visibility = Visibility.Collapsed;
+                        }
+                    }
+                    catch { /* tolerate UI errors */ }
+                });
+            }
+            catch { /* tolerate errors */ }
+        }
+
+        // Show the inline "calibration complete" prompt (does not save)
+        private void ShowCalibrationCompletePrompt()
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (CalibCompletePanel != null)
+                            CalibCompletePanel.Visibility = Visibility.Visible;
+                        SetCalibStatus("Station calibration complete.");
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+
+        private void HideCalibrationCompletePrompt()
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (CalibCompletePanel != null)
+                            CalibCompletePanel.Visibility = Visibility.Collapsed;
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
+
+        // User clicked "Save Settings" on inline prompt
+        private async void CalibSaveButton_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // Persist current slider values to settings
+                if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
+
+                _appSettings.Brightness = BrightnessSlider?.Value ?? _appSettings.Brightness;
+                _appSettings.Contrast = ContrastSlider?.Value ?? _appSettings.Contrast;
+                _appSettings.Exposure = ExposureSlider?.Value ?? _appSettings.Exposure;
+
+                try { SettingsManager.Save(_appSettings); } catch { /* tolerate save error */ }
+
+                // Apply to running camera
+                try
+                {
+                    if (_camera != null && _camera.IsOpened)
+                    {
+                        _camera.SetProperty(VideoCaptureProperties.Brightness, _appSettings.Brightness);
+                        _camera.SetProperty(VideoCaptureProperties.Contrast, _appSettings.Contrast);
+                        _camera.SetProperty(VideoCaptureProperties.Exposure, _appSettings.Exposure);
+                    }
+                }
+                catch { /* tolerate device write error */ }
+
+                SetCalibStatus("Calibration complete — settings saved.");
+            }
+            catch
+            {
+                SetCalibStatus("Calibration complete — failed to save.");
+            }
+            finally
+            {
+                ClearOverlayVisuals();
+                HideCalibrationCompletePrompt();
+                // briefly show saved indicator in the ImagePrep area
+                try
+                {
+                    if (lblSaveStatus != null)
+                    {
+                        lblSaveStatus.Text = "Saved";
+                        await Task.Delay(1200);
+                        lblSaveStatus.Text = "";
+                    }
+                }
+                catch { }
+            }
+        }
+
+        // User clicked "Don't Save" on inline prompt
+        private void CalibDontSaveButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ClearOverlayVisuals();
+                HideCalibrationCompletePrompt();
+                SetCalibStatus("Calibration complete — settings not saved.");
+            }
+            catch { }
+        }
+
+        // Inline decision panel support ------------------------------------------------
+
+        // Shows the inline decision panel and awaits the user's selection.
+        // Returns MessageBoxResult.Yes to save refs, No to auto-tune, Cancel to abort.
+        public Task<MessageBoxResult> ShowCalibDecisionPanelAsync()
+        {
+            var tcs = new TaskCompletionSource<MessageBoxResult>();
+            _calibDecisionTcs = tcs;
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (CalibDecisionPanel != null)
+                    {
+                        CalibDecisionPanel.Visibility = Visibility.Visible;
+                        // optional: focus the primary action
+                        try { CalibDecisionSaveButton?.Focus(); } catch { }
+                    }
+                    else
+                    {
+                        // fallback to showing dialog immediately if panel missing
+                        tcs.TrySetResult(MessageBoxResult.Cancel);
+                    }
+                }
+                catch
+                {
+                    tcs.TrySetResult(MessageBoxResult.Cancel);
+                }
+            });
+
+            return tcs.Task;
+        }
+
+        private void CalibDecision_SaveRefs_Click(object sender, RoutedEventArgs e)
+        {
+            CompleteCalibDecision(MessageBoxResult.Yes);
+        }
+
+        private void CalibDecision_AutoTune_Click(object sender, RoutedEventArgs e)
+        {
+            CompleteCalibDecision(MessageBoxResult.No);
+        }
+
+        private void CalibDecision_Cancel_Click(object sender, RoutedEventArgs e)
+        {
+            CompleteCalibDecision(MessageBoxResult.Cancel);
+        }
+
+        private void CompleteCalibDecision(MessageBoxResult result)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try { if (CalibDecisionPanel != null) CalibDecisionPanel.Visibility = Visibility.Collapsed; } catch { }
+                });
+            }
+            catch { }
+
+            try
+            {
+                _calibDecisionTcs?.TrySetResult(result);
+            }
+            catch { }
+            finally
+            {
+                _calibDecisionTcs = null;
+            }
+        }
+
+        // Add this public helper inside the CameraPage class (near other helpers, e.g. after SetCalibStatus)
+        public void RefreshTolerances()
+        {
+            try
+            {
+                // Load fresh settings and update runtime tolerances used by CameraPage
+                var s = SettingsManager.Load();
+                if (s != null)
+                {
+                    toleranceR = s.TolerancePercentR;
+                    toleranceG = s.TolerancePercentG;
+                    toleranceB = s.TolerancePercentB;
+                }
+
+                // Give short UI feedback so user knows new tolerances applied
+                try
+                {
+                    SetCalibStatus($"Tolerances loaded: R:{toleranceR:F2}% G:{toleranceG:F2}% B:{toleranceB:F2}%");
+                }
+                catch { }
+            }
+            catch
+            {
+                // tolerate errors silently
+            }
+        }
+
+        // Add these members near the other private fields at top of class:
+        //private TaskCompletionSource<bool>? _samplePrepareTcs;
+
+        // Add this helper method inside CameraPage class (anywhere with other helpers)
+        public Task<bool> ShowSamplePreparePanelAsync(string message)
+        {
+            var tcs = new TaskCompletionSource<bool>();
+            _samplePrepareTcs = tcs;
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (SamplePrepareText != null) SamplePrepareText.Text = message ?? SamplePrepareText.Text;
+                    if (SamplePreparePanel != null)
+                    {
+                        SamplePreparePanel.Visibility = Visibility.Visible;
+                        try { SamplePrepareOk?.Focus(); } catch { }
+                    }
+                    else
+                    {
+                        tcs.TrySetResult(false);
+                    }
+                }
+                catch
+                {
+                    tcs.TrySetResult(false);
+                }
+            });
+
+            return tcs.Task;
+        }
+
+        // Add these two button handlers to the CameraPage class:
+        private void SamplePrepareOk_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() => { if (SamplePreparePanel != null) SamplePreparePanel.Visibility = Visibility.Collapsed; });
+            }
+            catch { }
+
+            try { _samplePrepareTcs?.TrySetResult(true); } catch { } finally { _samplePrepareTcs = null; }
+        }
+
+        private void SamplePrepareCancel_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() => { if (SamplePreparePanel != null) SamplePreparePanel.Visibility = Visibility.Collapsed; });
+            }
+            catch { }
+
+            try { _samplePrepareTcs?.TrySetResult(false); } catch { } finally { _samplePrepareTcs = null; }
         }
     }
 }

@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -184,6 +183,15 @@ namespace VisionAICam.Pages
                 // non-fatal but log so you can diagnose issues
                 try { MasterController.Instance.Logger.LogError($"LoadRobotSettingsTo_ui failed: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(ex); }
             }
+
+            // populate tolerances into Camera tab textboxes (defensive)
+            try
+            {
+                if (TxtToleranceR != null) TxtToleranceR.Text = _appSettings.TolerancePercentR.ToString("F2");
+                if (TxtToleranceG != null) TxtToleranceG.Text = _appSettings.TolerancePercentG.ToString("F2");
+                if (TxtToleranceB != null) TxtToleranceB.Text = _appSettings.TolerancePercentB.ToString("F2");
+            }
+            catch { /* tolerate UI errors */ }
         }
 
         private void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -222,10 +230,44 @@ namespace VisionAICam.Pages
                 {
                     _appSettings.PolygonAutoCloseThreshold = Math.Max(0.0, PolygonAutoCloseThresholdSlider.Value);
                 }
-                // SettingsManager.Save(_appSettings) already called below in method
+            }
+
+            // save tolerances
+            if (_appSettings != null)
+            {
+                double parsed;
+                if (TxtToleranceR != null && double.TryParse(TxtToleranceR.Text, out parsed))
+                    _appSettings.TolerancePercentR = Math.Clamp(parsed, 0.0, 100.0);
+                if (TxtToleranceG != null && double.TryParse(TxtToleranceG.Text, out parsed))
+                    _appSettings.TolerancePercentG = Math.Clamp(parsed, 0.0, 100.0);
+                if (TxtToleranceB != null && double.TryParse(TxtToleranceB.Text, out parsed))
+                    _appSettings.TolerancePercentB = Math.Clamp(parsed, 0.0, 100.0);
             }
 
             SettingsManager.Save(_appSettings);
+
+            // If MasterController holds a CameraPage instance, refresh its tolerances so changes apply immediately
+            try
+            {
+                var camPage = MasterController.Instance?.CameraPage;
+                camPage?.RefreshTolerances();
+            }
+            catch
+            {
+                // fallback: try locating the CameraPage via application's main window content (defensive)
+                try
+                {
+                    if (Application.Current?.MainWindow is Window win)
+                    {
+                        if (win.FindName("MainContent") is System.Windows.Controls.Frame frame)
+                        {
+                            if (frame.Content is VisionAICam.Pages.CameraPage cp)
+                                cp.RefreshTolerances();
+                        }
+                    }
+                }
+                catch { /* tolerate lookup failures */ }
+            }
 
             MessageBox.Show("Settings saved.", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
         }
