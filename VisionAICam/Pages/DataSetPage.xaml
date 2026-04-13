@@ -51,7 +51,7 @@
                                 ToolTip="YOLOv8_OBB: 📐 Oriented Bounding Boxes with the advancements of YOLOv8."/>
                     <MenuItem Header="Export YOLOv8_SEG"
                               Click="ExportYoloV8_SEG_Click"
-                              ToolTip="YOLOv8_SEG: 🖌️ Segmentation support for pixel-level object annotation. Ideal for advanced tasks like instance segmentation."/>
+                                ToolTip="YOLOv8_SEG: 🖌️ Segmentation support for pixel-level object annotation. Ideal for advanced tasks like instance segmentation."/>
                 </MenuItem>
                 <MenuItem Header="Close Project" Click="CloseProject_Click"/>
                 <Separator/>
@@ -85,8 +85,8 @@
         <!-- Main Content with scrollbars -->
         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
             <Grid x:Name="MainLayoutGrid" Margin="30" Background="#FFF">
-                <!-- Main Content Panel (hidden by default) -->
-                <Grid x:Name="MainContentPanel" Visibility="Collapsed">
+                <!-- Main Content Panel (now visible by default) -->
+                <Grid x:Name="MainContentPanel" Visibility="Visible">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -143,7 +143,7 @@
                             <!-- Auto-label button moved outside the Drawing Mode groupbox -->
                             <GroupBox x:Name="AutoLabelGroupBox"
                                       Header="Auto Label"
-                                      Visibility="Collapsed"
+                                      Visibility="Visible"
                                       Margin="10,0,0,0"
                                       Foreground="#222"
                                       Background="#FFF5F5F5"
@@ -152,7 +152,7 @@
                                       HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="#FFF5F5F5">
                                     <ComboBox x:Name="AutoLabelComboBox"
-                                              MinWidth="220"
+                                              MinWidth="150"
                                               Margin="0,0,8,0"
                                               SelectionChanged="AutoLabelComboBox_SelectionChanged">
                                         <ComboBoxItem Content="Save Project"/>
@@ -165,6 +165,14 @@
                                             Content="Execute"
                                             MinWidth="80"
                                             Click="AutoLabelExecuteButton_Click"/>
+                                    <!-- New indicator: appears when all classes have reached the required minimum -->
+                                    <TextBlock x:Name="AutoLabelReadyTextBlock"
+                                               Text=""
+                                               VerticalAlignment="Center"
+                                               Margin="12,0,0,0"
+                                               Foreground="#FF388E3C"
+                                               FontWeight="Bold"
+                                               Visibility="Collapsed"/>
                                 </StackPanel>
                             </GroupBox>
                         </StackPanel>
@@ -256,7 +264,7 @@
 
                                                         <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                                             <Button Content="Contours" Click="ProcessContours_Click" Margin="0,0,6,0" Width="90"/>
-                                                            <Button Content="Contour Rects" Click="ProcessContourRects_Click" Margin="0,0,0,6" Width="110"/>
+                                                            <Button Content="Contour Rects" Click="ProcessContourRects_Click" Margin="0,0,6,0" Width="110"/>
                                                         </StackPanel>
 
                                                         <Separator Margin="0,6"/>
@@ -389,7 +397,7 @@
                                                        VerticalAlignment="Top"
                                                        Panel.ZIndex="400"
                                                        Visibility="Collapsed"
-                                                       TextTrimming="CharacterEllipsis"/>           
+                                                       TextTrimming="CharacterEllipsis"/>
                                         </Grid>
                                     </ScrollViewer>
                                 </Grid>
@@ -417,7 +425,7 @@
                                           Panel.ZIndex="500"
                                           ToolTip="Collapse / Expand Controls"
                                           Click="RightPanelToggleButton_Click"
-                                          Content="◀ Controls"/>-->     
+                                          Content="◀ Controls"/>-->
 
                             <!-- Annotation Controls -->
                             <Border x:Name="AnnotationControlsPanel"
@@ -446,7 +454,7 @@
                                               ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                               Background="#FFF"
                                               Foreground="#222"
-                                              Grid.Row="1">         
+                                              Grid.Row="1">
                                         <ListView.ContextMenu>
                                             <ContextMenu>
                                                 <MenuItem Header="Edit" Click="EditAnnotation_Click"/>
@@ -488,7 +496,7 @@
                 </Grid>
 
                 <!-- No Project Panel (overlays main content) -->
-                <Grid x:Name="NoProjectPanel" Visibility="Visible" IsHitTestVisible="False" Background="#FFF5F5F5">
+                <Grid x:Name="NoProjectPanel" Visibility="Collapsed" IsHitTestVisible="False" Background="#FFF5F5F5">
                     <TextBlock Text="No Project"
                        Foreground="#222"
                        FontSize="48"

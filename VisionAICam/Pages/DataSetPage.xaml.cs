@@ -116,6 +116,7 @@ namespace VisionAICam.Pages
         private bool _classStatsCollapsed = false; // Add this member
                                                    // add near other private fields
         private bool _classStatsOverlayShown = false;
+        private string? _detectedModelPath = null;
         public DataSetPage()
         {
             InitializeComponent();
@@ -2005,6 +2006,7 @@ namespace VisionAICam.Pages
 
             // update class statistics panel
             UpdateClassStats();
+            CheckAutoLabelReady();
         }
 
         // Utility: Generate a deterministic color for each class name
@@ -3891,15 +3893,11 @@ namespace VisionAICam.Pages
         //    catch { /* non-critical */ }
         //}
 
-        private async void AutoLabelButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Call export yolo8OBB save to Light-DataSet folder
 
-
-        }
         #region Auto-Label
         // Update Execute handler to handle the revised ComboBox options.
-        private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
+        //csharp VisionAICam\Pages\DataSetPage.xaml.cs
+                private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
         {
             try
             {
@@ -3912,41 +3910,6 @@ namespace VisionAICam.Pages
 
                 switch (selected)
                 {
-                    case "Auto label":
-                        SetStatus("Running auto-labeler...");
-                        try
-                        {
-                            var svc = new VisionAICam.Services.AutoLabelerService();
-                            bool added = await svc.RunAutoLabelingAsync(null, 0.5).ConfigureAwait(false);
-
-                            Dispatcher.Invoke(() =>
-                            {
-                                if (added)
-                                {
-                                    if (ProjectSession.Annotations != null)
-                                    {
-                                        Annotations = ProjectSession.Annotations;
-                                        RefreshAnnotations();
-                                    }
-                                    else
-                                    {
-                                        RefreshAnnotations();
-                                    }
-                                    SetStatus("Auto-labeling finished — annotations added.");
-                                }
-                                else
-                                {
-                                    SetStatus("Auto-labeling finished — no annotations were added.");
-                                }
-                                CheckAutoLabelEnable();
-                            });
-                        }
-                        catch (Exception ex)
-                        {
-                            Dispatcher.Invoke(() => SetStatus($"Auto-label failed: {ex.Message}"));
-                        }
-                        break;
-
                     case "Save Project":
                         SaveProject_Click(sender, e);
                         break;
@@ -3969,19 +3932,22 @@ namespace VisionAICam.Pages
                             }
 
                             var folder = dlg.SelectedPath;
-                            DatasetFolder= folder;
+                            DatasetFolder = folder;
                             SetStatus("Verifying OBB dataset format...");
-                            var (ok, report) = await Task.Run(() => VerifyObbFolder(folder));
-                            if (ok)
+                            var (ok, report) = await Task.Run(() => VerifyObbFolder(folder)).ConfigureAwait(false);
+                            Dispatcher.Invoke(() =>
                             {
-                                SetStatus("OBB dataset verification succeeded.");
-                                MessageBox.Show(report, "OBB Dataset Verified", MessageBoxButton.OK, MessageBoxImage.Information);
-                            }
-                            else
-                            {
-                                SetStatus("OBB dataset verification failed.");
-                                MessageBox.Show(report, "OBB Dataset Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
-                            }
+                                if (ok)
+                                {
+                                    SetStatus("OBB dataset verification succeeded.");
+                                    MessageBox.Show(report, "OBB Dataset Verified", MessageBoxButton.OK, MessageBoxImage.Information);
+                                }
+                                else
+                                {
+                                    SetStatus("OBB dataset verification failed.");
+                                    MessageBox.Show(report, "OBB Dataset Verification Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                }
+                            });
                         }
                         break;
 
@@ -4008,12 +3974,12 @@ namespace VisionAICam.Pages
                             }
 
                             string exportFolder = System.IO.Path.Combine(dlg.SelectedPath, $"Yolo8OBB_Train_{DateTime.Now:yyyyMMdd_HHmmss}");
+                            Directory.CreateDirectory(exportFolder);
 
                             try
                             {
                                 // Export a non-destructive rotated-box dataset for training.
                                 var projectForExport = Convert2RotatedBox(_currentProject);
-
                                 ExportYoloV8_OBB_MiniSave(projectForExport, exportFolder);
                                 SetStatus($"Training dataset exported to: {exportFolder}");
                             }
@@ -4023,15 +3989,13 @@ namespace VisionAICam.Pages
                                 break;
                             }
 
-                            // Launch training in the AutoLabelerService, update UI via callback.
                             try
                             {
                                 var svc = new VisionAICam.Services.AutoLabelerService();
                                 Action<string> updateStatus = s => Dispatcher.Invoke(() => SetStatus(s));
 
-                                // Use the newly exported training folder (exportFolder) — not DatasetFolder.
-                                //DatasetFolder = exportFolder;
-                                bool started = await svc.LaunchYOLOv8TrainingAsync(DatasetFolder, updateStatus).ConfigureAwait(false);
+                                // Pass the newly exported folder to the service
+                                bool started = await svc.LaunchYOLOv8TrainingAsync(exportFolder, updateStatus).ConfigureAwait(false);
 
                                 Dispatcher.Invoke(() =>
                                 {
@@ -4045,6 +4009,183 @@ namespace VisionAICam.Pages
                             {
                                 Dispatcher.Invoke(() => SetStatus($"Model training failed to start: {ex.Message}"));
                             }
+                        }
+                        break;
+
+                    case "Auto label":
+                        // If a trained model already exists, skip export/training and run inference only.
+                        SetStatus("Auto-label: checking for existing trained model...");
+                        try
+                        {
+                            // Helper: find most recent trained model saved by training pipeline.
+                            string FindLatestTrainedModel()
+                            {
+                                try
+                                {
+                                    string baseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+                                    string modelsRoot = System.IO.Path.Combine(baseDir, "training_output", "models");
+                                    if (!Directory.Exists(modelsRoot)) return null;
+
+                                    var runDirs = Directory.GetDirectories(modelsRoot)
+                                        .Select(d => new { Path = d, Time = Directory.GetLastWriteTimeUtc(d) })
+                                        .OrderByDescending(x => x.Time)
+                                        .Select(x => x.Path)
+                                        .ToList();
+
+                                    foreach (var rd in runDirs)
+                                    {
+                                        // common candidate locations
+                                        string[] candidates =
+                                        {
+                                            System.IO.Path.Combine(rd, "weights", "best.pt"),
+                                            System.IO.Path.Combine(rd, "weights", "last.pt"),
+                                            System.IO.Path.Combine(rd, "best.pt"),
+                                            System.IO.Path.Combine(rd, "last.pt")
+                                        };
+                                        foreach (var c in candidates)
+                                            if (File.Exists(c)) return c;
+                                    }
+
+                                    return null;
+                                }
+                                catch { return null; }
+                            }
+
+                            // Try to locate an existing model first
+                            string existingModel = await Task.Run(() => FindLatestTrainedModel()).ConfigureAwait(false);
+
+                            var svc = new VisionAICam.Services.AutoLabelerService();
+
+                            if (!string.IsNullOrEmpty(existingModel))
+                            {
+                                Dispatcher.Invoke(() => SetStatus($"Found existing model: {existingModel}. Running inference..."));
+                                try
+                                {
+                                    bool added = await svc.RunAutoLabelingAsync(existingModel, 0.5).ConfigureAwait(false);
+                                    Dispatcher.Invoke(() =>
+                                    {
+                                        if (added)
+                                        {
+                                            if (ProjectSession.Annotations != null) Annotations = ProjectSession.Annotations;
+                                            RefreshAnnotations();
+                                            SetStatus("Auto-labeling finished — annotations added (using existing model).");
+                                        }
+                                        else
+                                        {
+                                            SetStatus("Auto-labeling finished — no annotations were added (existing model).");
+                                        }
+                                        CheckAutoLabelEnable();
+                                    });
+                                }
+                                catch (Exception ex)
+                                {
+                                    Dispatcher.Invoke(() => SetStatus($"Auto-label inference failed: {ex.Message}"));
+                                }
+
+                                break;
+                            }
+
+                            // No existing model found — run full pipeline (export -> train -> wait -> infer)
+                            SetStatus("No existing model found. Running full auto-label pipeline (export → train → infer)...");
+
+                            if (_currentProject == null || _currentProject.ImagePaths == null || _currentProject.ImagePaths.Count == 0)
+                            {
+                                SetStatus("No project or images available for auto-label pipeline.");
+                                break;
+                            }
+
+                            // Create export folder in temp (non-interactive)
+                            string exportRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "VisionAICam_AutoLabel");
+                            Directory.CreateDirectory(exportRoot);
+                            string exportFolder = System.IO.Path.Combine(exportRoot, $"Yolo8OBB_Auto_{DateTime.Now:yyyyMMdd_HHmmss}");
+                            Directory.CreateDirectory(exportFolder);
+
+                            try
+                            {
+                                var projectForExport = Convert2RotatedBox(_currentProject);
+                                ExportYoloV8_OBB_MiniSave(projectForExport, exportFolder);
+                                SetStatus($"Exported dataset for auto-label to: {exportFolder}");
+                            }
+                            catch (Exception ex)
+                            {
+                                SetStatus($"Failed to export dataset: {ex.Message}");
+                                break;
+                            }
+
+                            // Save project snapshot
+                            try
+                            {
+                                var projFile = System.IO.Path.Combine(exportFolder, $"{_currentProject.ProjectName}_snapshot_{DateTime.Now:yyyyMMdd_HHmmss}.json");
+                                var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+                                File.WriteAllText(projFile, json);
+                            }
+                            catch { /* non-fatal */ }
+
+                            // Launch training
+                            Action<string> updateStatusCB = s => Dispatcher.Invoke(() => SetStatus(s));
+                            bool started = false;
+                            try
+                            {
+                                started = await svc.LaunchYOLOv8TrainingAsync(exportFolder, updateStatusCB).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                Dispatcher.Invoke(() => SetStatus($"Failed to launch training: {ex.Message}"));
+                                started = false;
+                            }
+
+                            string foundModel = null;
+                            if (started)
+                            {
+                                // Poll for a produced model (short-poll, conservative timeout)
+                                var timeout = TimeSpan.FromMinutes(30);
+                                var pollInterval = TimeSpan.FromSeconds(5);
+                                var t0 = DateTime.UtcNow;
+                                Dispatcher.Invoke(() => SetStatus("Training started — waiting for trained model..."));
+
+                                while (DateTime.UtcNow - t0 < timeout)
+                                {
+                                    foundModel = await Task.Run(() => FindLatestTrainedModel()).ConfigureAwait(false);
+                                    if (!string.IsNullOrEmpty(foundModel))
+                                        break;
+
+                                    await Task.Delay(pollInterval).ConfigureAwait(false);
+                                }
+                            }
+
+                            if (string.IsNullOrEmpty(foundModel))
+                            {
+                                Dispatcher.Invoke(() => SetStatus("Training started but trained model not found within timeout. You may run inference manually when model is ready."));
+                                break;
+                            }
+
+                            Dispatcher.Invoke(() => SetStatus($"Trained model found: {foundModel}. Running inference..."));
+                            try
+                            {
+                                bool added = await svc.RunAutoLabelingAsync(foundModel, 0.5).ConfigureAwait(false);
+                                Dispatcher.Invoke(() =>
+                                {
+                                    if (added)
+                                    {
+                                        if (ProjectSession.Annotations != null) Annotations = ProjectSession.Annotations;
+                                        RefreshAnnotations();
+                                        SetStatus("Auto-label pipeline finished — annotations added.");
+                                    }
+                                    else
+                                    {
+                                        SetStatus("Auto-label pipeline finished — no annotations were added.");
+                                    }
+                                    CheckAutoLabelEnable();
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                Dispatcher.Invoke(() => SetStatus($"Auto-label inference failed: {ex.Message}"));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            SetStatus($"Auto-label failed: {ex.Message}");
                         }
                         break;
 
@@ -4109,14 +4250,20 @@ namespace VisionAICam.Pages
                             break;
 
                         case "Auto label":
-                            // Require per-class minimum annotations (same rule as before)
+                            // Follow the TODO: enable Execute when the auto-label readiness condition is met.
+                            // Use the same readiness test as CheckAutoLabelReady (threshold = 5).
                             if (_currentProject == null || _currentProject.ClassLabels == null || _currentProject.ClassLabels.Count == 0)
                             {
                                 AutoLabelExecuteButton.IsEnabled = false;
+                                // still update the UI indicator
+                                CheckAutoLabelReady();
                                 break;
                             }
 
-                            const int requiredCount = 10;
+                            // Update the readiness indicator text/block
+                            CheckAutoLabelReady();
+
+                            const int requiredCount = 5; // must match CheckAutoLabelReady's readyThreshold
                             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                             foreach (var lbl in _currentProject.ClassLabels)
                                 counts[lbl] = 0;
