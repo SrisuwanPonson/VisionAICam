@@ -4224,7 +4224,7 @@ namespace VisionAICam.Pages
                             bool started = false;
                             try
                             {
-                                //started = await svc.LaunchYOLOv8TrainingAsync(exportFolder, updateStatusCB).ConfigureAwait(false);
+                                started = await svc.LaunchYOLOv8TrainingAsync(exportFolder, updateStatusCB).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {

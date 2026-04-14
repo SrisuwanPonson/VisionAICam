@@ -22,7 +22,7 @@ namespace VisionAICam.Services
         // Production model folder (used by ModelPage / production training)
         private static readonly string ProductionModelDir = @"C:\ClearEngine\VisionAICam\Model\Production";
         // External script root (you moved script files here)
-        private static readonly string ExternalScriptRoot = @"C:\ClearEngine\VisionAICam";
+        private static readonly string ExternalScriptRoot = @"C:\ClearEngine\VisionAICam\Script";
 
         public async Task<bool> RunAutoLabelingAsync(string? modelPath = null, double confidenceThreshold = 0.5, System.Threading.CancellationToken cancellationToken = default)
         {
@@ -302,7 +302,7 @@ namespace VisionAICam.Services
                 {
                     FileName = pythonPath,
                     Arguments = $"\"{scriptPath}\" {args}",
-                    UseShellExecute = false,            // required to redirect streams
+                    UseShellExecute = true,            // required to redirect streams
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = false,
@@ -360,14 +360,13 @@ namespace VisionAICam.Services
                     return false;
                 }
 
-                // Use /k so console stays open for user inspection. If you prefer closing automatically use /c.
+                // CMD will live-stream status from cmd_status.txt
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = comspec,
-                    Arguments = $"/k {fullCommand}",
+                    FileName = "cmd.exe",
+                    Arguments = $"/k \"{fullCommand}\"",
                     UseShellExecute = true,
-                    CreateNoWindow = false,
-                    WorkingDirectory = Path.GetDirectoryName(scriptPath) ?? baseDirectory
+                    CreateNoWindow = false
                 };
 
                 Process.Start(startInfo);
@@ -380,6 +379,7 @@ namespace VisionAICam.Services
                 _log.LogError($"LaunchTraining fallback failed: {exCmd}");
                 return false;
             }
+
         }
 
         #endregion

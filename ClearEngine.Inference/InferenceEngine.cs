@@ -216,7 +216,7 @@ namespace ClearEngine.Model.Inference
                 using (Py.GIL())
                 {
                     string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? ".";
-                    string pythonScriptDir = Path.Combine(baseDir, "Script");
+                    string pythonScriptDir = @"C:\ClearEngine\VisionAICam\Script";
                     dynamic sys = Py.Import("sys");
 
                     // Ensure script folder on sys.path
