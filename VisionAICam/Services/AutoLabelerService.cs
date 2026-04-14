@@ -10,6 +10,7 @@ using VisionAICam.Core;
 using VisionAICam.Pages;
 using VisionAICam.Utilities;
 
+
 namespace VisionAICam.Services
 {
     public class AutoLabelerService : IAutoLabelerService
@@ -96,6 +97,7 @@ namespace VisionAICam.Services
                 catch (Exception ex)
                 {
                     try { _log.LogError($"LaunchYOLOv8TrainingAsync failed: {ex}"); } catch { }
+                    
                     updateStatus?.Invoke($"Failed to start training: {ex.Message}");
                     return false;
                 }
@@ -346,37 +348,80 @@ namespace VisionAICam.Services
             }
 
             // Fallback: launch via system cmd.exe using COMSPEC (robust across Windows configurations)
+            // Replace the existing cmd fallback block with this improved, robust launcher.
+            // It changes to the script folder, runs the python invocation via COMSPEC, opens a visible console,
+            // signals the UI with "TRAINING_START" and "TRAINING_FINISHED" tokens, and waits for the console process to exit.
+            string comspec = Environment.GetEnvironmentVariable("COMSPEC") ??
+                             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+
+            updateStatus?.Invoke($"Fallback: launching via cmd.exe at: {comspec}");
+
+            if (!File.Exists(comspec))
+            {
+                ShowError($"cmd.exe not found at expected location: {comspec}\nCannot launch training.", "Training aborted", updateStatus);
+                _log.LogError($"cmd.exe missing at {comspec}");
+                return false;
+            }
+
+            // Normalize working directory to script folder (handles different drives)
+            string wd = Path.GetDirectoryName(scriptPath) ?? baseDirectory;
+            try { wd = Path.GetFullPath(wd); } catch { wd = baseDirectory; }
+            if (!Directory.Exists(wd)) wd = baseDirectory;
+
+            // Build command so cmd starts in script folder then runs the python invocation.
+            // Using /k keeps the console open; if you prefer auto-close use /c instead.
+            string cmdArguments = $"/k cd /d \"{wd}\" && {fullCommand}";
+
+            // Notify UI to expand status overlay
+            updateStatus?.Invoke("TRAINING_START");
+
             try
             {
-                string comspec = Environment.GetEnvironmentVariable("COMSPEC") ??
-                                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+                // Use /c so cmd runs the python command and automatically closes when it finishes.
+                // Request a maximized window so the console appears large (not true exclusive fullscreen).
+                
 
-                updateStatus?.Invoke($"Fallback: launching via cmd.exe at: {comspec}");
-
-                if (!File.Exists(comspec))
-                {
-                    ShowError($"cmd.exe not found at expected location: {comspec}\nCannot launch training.", "Training aborted", updateStatus);
-                    _log.LogError($"cmd.exe missing at {comspec}");
-                    return false;
-                }
-
-                // CMD will live-stream status from cmd_status.txt
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/k \"{fullCommand}\"",
-                    UseShellExecute = true,
-                    CreateNoWindow = false
+                    FileName = comspec,
+                    Arguments = cmdArguments,
+                    UseShellExecute = true,   // must be true to show native console window
+                    CreateNoWindow = false,
+                    WorkingDirectory = wd,
+                    WindowStyle = ProcessWindowStyle.Maximized
                 };
 
-                Process.Start(startInfo);
-                _log.LogInfo($"Launched training using cmd.exe -> {comspec}");
-                return true;
+                var proc = Process.Start(startInfo);
+                if (proc != null)
+                {
+                    _log.LogInfo($"Launched training via cmd.exe -> {comspec} : {cmdArguments}");
+
+                    // Notify UI that training started (expand overlay)
+                    updateStatus?.Invoke("TRAINING_START");
+
+                    // Wait for the cmd process (and therefore the python process it launched) to exit,
+                    // then notify UI so it can collapse the overlay.
+                    _ = Task.Run(() =>
+                    {
+                        try { proc.WaitForExit(); } catch { /* ignore */ }
+                        updateStatus?.Invoke("TRAINING_FINISHED");
+                    });
+
+                    updateStatus?.Invoke("Training started. Console opened (maximized).");
+                    return true;
+                }
+                else
+                {
+                    updateStatus?.Invoke("TRAINING_FINISHED");
+                    _log.LogError("Process.Start returned null when launching cmd.exe.");
+                    return false;
+                }
             }
             catch (Exception exCmd)
             {
                 ShowError($"Failed to launch training script.\n{exCmd.Message}", "Launch Error", updateStatus);
                 _log.LogError($"LaunchTraining fallback failed: {exCmd}");
+                updateStatus?.Invoke("TRAINING_FINISHED");
                 return false;
             }
 
