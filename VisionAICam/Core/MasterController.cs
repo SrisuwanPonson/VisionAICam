@@ -123,7 +123,7 @@ namespace VisionAICam.Core
                     if (string.IsNullOrWhiteSpace(settings.DefaultImagePath)) settings.DefaultImagePath = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
                     if (string.IsNullOrWhiteSpace(settings.PythonDllPath))
                     {
-                        settings.PythonDllPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                        settings.PythonDllPath = Path.Combine(@"C:\ClearEngine\VisionAICam", "NewEnv", "Python313", "python313.dll");
                     }
 
                     RegisterService(settings);

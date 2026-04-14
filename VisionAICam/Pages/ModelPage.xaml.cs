@@ -1853,8 +1853,7 @@ namespace VisionAICam.Pages
 
         private string ResolvePythonPath()
         {
-            string pythonPath = Environment.GetEnvironmentVariable("PYTHON_PATH") ??
-                                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Python313", "python.exe");
+            string pythonPath = System.IO.Path.Combine(@"C:\ClearEngine\VisionAICam", "NewEnv", "Python313", "python313.dll");
 
             ValidatePythonPath(pythonPath);
             return pythonPath;

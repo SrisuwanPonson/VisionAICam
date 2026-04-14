@@ -10,6 +10,9 @@ namespace VisionAICam.Utilities
 {
     public static class TrainingHelper
     {
+        // New fixed external root where you moved scripts/data
+        private static readonly string ExternalScriptRoot = @"C:\ClearEngine\VisionAICam";
+
         internal static bool LaunchYOLOv8Training(
     List<TrainingOption> datasetOptions,
     List<TrainingOption> modelOptions,
@@ -48,12 +51,14 @@ namespace VisionAICam.Utilities
             string scheduler = GetOptionValue(trainingOptions, "Scheduler") ?? "StepLR";
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            string scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8.py");
-            string trainingOutputDir = Path.Combine(baseDirectory, "training_output");
+
+            // Revised: use fixed external root for scripts and training outputs
+            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov8.py");
+            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(baseDirectory, "pretrain");
+            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -189,12 +194,14 @@ namespace VisionAICam.Utilities
             string optimizer = GetOptionValue(trainingOptions, "Optimizer") ?? "SGD";
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            string scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov5.py");
-            string trainingOutputDir = Path.Combine(baseDirectory, "training_output");
+
+            // Revised paths to external root
+            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov5.py");
+            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(baseDirectory, "pretrain");
+            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -342,14 +349,7 @@ namespace VisionAICam.Utilities
                 throw new FileNotFoundException($"Python executable not found at {pythonPath}");
         }
 
-        //private static string ResolvePythonPath()
-        //{
-        //    string pythonPath = Environment.GetEnvironmentVariable("PYTHON_PATH") ??
-        //                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Python313", "python.exe");
-
-        //    ValidatePythonPath(pythonPath);
-        //    return pythonPath;
-        //}
+        // Keep ResolvePythonPath as-is (will throw if not found). Consider updating to check ExternalScriptRoot if you want.
         private static string ResolvePythonPath()
         {
             string pythonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python.exe");
@@ -395,12 +395,14 @@ namespace VisionAICam.Utilities
             string scheduler = GetOptionValue(trainingOptions, "Scheduler") ?? "StepLR";
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            string scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8_seg.py");
-            string trainingOutputDir = Path.Combine(baseDirectory, "training_output");
+
+            // Revised: use external root
+            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov8_seg.py");
+            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(baseDirectory, "pretrain");
+            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -537,8 +539,10 @@ namespace VisionAICam.Utilities
             string taskType = GetOptionValue(trainingOptions, "Task") ?? "obb"; // ✅ NEW: task type
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            string scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8_obb.py");
-            string trainingOutputDir = Path.Combine(baseDirectory, "training_output");
+
+            // Revised: external root
+            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov8_obb.py");
+            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
@@ -645,12 +649,14 @@ namespace VisionAICam.Utilities
             string optimizer = GetOptionValue(trainingOptions, "Optimizer") ?? "SGD";
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-            string scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov5_obb.py");
-            string trainingOutputDir = Path.Combine(baseDirectory, "training_output");
+
+            // Revised: use external root
+            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov5_obb.py");
+            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(baseDirectory, "pretrain");
+            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
 
             if (!File.Exists(scriptPath))
             {

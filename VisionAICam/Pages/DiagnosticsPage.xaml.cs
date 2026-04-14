@@ -614,7 +614,7 @@ namespace VisionAICam.Pages
                                 }
                                 else
                                 {
-                                    pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+                                    pythonDllPath = System.IO.Path.Combine(@"C:\ClearEngine\VisionAICam", "NewEnv", "Python313", "python313.dll");
                                 }
 
                                 if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
