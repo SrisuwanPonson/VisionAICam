@@ -178,7 +178,7 @@ namespace VisionAICam.Pages
             InferenceTimeText.Text = "42 ms";
         }
 
-       
+
 
         // 🔧 Helpers
         private string GetCpuName()
@@ -579,7 +579,7 @@ namespace VisionAICam.Pages
                         MessageBox.Show($"Failed to convert image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         mat?.Dispose();
                         return;
-                    } 
+                    }
                 }
 
                 ClearEngine.Model.Inference.DetectionResult[] detections = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
@@ -614,7 +614,7 @@ namespace VisionAICam.Pages
                                 }
                                 else
                                 {
-                                    pythonDllPath = System.IO.Path.Combine(@"C:\ClearEngine\VisionAICam", "NewEnv", "Python313", "python313.dll");
+                                    pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
                                 }
 
                                 if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
@@ -629,7 +629,7 @@ namespace VisionAICam.Pages
 
                             token.ThrowIfCancellationRequested();
 
-                           
+
                         }
 
                         ClearEngine.Model.Inference.DetectionResult[] remoteResults = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
@@ -694,9 +694,9 @@ namespace VisionAICam.Pages
                     _runningInferenceTask = null;
                     try { _inferenceCts?.Dispose(); } catch { }
                     _inferenceCts = null;
-                    if (mat!=null)
+                    if (mat != null)
                     {
-                        mat.Dispose(); 
+                        mat.Dispose();
                     }
                 }
 
@@ -932,7 +932,7 @@ namespace VisionAICam.Pages
                 catch (Exception ex)
                 {
                     _logger.LogInfo($"CleanupResources StopCamera: {ex.Message}");
-                }   
+                }
 
                 // Cancel inference task and wait briefly for it to finish
                 try

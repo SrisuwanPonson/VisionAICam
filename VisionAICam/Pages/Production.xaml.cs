@@ -326,7 +326,8 @@ namespace VisionAICam.Pages
       
             return true;
         }
-        private void CameraLoop()
+        private void 
+            CameraLoop()
         {
             if (_cameraLoopRunning)
             {
@@ -341,7 +342,7 @@ namespace VisionAICam.Pages
             Prewarm();
 
 
-            #region Prewarm
+            
            
 
             Dispatcher.BeginInvoke(() =>
@@ -352,7 +353,7 @@ namespace VisionAICam.Pages
             });
 
          
-            #endregion
+            
             #region New Inference Engine - simplified (initialization moved into TryCreate)
             try
             {
