@@ -31,6 +31,7 @@
                     <Setter Property="Margin" Value="2"/>
                 </Style>
             </Menu.Resources>
+            
             <MenuItem Header="File">
                 <MenuItem Header="New Project" Click="CreateProject_Click"/>
                 <MenuItem Header="Open Project" Click="OpenProject_Click"/>
@@ -193,7 +194,10 @@
                                               HorizontalAlignment="Center"
                                               VerticalAlignment="Center">
                                             <Grid.RenderTransform>
-                                                <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
+                                                <TransformGroup>
+                                                    <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
+                                                    <TranslateTransform x:Name="PanTransform" X="0" Y="0"/>
+                                                </TransformGroup>
                                             </Grid.RenderTransform>
                                             <Image x:Name="LabelingImage"
                                                    Stretch="None"
