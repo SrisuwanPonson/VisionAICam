@@ -4,14 +4,15 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using VisionAICam.Core;
 using VisionAICam.Pages;
 
 namespace VisionAICam.Utilities
 {
     public static class TrainingHelper
     {
-        // New fixed external root where you moved scripts/data
-        private static readonly string ExternalScriptRoot = @"C:\ClearEngine\VisionAICam";
+        // Removed hard-coded ExternalScriptRoot string.
+        // All callers should resolve script root via GetScriptRoot() below.
 
         internal static bool LaunchYOLOv8Training(
     List<TrainingOption> datasetOptions,
@@ -52,13 +53,21 @@ namespace VisionAICam.Utilities
 
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
 
-            // Revised: use fixed external root for scripts and training outputs
-            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov8.py");
-            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
+            // Resolve script root and project root from app settings (falls back to AppBase/Script).
+            string scriptRoot = GetScriptRoot();
+            string projectRoot = GetProjectRootFromScriptRoot(scriptRoot);
+
+            // prefer external script location for the script itself
+            string scriptPath = Path.Combine(scriptRoot, "train_yolov8.py");
+            if (!File.Exists(scriptPath))
+                scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8.py");
+
+            // training outputs live under the project root (sibling to Script)
+            string trainingOutputDir = Path.Combine(projectRoot, "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
+            string pretrainFolderPath = Path.Combine(projectRoot, "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -126,7 +135,7 @@ namespace VisionAICam.Utilities
             string pythonPath;
             try
             {
-                pythonPath = ResolvePythonPath();
+                pythonPath = ResolvePythonPath(scriptRoot);
             }
             catch (FileNotFoundException ex)
             {
@@ -196,12 +205,15 @@ namespace VisionAICam.Utilities
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
 
             // Revised paths to external root
-            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov5.py");
-            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
+            string scriptPath = Path.Combine(GetScriptRoot(), "train_yolov5.py");
+            if (!File.Exists(scriptPath))
+                scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov5.py");
+
+            string trainingOutputDir = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
+            string pretrainFolderPath = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -270,7 +282,7 @@ namespace VisionAICam.Utilities
             string pythonPath;
             try
             {
-                pythonPath = ResolvePythonPath();
+                pythonPath = ResolvePythonPath(GetScriptRoot());
             }
             catch (FileNotFoundException ex)
             {
@@ -301,62 +313,6 @@ namespace VisionAICam.Utilities
             }
         }
 
-        private static void ShowError(string messageBoxText, string statusText, Action<string> updateStatus)
-        {
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                MessageBox.Show(messageBoxText, "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                updateStatus?.Invoke(statusText);
-            });
-        }
-
-        private static void EnsureDirectory(string path, string label)
-        {
-            if (!Directory.Exists(path))
-            {
-                Directory.CreateDirectory(path);
-                Console.WriteLine($"📁 Created {label} directory: {path}");
-            }
-            else
-            {
-                Console.WriteLine($"✅ {label} directory already exists: {path}");
-            }
-        }
-
-        private static string GetOptionValue(List<TrainingOption> options, string name)
-        {
-            return options.FirstOrDefault(o => o.Name == name)?.Value ?? "";
-        }
-
-        private static void FixDataYamlPaths(string yamlPath, string datasetRoot)
-        {
-            var lines = File.ReadAllLines(yamlPath).ToList();
-            for (int i = 0; i < lines.Count; i++)
-            {
-                if (lines[i].StartsWith("train:"))
-                    lines[i] = $"train: {Path.Combine(datasetRoot, "train", "images").Replace("\\", "/")}";
-                else if (lines[i].StartsWith("val:"))
-                    lines[i] = $"val: {Path.Combine(datasetRoot, "valid", "images").Replace("\\", "/")}";
-                else if (lines[i].StartsWith("test:"))
-                    lines[i] = $"test: {Path.Combine(datasetRoot, "test", "images").Replace("\\", "/")}";
-            }
-            File.WriteAllLines(yamlPath, lines);
-        }
-
-        private static void ValidatePythonPath(string pythonPath)
-        {
-            if (!File.Exists(pythonPath))
-                throw new FileNotFoundException($"Python executable not found at {pythonPath}");
-        }
-
-        // Keep ResolvePythonPath as-is (will throw if not found). Consider updating to check ExternalScriptRoot if you want.
-        private static string ResolvePythonPath()
-        {
-            string pythonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python.exe");
-
-            ValidatePythonPath(pythonPath);
-            return pythonPath;
-        }
         internal static bool LaunchYOLOv8SegmentationTraining(
     List<TrainingOption> datasetOptions,
     List<TrainingOption> modelOptions,
@@ -397,12 +353,15 @@ namespace VisionAICam.Utilities
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
 
             // Revised: use external root
-            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov8_seg.py");
-            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
+            string scriptPath = Path.Combine(GetScriptRoot(), "train_yolov8_seg.py");
+            if (!File.Exists(scriptPath))
+                scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8_seg.py");
+
+            string trainingOutputDir = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
+            string pretrainFolderPath = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -463,7 +422,7 @@ namespace VisionAICam.Utilities
             string pythonPath;
             try
             {
-                pythonPath = ResolvePythonPath();
+                pythonPath = ResolvePythonPath(GetScriptRoot());
             }
             catch (FileNotFoundException ex)
             {
@@ -541,8 +500,11 @@ namespace VisionAICam.Utilities
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
 
             // Revised: external root
-            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov8_obb.py");
-            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
+            string scriptPath = Path.Combine(GetScriptRoot(), "train_yolov8_obb.py");
+            if (!File.Exists(scriptPath))
+                scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov8_obb.py");
+
+            string trainingOutputDir = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
@@ -582,7 +544,7 @@ namespace VisionAICam.Utilities
             string pythonPath;
             try
             {
-                pythonPath = ResolvePythonPath();
+                pythonPath = ResolvePythonPath(GetScriptRoot());
             }
             catch (FileNotFoundException ex)
             {
@@ -651,12 +613,15 @@ namespace VisionAICam.Utilities
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
 
             // Revised: use external root
-            string scriptPath = Path.Combine(ExternalScriptRoot, "Script", "train_yolov5_obb.py");
-            string trainingOutputDir = Path.Combine(ExternalScriptRoot, "training_output");
+            string scriptPath = Path.Combine(GetScriptRoot(), "train_yolov5_obb.py");
+            if (!File.Exists(scriptPath))
+                scriptPath = Path.Combine(baseDirectory, "Script", "train_yolov5_obb.py");
+
+            string trainingOutputDir = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "training_output");
             string modelSaveDir = Path.Combine(trainingOutputDir, "models");
             string trainingLogPath = Path.Combine(trainingOutputDir, "log");
             string resultsDir = Path.Combine(modelSaveDir, expName);
-            string pretrainFolderPath = Path.Combine(ExternalScriptRoot, "pretrain");
+            string pretrainFolderPath = Path.Combine(GetProjectRootFromScriptRoot(GetScriptRoot()), "pretrain");
 
             if (!File.Exists(scriptPath))
             {
@@ -725,7 +690,7 @@ namespace VisionAICam.Utilities
             string pythonPath;
             try
             {
-                pythonPath = ResolvePythonPath();
+                pythonPath = ResolvePythonPath(GetScriptRoot());
             }
             catch (FileNotFoundException ex)
             {
@@ -754,6 +719,102 @@ namespace VisionAICam.Utilities
                 ShowError($"❌ Failed to launch YOLOv5 OBB training script.\n{ex.Message}", "Launch Error", updateStatus);
                 return false;
             }
+        }
+
+        private static void ShowError(string messageBoxText, string statusText, Action<string> updateStatus)
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                MessageBox.Show(messageBoxText, "Training Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                updateStatus?.Invoke(statusText);
+            });
+        }
+
+        private static void EnsureDirectory(string path, string label)
+        {
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+                Console.WriteLine($"📁 Created {label} directory: {path}");
+            }
+            else
+            {
+                Console.WriteLine($"✅ {label} directory already exists: {path}");
+            }
+        }
+
+        private static string GetOptionValue(List<TrainingOption> options, string name)
+        {
+            return options.FirstOrDefault(o => o.Name == name)?.Value ?? "";
+        }
+
+        private static void FixDataYamlPaths(string yamlPath, string datasetRoot)
+        {
+            var lines = File.ReadAllLines(yamlPath).ToList();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].StartsWith("train:"))
+                    lines[i] = $"train: {Path.Combine(datasetRoot, "train", "images").Replace("\\", "/")}";
+                else if (lines[i].StartsWith("val:"))
+                    lines[i] = $"val: {Path.Combine(datasetRoot, "valid", "images").Replace("\\", "/")}";
+                else if (lines[i].StartsWith("test:"))
+                    lines[i] = $"test: {Path.Combine(datasetRoot, "test", "images").Replace("\\", "/")}";
+            }
+            File.WriteAllLines(yamlPath, lines);
+        }
+
+        // Keep ResolvePythonPath as a script-root-aware resolver
+        private static string ResolvePythonPath(string scriptRoot)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(scriptRoot))
+                {
+                    var candExe = Path.Combine(scriptRoot, "NewEnv", "Python313", "python.exe");
+                    var candDll = Path.Combine(scriptRoot, "NewEnv", "Python313", "python313.dll");
+                    if (File.Exists(candExe)) return candExe;
+                    if (File.Exists(candDll)) return candDll;
+                }
+            }
+            catch { }
+
+            var fallbackExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python.exe");
+            var fallbackDll = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
+
+            if (File.Exists(fallbackExe)) return fallbackExe;
+            if (File.Exists(fallbackDll)) return fallbackDll;
+
+            throw new FileNotFoundException("Python executable not found under configured script root or application Script/NewEnv.");
+        }
+
+        // Resolve script root from AppSettings.ScriptPath (safe fallback to AppBase/Script)
+        private static string GetScriptRoot()
+        {
+            try
+            {
+                var settings = MasterController.Instance?.GetService<AppSettings>() ?? SettingsManager.Load();
+                if (!string.IsNullOrWhiteSpace(settings?.ScriptPath))
+                    return settings.ScriptPath;
+            }
+            catch { }
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script");
+        }
+
+        // If ScriptRoot points to ".../Script", return parent; otherwise use ScriptRoot as project root.
+        private static string GetProjectRootFromScriptRoot(string scriptRoot)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(scriptRoot)) return AppDomain.CurrentDomain.BaseDirectory;
+                var dirName = Path.GetFileName(scriptRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                if (string.Equals(dirName, "Script", StringComparison.OrdinalIgnoreCase))
+                {
+                    var parent = Path.GetDirectoryName(scriptRoot);
+                    if (!string.IsNullOrWhiteSpace(parent)) return parent;
+                }
+            }
+            catch { }
+            return scriptRoot ?? AppDomain.CurrentDomain.BaseDirectory;
         }
     }
 }

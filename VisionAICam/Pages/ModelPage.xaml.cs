@@ -14,6 +14,7 @@ using System.Diagnostics;
 using VisionAICam.Utilities;
 using System.Windows.Media.Animation;
 using ClearEngine.Logging;
+using VisionAICam.Core;
 
 namespace VisionAICam.Pages
 {
@@ -1853,57 +1854,66 @@ namespace VisionAICam.Pages
 
         private string ResolvePythonPath()
         {
-            string pythonPath = System.IO.Path.Combine(@"C:\ClearEngine\VisionAICam", "NewEnv", "Python313", "python313.dll");
-
-            ValidatePythonPath(pythonPath);
-            return pythonPath;
-        }
-        public void RunPythonScript(string pythonExePath, string scriptPath, string arguments, Action<string> logCallback, Action<int> exitCallback)
-        {
+            // 1) Try AppSettings.PythonDllPath (user-configured in Settings page)
             try
             {
-                var psi = new ProcessStartInfo
+                var settings = MasterController.Instance?.GetService<AppSettings>() ?? SettingsManager.Load();
+                if (!string.IsNullOrWhiteSpace(settings?.PythonDllPath))
                 {
-                    FileName = pythonExePath,
-                    Arguments = $"\"{scriptPath}\" {arguments}",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true,
-                    WorkingDirectory = System.IO.Path.GetDirectoryName(scriptPath)
-                };
+                    var configured = settings.PythonDllPath!;
+                    if (File.Exists(configured))
+                    {
+                        ValidatePythonPath(configured);
+                        return configured;
+                    }
+                }
 
-                var process = new Process { StartInfo = psi };
+                // 2) Try script-root relative location using AppSettings.ScriptPath if present
+                string? scriptRoot = null;
+                try { scriptRoot = settings?.ScriptPath; } catch { scriptRoot = null; }
 
-                process.OutputDataReceived += (s, e) =>
+                if (!string.IsNullOrWhiteSpace(scriptRoot))
                 {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
-                        logCallback?.Invoke($"🟢 {e.Data}");
-                };
-
-                process.ErrorDataReceived += (s, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
-                        logCallback?.Invoke($"🔴 {e.Data}");
-                };
-
-                logCallback?.Invoke($"🚀 Launching: {psi.FileName} {psi.Arguments}");
-
-                process.Start();
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-
-                process.WaitForExit();
-                int exitCode = process.ExitCode;
-
-                exitCallback?.Invoke(exitCode);
+                    var candExe = System.IO.Path.Combine(scriptRoot!, "NewEnv", "Python313", "python.exe");
+                    var candDll = System.IO.Path.Combine(scriptRoot!, "NewEnv", "Python313", "python313.dll");
+                    if (File.Exists(candExe))
+                    {
+                        ValidatePythonPath(candExe);
+                        return candExe;
+                    }
+                    if (File.Exists(candDll))
+                    {
+                        ValidatePythonPath(candDll);
+                        return candDll;
+                    }
+                }
             }
-            catch (Exception ex)
+            catch
             {
-                logCallback?.Invoke($"❌ Failed to run Python: {ex.Message}");
-                exitCallback?.Invoke(-1);
+                // swallow and continue to fallback checks
             }
+
+            // 3) Fallback to application Script location (embedded environment)
+            var fallbackExe = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python.exe");
+            var fallbackDll = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
+
+            if (File.Exists(fallbackExe))
+            {
+                ValidatePythonPath(fallbackExe);
+                return fallbackExe;
+            }
+            if (File.Exists(fallbackDll))
+            {
+                ValidatePythonPath(fallbackDll);
+                return fallbackDll;
+            }
+
+            // 4) Nothing found — surface helpful message to user
+            throw new FileNotFoundException(
+                "Python executable not found. Configure the Python DLL path in Settings (Settings → Python DLL) or place the embedded environment under Script\\NewEnv\\Python313."
+            );
         }
+        
         #endregion
 
 

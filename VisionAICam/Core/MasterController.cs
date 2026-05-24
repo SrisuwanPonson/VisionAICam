@@ -135,6 +135,64 @@ namespace VisionAICam.Core
                     progress?.Report("Failed loading settings (continuing).");
                 }
 
+                // Ensure required application folders exist under C:\ClearEngine\VisionAICam
+                try
+                {
+                    progress?.Report("Ensuring application folders...");
+
+                    string appRoot = @"C:\ClearEngine\VisionAICam";
+                    var requiredFolders = new[]
+                    {
+                        "Datasets",
+                        "Models",
+                        "PythonEnv",
+                        "PythonScripts",
+                        "Runtime",
+                        "Setup",
+                        "Images"
+                    };
+
+                    foreach (var folderName in requiredFolders)
+                    {
+                        string fullPath = Path.Combine(appRoot, folderName);
+                        if (!Directory.Exists(fullPath))
+                        {
+                            Directory.CreateDirectory(fullPath);
+                            try { _logger.LogInfo($"Created application folder: {fullPath}"); } catch { }
+                        }
+                        else
+                        {
+                            try { _logger.LogInfo($"Application folder exists: {fullPath}"); } catch { }
+                        }
+                    }
+
+                    // Ensure a dedicated folder for persisted/saved projects inside the Setup folder
+                    try
+                    {
+                        string projectsFolder = Path.Combine(appRoot, "Setup", "Projects");
+                        if (!Directory.Exists(projectsFolder))
+                        {
+                            Directory.CreateDirectory(projectsFolder);
+                            try { _logger.LogInfo($"Created projects folder: {projectsFolder}"); } catch { }
+                        }
+                        else
+                        {
+                            try { _logger.LogInfo($"Projects folder exists: {projectsFolder}"); } catch { }
+                        }
+                    }
+                    catch (Exception exProjects)
+                    {
+                        try { _logger.LogError($"MasterController: failed to ensure projects folder: {exProjects}"); } catch { }
+                    }
+
+                    progress?.Report("Application folders ensured.");
+                }
+                catch (Exception ex)
+                {
+                    try { _logger.LogError($"MasterController: failed to ensure app folders: {ex}"); } catch { }
+                    progress?.Report("Failed to ensure application folders (continuing).");
+                }
+
                 //Try to initialize inference engine and register wrapper service
                 if (prewarmInferenceEngine)
                 {

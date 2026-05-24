@@ -56,6 +56,11 @@
 
 	<PropertyGroup>
 		<EnableWindowsTargeting>true</EnableWindowsTargeting>
+		<AppendConfigurationToOutputPath>false</AppendConfigurationToOutputPath>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+        <AppendConfigurationToOutputPath>false</AppendConfigurationToOutputPath>
+		<BaseOutputPath>C:\ClearEngine\VisionAICam</BaseOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup>

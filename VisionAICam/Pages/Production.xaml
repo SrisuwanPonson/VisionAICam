@@ -4,17 +4,24 @@
       Title="Production">
 
     <Page.Resources>
+        <!-- Light theme palette -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#FFFFFFFF" Offset="0"/>
+            <GradientStop Color="#FFF3F6F9" Offset="1"/>
+        </LinearGradientBrush>
+
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#222222"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#5A6570"/>
+        <SolidColorBrush x:Key="PanelBackground" Color="#FAFAFA"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#D0D7DE"/>
+        <SolidColorBrush x:Key="OverlayBackground" Color="#80FFFFFF"/> <!-- semi-transparent light -->
         <DropShadowEffect x:Key="PanelShadow"
                           Color="Black"
                           Direction="270"
                           ShadowDepth="4"
-                          Opacity="0.1"
+                          Opacity="0.06"
                           BlurRadius="6"/>
-
-        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#F5F5F5" Offset="0"/>
-            <GradientStop Color="#E0E0E0" Offset="1"/>
-        </LinearGradientBrush>
     </Page.Resources>
 
     <Page.Background>
@@ -27,16 +34,17 @@
                       FontSize="18"
                       FontWeight="Bold"
                       Padding="12"
-                      Background="#FAFAFA"
-                      BorderBrush="#D0D7DE"
+                      Background="{StaticResource PanelBackground}"
+                      Foreground="{StaticResource ForegroundBrush}"
+                      BorderBrush="{StaticResource PanelBorderBrush}"
                       BorderThickness="1"
                       Effect="{StaticResource PanelShadow}"
                       VerticalAlignment="Top">
                 <StackPanel>
                     <!-- Fixed-size image and canvas -->
                     <Border Width="640" Height="480"
-                            Background="#FFFFFF"
-                            BorderBrush="#D0D7DE"
+                            Background="{StaticResource CardBackground}"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
                             BorderThickness="1"
                             CornerRadius="10"
                             Padding="4">
@@ -48,19 +56,20 @@
                                    VerticalAlignment="Top"/>
                             <Canvas x:Name="BoundingBoxCanvas"
                                     Width="640" Height="480"
-                                    IsHitTestVisible="False"/>
+                                    IsHitTestVisible="False"
+                                    Background="Transparent"/>
                             <Grid x:Name="LoadingOverlay"
-                                  Background="#80D0D7DE"
+                                  Background="{StaticResource OverlayBackground}"
                                   Visibility="Collapsed"
                                   Width="640" Height="480">
-                                <Border Background="#CCD0D7DE"
+                                <Border Background="#CCFFFFFF"
                                         Padding="24"
                                         CornerRadius="8"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center">
                                     <StackPanel>
                                         <TextBlock Text="Loading model and running first inference..."
-                                                   Foreground="#222"
+                                                   Foreground="{StaticResource ForegroundBrush}"
                                                    FontSize="16"
                                                    FontWeight="SemiBold"
                                                    Margin="0,0,0,12"
@@ -79,23 +88,22 @@
                         <TextBlock x:Name="StatusTextBlock"
                                    Text="Ready"
                                    FontSize="13"
-                                   Foreground="#444"
+                                   Foreground="{StaticResource SecondaryForeBrush}"
                                    Margin="0,0,24,0"/>
                         <TextBlock x:Name="FpsTextBlock"
                                    Text="FPS: 0"
                                    FontSize="13"
-                                   Foreground="#444"
+                                   Foreground="{StaticResource SecondaryForeBrush}"
                                    Margin="0,0,24,0"/>
                         <TextBlock x:Name="InferenceTimeTextBlock"
                                    Text="Inference: 0 ms"
                                    FontSize="13"
-                                   Foreground="#444"/>
+                                   Foreground="{StaticResource SecondaryForeBrush}"/>
                     </StackPanel>
                 </StackPanel>
             </GroupBox>
 
-            <!-- Add this DataGrid somewhere appropriate in the Production.xaml layout -->
-            <!-- Per-frame summary: transparent background and transparent rows/cells -->
+            <!-- Per-frame summary: light-aware styling -->
             <DataGrid x:Name="PerFrameSummaryGrid"
                       AutoGenerateColumns="False"
                       HeadersVisibility="Column"
@@ -110,42 +118,39 @@
                       GridLinesVisibility="None"
                       BorderThickness="0">
                 <DataGrid.Resources>
-                    <!-- Make column headers transparent and text white -->
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="Transparent"/>
                         <Setter Property="BorderThickness" Value="0"/>
                         <Setter Property="Padding" Value="6,4"/>
-                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
                     </Style>
 
-                    <!-- Make cells transparent and remove cell borders -->
                     <Style TargetType="DataGridCell">
                         <Setter Property="Background" Value="Transparent"/>
                         <Setter Property="BorderThickness" Value="0"/>
                         <Setter Property="Padding" Value="6,2"/>
                     </Style>
 
-                    <!-- Ensure rows are transparent -->
                     <Style TargetType="DataGridRow">
                         <Setter Property="Background" Value="Transparent"/>
                     </Style>
                 </DataGrid.Resources>
 
                 <DataGrid.Columns>
-                    <!-- Class column: class name text colored using ColorBrush provided by VM -->
                     <DataGridTemplateColumn Header="Class" Width="*">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding ClassName}" Foreground="{Binding ColorBrush}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding ClassName}"
+                                           Foreground="{Binding ColorBrush}"
+                                           FontWeight="SemiBold"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <!-- Count column: keep text white for contrast -->
                     <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="72">
                         <DataGridTextColumn.ElementStyle>
                             <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="White"/>
+                                <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
                                 <Setter Property="FontWeight" Value="Normal"/>
                             </Style>
                         </DataGridTextColumn.ElementStyle>

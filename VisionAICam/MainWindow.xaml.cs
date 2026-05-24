@@ -23,17 +23,15 @@ namespace VisionAICam
             MainContent.Navigated += MainContent_Navigated;
 
             // Responsive nav buttons: adjust sizes on load and when window resizes
-            this.Loaded += (s, e) => AdjustNavButtons();
+            this.Loaded += (s, e) => { AdjustNavButtons(); UpdateSidePanelVisibility(); };
             this.SizeChanged += (s, e) => AdjustNavButtons();
 
             if (IsAnotherInstanceRunning())
             {
-                //MessageBox.Show("Another instance of the application is already running.", "Instance Detected", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Application.Current.Shutdown();
                 return;
             }
 
-            // Navigate to the shared Production page from MasterController (creates on UI thread if needed)
             if (MainContent.Content is not Production)
             {
                 MainContent.Navigate(MasterController.Instance.Production);
@@ -54,6 +52,7 @@ namespace VisionAICam
 
         /// <summary>
         /// Shows side panels only when the Production page is displayed; hides them for all other pages.
+        /// Also updates the small expand buttons visibility.
         /// </summary>
         private void UpdateSidePanelVisibility()
         {
@@ -61,23 +60,37 @@ namespace VisionAICam
             {
                 bool isProduction = MainContent?.Content is Production;
 
-                // If the named panels are missing for any reason, this will safely no-op
                 if (LeftPanel != null)
+                {
                     LeftPanel.Visibility = isProduction ? Visibility.Visible : Visibility.Collapsed;
+                }
 
                 if (RightPanel != null)
+                {
                     RightPanel.Visibility = isProduction ? Visibility.Visible : Visibility.Collapsed;
+                }
+
+                // Expand buttons shown only when corresponding panel is collapsed and Production page is active
+                if (LeftExpandButton != null)
+                {
+                    LeftExpandButton.Visibility = (isProduction && (LeftPanel == null || LeftPanel.Visibility == Visibility.Collapsed))
+                                                  ? Visibility.Visible : Visibility.Collapsed;
+                }
+
+                if (RightExpandButton != null)
+                {
+                    RightExpandButton.Visibility = (isProduction && (RightPanel == null || RightPanel.Visibility == Visibility.Collapsed))
+                                                   ? Visibility.Visible : Visibility.Collapsed;
+                }
 
                 // Also keep Start/Stop and Pause buttons consistent when panels hidden
                 if (!isProduction)
                 {
-                    // disable controls that are only valid in Production
                     StartStopButton.IsEnabled = false;
                     PauseButton.IsEnabled = false;
                 }
                 else
                 {
-                    // restore Start/Stop and Pause enabled state based on production state
                     if (MainContent.Content is Production prod)
                     {
                         StartStopButton.IsEnabled = true;
@@ -166,7 +179,6 @@ namespace VisionAICam
 
         private void DataButton_Click(object sender, RoutedEventArgs e)
         {
-            // Navigate to the DataPage (was incorrectly navigating to DataSetPage via MasterController)
             NavigateIfNotDuplicate<DataPage>(new DataPage(), "Data");
         }
 
@@ -221,6 +233,72 @@ namespace VisionAICam
             NavigateIfNotDuplicate<ModelPage>(MasterController.Instance.ModelPage, "Model");
         }
 
+        // Left / Right collapse/expand handlers ------------------------------------
+
+        private void LeftCollapseButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (LeftPanel != null)
+                {
+                    LeftPanel.Visibility = Visibility.Collapsed;
+                }
+                if (LeftExpandButton != null)
+                {
+                    LeftExpandButton.Visibility = Visibility.Visible;
+                }
+            }
+            catch { }
+        }
+
+        private void LeftExpandButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (LeftPanel != null)
+                {
+                    LeftPanel.Visibility = Visibility.Visible;
+                }
+                if (LeftExpandButton != null)
+                {
+                    LeftExpandButton.Visibility = Visibility.Collapsed;
+                }
+            }
+            catch { }
+        }
+
+        private void RightCollapseButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (RightPanel != null)
+                {
+                    RightPanel.Visibility = Visibility.Collapsed;
+                }
+                if (RightExpandButton != null)
+                {
+                    RightExpandButton.Visibility = Visibility.Visible;
+                }
+            }
+            catch { }
+        }
+
+        private void RightExpandButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (RightPanel != null)
+                {
+                    RightPanel.Visibility = Visibility.Visible;
+                }
+                if (RightExpandButton != null)
+                {
+                    RightExpandButton.Visibility = Visibility.Collapsed;
+                }
+            }
+            catch { }
+        }
+
         /// <summary>
         /// MainWindow_Closing: perform only quick synchronous cleanup and schedule heavier disposal on a background thread.
         /// This keeps window close fast while still doing final cleanup asynchronously.
@@ -243,22 +321,18 @@ namespace VisionAICam
                     var currentContent = MainContent?.Content;
                     if (currentContent != null)
                     {
-                        // If it's DiagnosticsPage, call its public cleanup helper so resources are released deterministically.
                         if (currentContent is VisionAICam.Pages.DiagnosticsPage diagPage)
                         {
                             try { diagPage.CleanupResourcesPublic(); } catch { }
                         }
 
-                        // Best-effort: call CleanupResources() if defined (public or non-public) for other page types
                         InvokeCleanupIfExists(currentContent, "CleanupResources");
 
-                        // If page implements IDisposable, dispose it
                         if (currentContent is IDisposable disp)
                         {
                             try { disp.Dispose(); } catch { }
                         }
 
-                        // Also try to call parameterless "Dispose" via reflection if not castable
                         if (!(currentContent is IDisposable))
                         {
                             var disposeMethod = currentContent.GetType().GetMethod("Dispose", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
@@ -278,11 +352,8 @@ namespace VisionAICam
                 }
                 catch { }
 
-                // Attempt quick, bounded disposal of heavy resources that might block.
-                // Use short timeouts so window close / debugger stop isn't blocked indefinitely.
                 try
                 {
-                    // Dispose inference engine (sync, bounded)
                     TryRunWithTimeout(() =>
                     {
                         try
@@ -319,7 +390,6 @@ namespace VisionAICam
 
                 try
                 {
-                    // Shutdown PythonEngine with a short timeout (some Python shutdowns block; don't hang close)
                     TryRunWithTimeout(() =>
                     {
                         try
@@ -351,18 +421,11 @@ namespace VisionAICam
             catch { }
         }
 
-        /// <summary>
-        /// Long-running cleanup performed off the UI thread.
-        /// Dispose singletons, shutdown Python, force GC and wait briefly for finalizers.
-        /// </summary>
         private async Task LongRunningCleanupAsync()
         {
-            // Dispose inference engine singleton if present (direct access + safe reflection clearing)
             try
             {
                 var engineType = typeof(ClearEngine.Model.Inference.InferenceEngine);
-
-                // Try to get the public Instance property if available
                 var instanceProp = engineType.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
                 object? engineInstance = null;
                 if (instanceProp != null)
@@ -375,14 +438,12 @@ namespace VisionAICam
                     try { engine.Dispose(); } catch { }
                 }
 
-                // If the Instance property is writable, clear it via the property.
                 if (instanceProp != null && instanceProp.CanWrite)
                 {
                     try { instanceProp.SetValue(null, null); } catch { }
                 }
                 else
                 {
-                    // Otherwise attempt to clear common private static backing fields (_instance, s_instance, instance)
                     var field = engineType.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)
                                 ?? engineType.GetField("s_instance", BindingFlags.Static | BindingFlags.NonPublic)
                                 ?? engineType.GetField("instance", BindingFlags.Static | BindingFlags.NonPublic);
@@ -394,11 +455,8 @@ namespace VisionAICam
             }
             catch { }
 
-            // Shutdown Python runtime if initialized.
             try
             {
-                // PythonEngine calls can require the main thread in some environments.
-                // Attempt shutdown from background thread; if it fails, ignore to avoid blocking close.
                 if (PythonEngine.IsInitialized)
                 {
                     try { PythonEngine.Shutdown(); } catch { }
@@ -406,7 +464,6 @@ namespace VisionAICam
             }
             catch { }
 
-            // Give native resources a chance to finalize — do this with small delays so OS has time.
             try
             {
                 GC.Collect();
@@ -417,9 +474,6 @@ namespace VisionAICam
             catch { }
         }
 
-        /// <summary>
-        /// If an object exposes a cleanup method name, invoke it (best-effort).
-        /// </summary>
         private void InvokeCleanupIfExists(object target, string methodName)
         {
             if (target == null) return;
@@ -428,7 +482,6 @@ namespace VisionAICam
             {
                 var type = target.GetType();
 
-                // Look for public or non-public instance method without parameters
                 var method = type.GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
                 if (method != null)
                 {
@@ -436,14 +489,12 @@ namespace VisionAICam
                     return;
                 }
 
-                // Also check for async Task CleanupResourcesAsync() pattern
                 var asyncMethod = type.GetMethod(methodName + "Async", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (asyncMethod != null)
                 {
                     try
                     {
                         var result = asyncMethod.Invoke(target, null);
-                        // if returns a Task, attempt to Wait briefly
                         if (result is System.Threading.Tasks.Task t)
                         {
                             try { t.Wait(1500); } catch { }
@@ -455,11 +506,6 @@ namespace VisionAICam
             catch { }
         }
 
-        /// <summary>
-        /// Run an async action and block up to <paramref name="timeoutMs"/> milliseconds waiting for completion.
-        /// Returns true if the action completed within the timeout, false on timeout or exception.
-        /// This keeps window close responsive while giving critical disposals a bounded chance to finish.
-        /// </summary>
         private bool TryRunWithTimeout(Func<Task> asyncAction, int timeoutMs = 1000)
         {
             if (asyncAction == null) return false;
@@ -469,12 +515,10 @@ namespace VisionAICam
                 var t = Task.Run(asyncAction);
                 if (t.Wait(timeoutMs))
                 {
-                    // Completed within timeout
                     return true;
                 }
                 else
                 {
-                    // Timed out - do not block further
                     try { System.Diagnostics.Debug.WriteLine("TryRunWithTimeout: operation timed out."); } catch { }
                     return false;
                 }
@@ -486,24 +530,20 @@ namespace VisionAICam
             }
         }
 
-        /// <summary>
-        /// Click handler for the "Robot" navigator button.
-        /// Attempts to navigate to a Robot page exposed by MasterController (property name 'RobotPage').
-        /// If no such page exists, shows an informational message so the developer can add the page.
-        /// </summary>
+        private void UserButton_Click_1(object sender, RoutedEventArgs e) { NavigateIfNotDuplicate<UserPage>(MasterController.Instance.UserPage, "User"); }
+
         private void NavigatorRobotButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // Navigate using strongly-typed property exposed by MasterController
-                var robotPage = MasterController.Instance.RobotPage;
+                var robotPage = MasterController.Instance?.RobotPage;
                 if (robotPage == null)
                 {
                     MessageBox.Show("Robot page not available.", "Robot", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
-                NavigateIfNotDuplicate<RobotPage>(robotPage, "Robot");
+                NavigateIfNotDuplicate<Pages.RobotPage>(robotPage, "Robot");
             }
             catch (Exception ex)
             {
@@ -511,10 +551,6 @@ namespace VisionAICam
             }
         }
 
-        /// <summary>
-        /// Adjust bottom navigation buttons so they shrink to fit at small window widths.
-        /// Uses the UniformGrid container 'BottomNavGrid' so all buttons are sized consistently.
-        /// </summary>
         private void AdjustNavButtons()
         {
             try
@@ -524,33 +560,32 @@ namespace VisionAICam
                 var buttons = BottomNavGrid.Children.OfType<Button>().ToArray();
                 if (buttons.Length == 0) return;
 
-                // Determine available width inside the BottomNavGrid
                 double available = BottomNavGrid.ActualWidth;
                 if (double.IsNaN(available) || available <= 0)
                 {
                     available = this.ActualWidth;
-                    if (double.IsNaN(available) || available <= 0)
-                        return;
+                    if (double.IsNaN(available) || available <= 0) return;
                 }
 
-                // Leave a small gap for padding; compute target width per button
-                double gap = 6 * 2 * buttons.Length; // approximate total internal gaps (margins)
-                double target = Math.Floor((available - gap) / buttons.Length);
+                // approximate total horizontal margins for children
+                double totalMargins = buttons.Sum(b => b.Margin.Left + b.Margin.Right);
 
-                // Clamp width to a reasonable range so text is still readable
+                double target = Math.Floor((available - totalMargins) / buttons.Length);
+
                 double min = 56;
                 double max = 180;
                 double width = Math.Max(min, Math.Min(max, target));
 
                 foreach (var btn in buttons)
                 {
-                    // Apply computed width. Buttons can still expand if window larger.
                     btn.Width = width;
-                    // Slightly reduce font when buttons are narrow
                     btn.FontSize = width < 80 ? 13 : 16;
                 }
             }
-            catch { /* best-effort, never throw during resize */ }
+            catch
+            {
+                // best-effort; don't throw on resize
+            }
         }
     }
 }

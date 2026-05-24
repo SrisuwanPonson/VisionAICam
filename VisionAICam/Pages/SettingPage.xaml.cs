@@ -23,12 +23,16 @@ namespace VisionAICam.Pages
             DiscoverAndPopulateCameras();
             LoadSettings();
 
-            // ensure Loaded handler runs (was missing) so UI reflects current RobotService state
+            // ensure Loaded handler runs so UI reflects current RobotService state
             Loaded += SettingPage_Loaded;
 
-            // Wire up handlers for controls added in XAML
+            // Wire up existing handlers
             if (BrowsePythonDllButton != null)
                 BrowsePythonDllButton.Click += BrowsePythonDllButton_Click;
+
+            // New: script browse button
+            if (BrowseScriptButton != null)
+                BrowseScriptButton.Click += BrowseScriptButton_Click;
 
             // Wire robot settings buttons (if present in XAML)
             if (SaveRobotSettingsButton != null)
@@ -36,10 +40,9 @@ namespace VisionAICam.Pages
             if (ReloadRobotSettingsButton != null)
                 ReloadRobotSettingsButton.Click += ReloadRobotSettings_Click;
 
-            // In the constructor (after InitializeComponent) wire slider <-> textbox (if controls exist in XAML):
+            // Slider <-> textbox sync for polygon threshold
             if (PolygonAutoCloseThresholdSlider != null)
             {
-                // keep UI in sync: slider -> textbox
                 PolygonAutoCloseThresholdSlider.ValueChanged += (s, ev) =>
                 {
                     if (PolygonAutoCloseThresholdTextBox != null)
@@ -47,14 +50,13 @@ namespace VisionAICam.Pages
                 };
             }
 
-            // Load robot settings UI initially (defensive)
+            // Load robot settings UI initially
             try
             {
                 LoadRobotSettingsTo_ui();
             }
             catch (Exception ex)
             {
-                // non-fatal but log so you can diagnose issues
                 try { MasterController.Instance.Logger.LogError($"LoadRobotSettingsTo_ui failed: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(ex); }
             }
         }
@@ -99,7 +101,7 @@ namespace VisionAICam.Pages
             // Set DataContext so bindings (SamplingInterval etc.) work directly against AppSettings
             this.DataContext = _appSettings;
 
-            // --- Populate Robot tab fields so defaults show immediately ---
+            // Populate Robot tab fields
             if (_appSettings != null)
             {
                 if (RobotIpTextBox != null)
@@ -110,7 +112,7 @@ namespace VisionAICam.Pages
                     RobotSwapWordsCheckBox.IsChecked = _appSettings.SwapFloatWords;
             }
 
-            // Set camera selection by index
+            // Camera selection
             if (_appSettings != null && DefaultCameraComboBox.Items.Count > _appSettings.CameraIndex)
                 DefaultCameraComboBox.SelectedIndex = _appSettings.CameraIndex;
             else if (DefaultCameraComboBox.Items.Count > 0)
@@ -121,6 +123,7 @@ namespace VisionAICam.Pages
             ExposureSlider.Value = _appSettings?.Exposure ?? -6;
             DefaultModelPathText.Text = string.IsNullOrEmpty(_appSettings?.DefaultModelPath) ? "(none)" : _appSettings.DefaultModelPath;
             CaptureFolderPathText.Text = string.IsNullOrEmpty(_appSettings?.DefaultImagePath) ? "(none)" : _appSettings.DefaultImagePath;
+
             // Load theme
             foreach (ComboBoxItem item in ThemeComboBox.Items)
             {
@@ -131,7 +134,7 @@ namespace VisionAICam.Pages
                 }
             }
 
-            // Load Python DLL path from settings or use same hardcoded default as Production
+            // Load Python DLL path
             string pythonPath = !string.IsNullOrWhiteSpace(_appSettings?.PythonDllPath)
                 ? _appSettings!.PythonDllPath
                 : GetDefaultPythonDllPath();
@@ -139,18 +142,24 @@ namespace VisionAICam.Pages
             if (PythonDllPathText != null)
                 PythonDllPathText.Text = pythonPath;
 
-            // Ensure SamplingInterval control reflects current value (binding already set, but keep defensive)
-            if (_appSettings != null)
+            // Script path UI population (new)
+            try
             {
-                // DataContext binding updates slider/textbox automatically; this is a no-op but ensures value exists
-                SamplingIntervalSlider.Value = _appSettings.SamplingInterval;
+                string defaultScript = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script");
+                if (ScriptPathText != null)
+                    ScriptPathText.Text = !string.IsNullOrWhiteSpace(_appSettings?.ScriptPath) ? _appSettings.ScriptPath : defaultScript;
             }
+            catch { /* tolerate missing control */ }
 
-            // Enable Test button only if a valid path exists
+            // SamplingInterval control
+            if (_appSettings != null)
+                SamplingIntervalSlider.Value = _appSettings.SamplingInterval;
+
+            // Enable Test button only if Python exists
             if (TestInferenceButton != null)
                 TestInferenceButton.IsEnabled = File.Exists(pythonPath);
 
-            // --- NEW: reflect inference options in UI from AppSettings ---
+            // inference options reflect settings
             if (_appSettings != null)
             {
                 InferenceEnableCachingCheckBox.IsChecked = _appSettings.InferenceEnableCaching;
@@ -158,33 +167,30 @@ namespace VisionAICam.Pages
             }
             else
             {
-                // sensible defaults if settings missing
                 InferenceEnableCachingCheckBox.IsChecked = true;
                 InferencePrewarmCheckBox.IsChecked = true;
             }
 
-            // In LoadSettings(), after loading _appSettings and other controls, set UI from settings:
+            // Polygon threshold reflect settings
             if (_appSettings != null)
             {
-                // ensure control names match your XAML (PolygonAutoCloseThresholdSlider, PolygonAutoCloseThresholdTextBox)
                 if (PolygonAutoCloseThresholdSlider != null)
                     PolygonAutoCloseThresholdSlider.Value = _appSettings.PolygonAutoCloseThreshold;
                 if (PolygonAutoCloseThresholdTextBox != null)
                     PolygonAutoCloseThresholdTextBox.Text = _appSettings.PolygonAutoCloseThreshold.ToString("0.##");
             }
 
-            // Also populate robot-specific UI
+            // Robot UI
             try
             {
                 LoadRobotSettingsTo_ui();
             }
             catch (Exception ex)
             {
-                // non-fatal but log so you can diagnose issues
                 try { MasterController.Instance.Logger.LogError($"LoadRobotSettingsTo_ui failed: {ex}"); } catch { System.Diagnostics.Debug.WriteLine(ex); }
             }
 
-            // populate tolerances into Camera tab textboxes (defensive)
+            // tolerances population
             try
             {
                 if (TxtToleranceR != null) TxtToleranceR.Text = _appSettings.TolerancePercentR.ToString("F2");
@@ -206,19 +212,23 @@ namespace VisionAICam.Pages
             _appSettings.Theme = (ThemeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Light";
             _appSettings.DefaultImagePath = CaptureFolderPathText.Text;
 
-            // SamplingInterval is two-way bound to _appSettings.SamplingInterval; ensure numeric safety
+            // persist script path (new)
+            if (ScriptPathText != null)
+                _appSettings.ScriptPath = ScriptPathText.Text ?? _appSettings.ScriptPath;
+
+            // SamplingInterval safety
             if (int.TryParse(SamplingIntervalTextBox?.Text, out var si))
                 _appSettings.SamplingInterval = Math.Max(1, si);
 
-            // Persist Python DLL path from settings page
+            // Persist Python DLL path
             if (PythonDllPathText != null)
                 _appSettings.PythonDllPath = PythonDllPathText.Text ?? "";
 
-            // --- NEW: persist inference engine options ---
+            // inference engine options
             _appSettings.InferenceEnableCaching = InferenceEnableCachingCheckBox.IsChecked ?? false;
             _appSettings.InferencePrewarm = InferencePrewarmCheckBox.IsChecked ?? false;
 
-            // In SaveButton_Click(), persist the value back into _appSettings before calling SettingsManager.Save(_appSettings);
+            // polygon threshold
             if (_appSettings != null)
             {
                 double parsed;
@@ -232,7 +242,7 @@ namespace VisionAICam.Pages
                 }
             }
 
-            // save tolerances
+            // tolerances
             if (_appSettings != null)
             {
                 double parsed;
@@ -246,7 +256,7 @@ namespace VisionAICam.Pages
 
             SettingsManager.Save(_appSettings);
 
-            // If MasterController holds a CameraPage instance, refresh its tolerances so changes apply immediately
+            // Refresh CameraPage tolerances if available
             try
             {
                 var camPage = MasterController.Instance?.CameraPage;
@@ -254,7 +264,6 @@ namespace VisionAICam.Pages
             }
             catch
             {
-                // fallback: try locating the CameraPage via application's main window content (defensive)
                 try
                 {
                     if (Application.Current?.MainWindow is Window win)
@@ -286,7 +295,6 @@ namespace VisionAICam.Pages
 
         private void SelectFromModelManagementButton_Click(object sender, RoutedEventArgs e)
         {
-            // For now, use a file dialog. You can later open a custom model management window.
             var dialog = new OpenFileDialog
             {
                 Title = "Select Model from Model Management",
@@ -312,10 +320,6 @@ namespace VisionAICam.Pages
                 {
                     CaptureFolderPathText.Text = dialog.SelectedPath;
                 }
-                else
-                {
-                    System.Diagnostics.Debug.WriteLine("DefaultCaptureFolderPathText is not defined or accessible.");
-                }
             }
         }
 
@@ -332,10 +336,35 @@ namespace VisionAICam.Pages
                 if (PythonDllPathText != null)
                 {
                     PythonDllPathText.Text = dialog.FileName;
-                    // enable test if file exists
                     if (TestInferenceButton != null)
                         TestInferenceButton.IsEnabled = File.Exists(dialog.FileName);
                 }
+            }
+        }
+
+        // New: browse for script folder
+        private void BrowseScriptButton_Click(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dialog = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = "Select Script folder (training / utility scripts)",
+                    ShowNewFolderButton = true
+                };
+
+                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                {
+                    if (ScriptPathText != null)
+                        ScriptPathText.Text = dialog.SelectedPath;
+
+                    if (_appSettings != null)
+                        _appSettings.ScriptPath = dialog.SelectedPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"BrowseScriptButton_Click failed: {ex}");
             }
         }
 
@@ -351,7 +380,6 @@ namespace VisionAICam.Pages
                 _robot = MasterController.Instance.RobotService;
                 DataContext = _robot;
                 _robot.PropertyChanged += Robot_PropertyChanged;
-                // ensure UI reflects current connection immediately
                 UpdateRobotUi(_robot.IsConnected);
             }
             catch
@@ -359,15 +387,12 @@ namespace VisionAICam.Pages
                 UpdateRobotUi(false);
             }
 
-            // Also populate robot settings UI after robot/service initialization
             try { LoadRobotSettingsTo_ui(); } catch { }
         }
 
         private void Robot_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName != nameof(RobotService.IsConnected)) return;
-
-            // marshal UI update to UI thread
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 try
@@ -383,7 +408,6 @@ namespace VisionAICam.Pages
 
         private void UpdateRobotUi(bool connected)
         {
-            // Ensure controls exist (defensive)
             try
             {
                 if (RobotStatusTextBlock != null)
@@ -392,10 +416,7 @@ namespace VisionAICam.Pages
                 if (RobotConnectButton != null)
                     RobotConnectButton.Content = connected ? "Disconnect" : "Connect";
             }
-            catch
-            {
-                // swallow UI update errors
-            }
+            catch { }
         }
 
         private async void RobotConnectButton_Click(object sender, RoutedEventArgs e)
@@ -403,11 +424,9 @@ namespace VisionAICam.Pages
             RobotConnectButton.IsEnabled = false;
             try
             {
-                // Ensure we have the shared RobotService
                 var robot = _robot ?? MasterController.Instance.RobotService;
                 _robot = robot;
 
-                // If already connected -> disconnect
                 if (robot.IsConnected)
                 {
                     robot.Disconnect();
@@ -415,7 +434,6 @@ namespace VisionAICam.Pages
                     return;
                 }
 
-                // Validate host/port
                 string host = RobotIpTextBox.Text?.Trim() ?? string.Empty;
                 if (string.IsNullOrEmpty(host))
                 {
@@ -429,7 +447,6 @@ namespace VisionAICam.Pages
                     return;
                 }
 
-                // Apply swap flag immediately
                 robot.SwapFloatWords = RobotSwapWordsCheckBox.IsChecked == true;
 
                 bool ok = false;
@@ -442,7 +459,6 @@ namespace VisionAICam.Pages
                     ok = false;
                 }
 
-                // Update UI and persist successful settings
                 await Dispatcher.BeginInvoke(new Action(() =>
                 {
                     UpdateRobotUi(ok);
@@ -466,9 +482,7 @@ namespace VisionAICam.Pages
             }
         }
 
-        // ---------- Robot settings UI helpers ----------
-
-        // Populate the robot register address and class-id mapping textboxes from settings
+        // Robot settings UI helpers (unchanged)...
         private void LoadRobotSettingsTo_ui()
         {
             try
@@ -484,7 +498,6 @@ namespace VisionAICam.Pages
                 if (RobotRegisterAddressTextBox != null)
                     RobotRegisterAddressTextBox.Text = s.RobotRegisterAddress.ToString();
 
-                // Build runtime map from AppSettings (ClassIdMap is provided by AppSettings implementation)
                 var map = s.ClassIdMap ?? new Dictionary<string, ushort>(StringComparer.OrdinalIgnoreCase);
 
                 if (map.Count == 0)
@@ -495,7 +508,6 @@ namespace VisionAICam.Pages
 
                 var ordered = map.OrderBy(kv => kv.Value).ToList();
 
-                // Check if mapping is sequential 1..N
                 bool isSequential = true;
                 for (int i = 0; i < ordered.Count; i++)
                 {
@@ -520,13 +532,11 @@ namespace VisionAICam.Pages
             }
         }
 
-        // Reload button handler
         private void ReloadRobotSettings_Click(object sender, RoutedEventArgs e)
         {
             LoadRobotSettingsTo_ui();
         }
 
-        // Save robot register address + class->id mapping from UI into AppSettings and persist
         private void SaveRobotSettings_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -541,7 +551,6 @@ namespace VisionAICam.Pages
 
                 if (!string.IsNullOrEmpty(raw))
                 {
-                    // If contains '=' or ':' treat as explicit name->id lines
                     if (raw.Contains('=') || raw.Contains(':'))
                     {
                         var lines = raw.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -560,7 +569,6 @@ namespace VisionAICam.Pages
                     }
                     else
                     {
-                        // Treat as comma-separated ordered names -> ids 1..N
                         var parts = raw.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                                        .Select(p => p.Trim())
                                        .Where(p => !string.IsNullOrEmpty(p))
@@ -577,7 +585,6 @@ namespace VisionAICam.Pages
                 if (map.Count > 0)
                     s.ClassIdMap = map;
 
-                // Persist
                 SettingsManager.Save(s);
                 try { MasterController.Instance.RegisterService(s); } catch { }
                 MessageBox.Show("Robot settings saved.", "Settings", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -587,7 +594,5 @@ namespace VisionAICam.Pages
                 MessageBox.Show($"Failed to save robot settings: {ex.Message}", "Settings", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
-        // ---------- End robot settings helpers ----------
     }
 }

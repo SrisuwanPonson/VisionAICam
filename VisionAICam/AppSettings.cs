@@ -140,7 +140,8 @@ namespace VisionAICam
         }
 
         // Add this property to your AppSettings class (insert among other persisted properties)
-       
+        // Path to project / training scripts root (used by training helpers, scripts, etc.)
+        public string ScriptPath { get; set; } = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script");
 
         // Add these three persisted tolerance properties to your AppSettings class.
         public double TolerancePercentR { get; set; } = 15.0;

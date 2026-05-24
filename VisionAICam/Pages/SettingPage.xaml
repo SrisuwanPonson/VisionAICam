@@ -151,6 +151,7 @@
                         <RowDefinition Height="Auto"/> <!-- Sampling Interval -->
                         <RowDefinition Height="Auto"/> <!-- Engine Options -->
                         <RowDefinition Height="*"/>    <!-- Status / Notes -->
+                        <RowDefinition Height="Auto"/> <!-- reserved -->
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="180"/>
@@ -231,6 +232,13 @@
                             Margin="8,0,0,0"
                             VerticalContentAlignment="Center"
                             Text="{Binding PolygonAutoCloseThreshold, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged, StringFormat={}{0:0.##}}" />
+                    </StackPanel>
+
+                    <!-- Script Path moved into Preferences (better placement) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Script Path:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox x:Name="ScriptPathText" MinWidth="360" VerticalAlignment="Center" />
+                        <Button x:Name="BrowseScriptButton" Content="Browse..." Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </StackPanel>
             </TabItem>
