@@ -15,6 +15,7 @@ namespace ClearEngine.Devices.Camera
         public event Action<BitmapSource>? FrameReady;
         public bool IsOpened => _capture != null && _capture.IsOpened();
 
+        // ⭐ เปลี่ยนจาก int cameraIndex → string cameraId
         public void Start(int cameraIndex, CameraOptions? options = null)
         {
             Stop();
@@ -49,6 +50,7 @@ namespace ClearEngine.Devices.Camera
             _thread.Start();
         }
 
+
         public void Stop()
         {
             _running = false;
@@ -59,16 +61,32 @@ namespace ClearEngine.Devices.Camera
             _thread = null;
         }
 
-        public double GetProperty(VideoCaptureProperties prop) => _capture?.Get(prop) ?? 0.0;
-        public void SetProperty(VideoCaptureProperties prop, double value) => _capture?.Set(prop, value);
+        // ⭐ ICamera ใหม่ใช้ string property name
+        public double GetProperty(VideoCaptureProperties prop)
+        {
+            return _capture.Get(prop);
+        }
 
-        public Mat? CaptureCurrentFrame()
+        public void SetProperty(VideoCaptureProperties prop, double value)
+        {
+            _capture?.Set(prop, value);
+        }
+
+        public BitmapSource? CaptureCurrentFrame()
         {
             if (!IsOpened) return null;
+
             var mat = new Mat();
             _capture!.Read(mat);
-            if (mat.Empty()) { mat.Dispose(); return null; }
-            return mat;
+            if (mat.Empty())
+            {
+                mat.Dispose();
+                return null;
+            }
+
+            var bmp = mat.ToBitmapSource();
+            bmp.Freeze();
+            return bmp;
         }
 
         public void Dispose() => Stop();

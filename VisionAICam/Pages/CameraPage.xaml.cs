@@ -1,17 +1,18 @@
-﻿using System;
+﻿using ClearEngine.Devices.Camera;
+using OpenCvSharp;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media.Imaging;
+using System.Management;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
-using OpenCvSharp;
-using System.Management;
-using VisionAICam; // For AppSettings and SettingsManager
-using ClearEngine.Devices.Camera; // class library
-using WpfSize = System.Windows.Size;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using VisionAICam;
+using WpfSize = System.Windows.Size;
 
 namespace VisionAICam.Pages
 {
@@ -20,14 +21,10 @@ namespace VisionAICam.Pages
         private ICamera? _camera;
         private AppSettings? _appSettings;
 
-        // Prevent re-running initialClass more than one per application run
         private bool _initialClassesLoaded = false;
-
-        // Suppress saving while programmatically setting slider values
         private bool _suspendSliderSave = false;
-
-        // Track pending (unsaved) camera slider values and dirty state
         private bool _cameraSettingsDirty = false;
+
         private double _pendingBrightness = 128.0;
         private double _pendingContrast = 128.0;
         private double _pendingExposure = -6.0;
@@ -37,23 +34,24 @@ namespace VisionAICam.Pages
         private TextBlock[]? _overlayLabels;
         private string[]? _overlayLabelTexts;
 
-        // Overlays for calibration preview
         private System.Windows.Shapes.Rectangle[]? _calibOverlayRects;
         private TextBlock[]? _calibOverlayLabels;
 
         private BitmapSource? _lastFrame;
 
-        // Reference color tuples and small UI helpers
         private (byte R, byte G, byte B)? _refRed;
         private (byte R, byte G, byte B)? _refGreen;
         private (byte R, byte G, byte B)? _refBlue;
+
         double toleranceR;
         double toleranceG;
         double toleranceB;
-
-        // TaskCompletionSource for inline decision panel
+        private List<string> _hikDevices = new();
         private TaskCompletionSource<MessageBoxResult>? _calibDecisionTcs;
         private TaskCompletionSource<bool>? _samplePrepareTcs;
+
+        // ⭐ NEW: backend selector
+        private CameraBackend _selectedBackend = CameraBackend.OpenCv;
 
         public CameraPage()
         {
@@ -61,7 +59,6 @@ namespace VisionAICam.Pages
 
             _appSettings = SettingsManager.Load();
 
-            // load persisted per-channel tolerances (fallback to 5.0)
             try
             {
                 toleranceR = _appSettings?.TolerancePercentR ?? 20.0;
@@ -73,7 +70,6 @@ namespace VisionAICam.Pages
                 toleranceR = toleranceG = toleranceB = 15.0;
             }
 
-            // Apply persisted reference colors to runtime refs and UI rects
             try
             {
                 if (_appSettings != null)
@@ -82,12 +78,12 @@ namespace VisionAICam.Pages
                     _refGreen = (_appSettings.RefGreen.R, _appSettings.RefGreen.G, _appSettings.RefGreen.B);
                     _refBlue = (_appSettings.RefBlue.R, _appSettings.RefBlue.G, _appSettings.RefBlue.B);
 
-                    try { ApplyColorToRect(RectRed, _refRed.Value); } catch { }
-                    try { ApplyColorToRect(RectGreen, _refGreen.Value); } catch { }
-                    try { ApplyColorToRect(RectBlue, _refBlue.Value); } catch { }
+                    ApplyColorToRect(RectRed, _refRed.Value);
+                    ApplyColorToRect(RectGreen, _refGreen.Value);
+                    ApplyColorToRect(RectBlue, _refBlue.Value);
                 }
             }
-            catch { /* tolerate settings read errors */ }
+            catch { }
 
             DiscoverAndPopulateCameras();
             initialClass();
@@ -99,7 +95,6 @@ namespace VisionAICam.Pages
             CameraImage.SizeChanged += CameraImage_SizeChanged;
             CameraImage.LayoutUpdated += CameraImage_LayoutUpdated;
 
-            // ensure calibration preview follows layout changes as well
             CalibImage.SizeChanged += CalibImage_SizeChanged;
             CalibImage.LayoutUpdated += CameraImage_LayoutUpdated;
 
@@ -108,11 +103,10 @@ namespace VisionAICam.Pages
                 _suspendSliderSave = true;
                 try
                 {
-                    BrightnessSlider.Value = _appSettings!.Brightness;
-                    ContrastSlider.Value = _appSettings!.Contrast;
-                    ExposureSlider.Value = _appSettings!.Exposure;
+                    BrightnessSlider.Value = _appSettings.Brightness;
+                    ContrastSlider.Value = _appSettings.Contrast;
+                    ExposureSlider.Value = _appSettings.Exposure;
 
-                    // initialize pending values from persisted settings so explicit Save is meaningful
                     _pendingBrightness = BrightnessSlider.Value;
                     _pendingContrast = ContrastSlider.Value;
                     _pendingExposure = ExposureSlider.Value;
@@ -121,26 +115,21 @@ namespace VisionAICam.Pages
                 finally { _suspendSliderSave = false; }
             }
 
-            // Ensure Save button state consistent at startup
-            try
+            SaveCameraButton.IsEnabled = false;
+            SaveStatusSmall.Text = "";
+            lblSaveStatus.Text = "";
+
+            // ⭐ NEW: backend selector
+            BackendComboBox.Items.Add("OpenCV");
+            BackendComboBox.Items.Add("Hikvision");
+            BackendComboBox.SelectedIndex = 0;
+
+            BackendComboBox.SelectionChanged += (s, e) =>
             {
-                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
-                if (lblSaveStatus != null && string.IsNullOrEmpty(lblSaveStatus.Text)) lblSaveStatus.Text = "";
-            }
-            catch { }
-        }
-
-        private void CalibImage_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
-                ShowOverlayCanvasRects(_overlaySourceRects);
-        }
-
-        private void CalibImage_LayoutUpdated(object? sender, EventArgs e)
-        {
-            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
-                ShowOverlayCanvasRects(_overlaySourceRects);
+                _selectedBackend = BackendComboBox.SelectedIndex == 0
+                    ? CameraBackend.OpenCv
+                    : CameraBackend.Hikvision;
+            };
         }
 
         private void initialClass()
@@ -194,39 +183,270 @@ namespace VisionAICam.Pages
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to initialize class/category lists: {ex.Message}", "Initialization Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show($"Failed to initialize class/category lists: {ex.Message}",
+                    "Initialization Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
 
             _initialClassesLoaded = true;
         }
 
-        private void CameraImage_SizeChanged(object sender, SizeChangedEventArgs e)
+
+        private void DiscoverAndPopulateCameras()
         {
-            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
-                ShowOverlayCanvasRects(_overlaySourceRects);
+            CameraComboBox.Items.Clear();
+            var devices = new List<string>();
+
+            // ⭐ 1) ค้นหา OpenCV/Webcam (ของเดิม)
+            try
+            {
+                using var searcher = new ManagementObjectSearcher(
+                    "SELECT * FROM Win32_PnPEntity WHERE (PNPClass = 'Image' OR PNPClass = 'Camera')");
+                foreach (ManagementObject device in searcher.Get())
+                {
+                    var name = device["Name"]?.ToString();
+                    if (!string.IsNullOrEmpty(name))
+                        devices.Add(name);
+                }
+            }
+            catch { }
+
+            // ⭐ 2) ใส่รายการ OpenCV/Webcam ลง ComboBox (ของเดิม)
+            foreach (var device in devices)
+                CameraComboBox.Items.Add(new ComboBoxItem { Content = device });
+
+            // ⭐⭐ 3) ตรงนี้แหละที่ต้องใส่ Hikvision ⭐⭐
+            _hikDevices = DiscoverHikvisionCameras();
+
+            foreach (var hik in _hikDevices)
+            {
+                CameraComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = "[HIK] " + hik
+                });
+            }
+
+            // ⭐ 4) Restore index จาก appsettings (ของเดิม)
+            if (CameraComboBox.Items.Count == 0)
+            {
+                MessageBox.Show("No imaging devices detected.");
+                CameraComboBox.SelectedIndex = -1;
+            }
+            else
+            {
+                if (_appSettings != null &&
+                    _appSettings.CameraIndex >= 0 &&
+                    _appSettings.CameraIndex < CameraComboBox.Items.Count)
+                {
+                    CameraComboBox.SelectedIndex = _appSettings.CameraIndex;
+                }
+                else
+                {
+                    CameraComboBox.SelectedIndex = 0;
+                }
+            }
         }
 
-        private void CameraImage_LayoutUpdated(object? sender, EventArgs e)
+        private List<string> DiscoverHikvisionCameras()
         {
-            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
-                ShowOverlayCanvasRects(_overlaySourceRects);
+            var list = new List<string>();
+
+            Debug.WriteLine("=== HIK SEARCH START ===");
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = @"C:\Program Files\Python313\python.exe",
+                    Arguments = "\"C:\\ClearEngine\\VisionAICam\\PythonScripts\\list_hikvision.py\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+
+                Debug.WriteLine("[HIK] Starting Python process...");
+
+                using var p = Process.Start(psi);
+
+                while (!p.StandardOutput.EndOfStream)
+                {
+                    string? line = p.StandardOutput.ReadLine();
+                    if (string.IsNullOrWhiteSpace(line))
+                        continue;
+
+                    Debug.WriteLine("[HIK-OUT] " + line);
+
+                    if (line.Contains("No devices found"))
+                    {
+                        Debug.WriteLine("[HIK] No Hikvision devices detected.");
+                        return list;
+                    }
+
+                    if (line.StartsWith("USB:") || line.StartsWith("GigE:"))
+                    {
+                        string name = line.Substring(line.IndexOf(":") + 1).Trim();
+                        Debug.WriteLine("[HIK] Device found: " + name);
+                        list.Add(name);
+                    }
+                }
+
+                // อ่าน error stream ด้วย
+                while (!p.StandardError.EndOfStream)
+                {
+                    string? err = p.StandardError.ReadLine();
+                    if (!string.IsNullOrWhiteSpace(err))
+                        Debug.WriteLine("[HIK-ERR] " + err);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[HIK-EXCEPTION] " + ex.Message);
+            }
+
+            Debug.WriteLine("=== HIK SEARCH END ===");
+
+            return list;
         }
 
-        private void CameraPage_Loaded(object sender, RoutedEventArgs e) { }
 
-        private void CameraPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        private void CameraComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (e.NewValue is bool isVisible && !isVisible) StopCamera();
+            if (_appSettings == null) return;
+            _appSettings.CameraIndex = CameraComboBox.SelectedIndex;
+            try { SettingsManager.Save(_appSettings); } catch { }
+        }
+        public void RefreshTolerances()
+        {
+            try
+            {
+                // Load fresh settings and update runtime tolerances used by CameraPage
+                var s = SettingsManager.Load();
+                if (s != null)
+                {
+                    toleranceR = s.TolerancePercentR;
+                    toleranceG = s.TolerancePercentG;
+                    toleranceB = s.TolerancePercentB;
+                }
+
+                // Give short UI feedback so user knows new tolerances applied
+                try
+                {
+                    SetCalibStatus($"Tolerances loaded: R:{toleranceR:F2}% G:{toleranceG:F2}% B:{toleranceB:F2}%");
+                }
+                catch { }
+            }
+            catch
+            {
+                // tolerate errors silently
+            }
         }
 
-        private void CameraPage_Unloaded(object sender, RoutedEventArgs e)
+        private void SelectCameraButton_Click_1(object sender, RoutedEventArgs e)
         {
             StopCamera();
+            _appSettings = SettingsManager.Load();
 
-            Unloaded -= CameraPage_Unloaded;
-            IsVisibleChanged -= CameraPage_IsVisibleChanged;
-            Loaded -= CameraPage_Loaded;
+            if (CameraComboBox.SelectedItem is not ComboBoxItem item)
+            {
+                MessageBox.Show("Please select a camera.");
+                return;
+            }
+
+            string selectedName = item.Content.ToString() ?? "";
+
+            try
+            {
+                // ⭐ create backend dynamically
+                _camera = CameraFactory.Create(_selectedBackend);
+                _camera.FrameReady += OnFrameReady;
+
+                var options = _appSettings != null
+                    ? new CameraOptions
+                    {
+                        Brightness = _appSettings.Brightness,
+                        Contrast = _appSettings.Contrast,
+                        Exposure = _appSettings.Exposure
+                    }
+                    : null;
+
+                int backendIndex;
+
+                // ⭐ ถ้าเป็น Hikvision → map index จาก Python list
+                if (selectedName.StartsWith("[HIK]"))
+                {
+                    backendIndex = GetHikvisionIndexFromLoadedList(selectedName);
+
+
+                    Debug.WriteLine($"[START] HIK selected: {selectedName}");
+                    Debug.WriteLine($"[START] HIK backend index = {backendIndex}");
+
+                    // ⭐ ทดสอบได้แม้ไม่ต่อกล้อง
+                    // ถ้าไม่มี Hikvision จริง → HikCamera.Start() จะ fail → เราจับได้
+                }
+                else
+                {
+                    // ⭐ ถ้าเป็น OpenCV → ใช้ SelectedIndex เดิม
+                    backendIndex = CameraComboBox.SelectedIndex;
+
+                    Debug.WriteLine($"[START] OpenCV selected index = {backendIndex}");
+                }
+
+                // ⭐ Start camera
+                _camera.Start(backendIndex, options);
+
+                if (!_camera.IsOpened)
+                {
+                    MessageBox.Show("Could not open selected camera.");
+                    StopCamera();
+                    return;
+                }
+
+                // ⭐ load slider values
+                _suspendSliderSave = true;
+                Dispatcher.Invoke(() =>
+                {
+                    try
+                    {
+                        BrightnessSlider.Value = _camera.GetProperty(VideoCaptureProperties.Brightness);
+                        ContrastSlider.Value = _camera.GetProperty(VideoCaptureProperties.Contrast);
+                        ExposureSlider.Value = _camera.GetProperty(VideoCaptureProperties.Exposure);
+
+                        _pendingBrightness = BrightnessSlider.Value;
+                        _pendingContrast = ContrastSlider.Value;
+                        _pendingExposure = ExposureSlider.Value;
+
+                        _cameraSettingsDirty = false;
+                        SaveCameraButton.IsEnabled = false;
+                        SaveStatusSmall.Text = "";
+                        lblSaveStatus.Text = "";
+                    }
+                    catch { }
+                });
+                _suspendSliderSave = false;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to start camera: {ex.Message}", "Camera Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                StopCamera();
+            }
         }
+        private int GetHikvisionIndexFromLoadedList(string displayName)
+        {
+            // ตัด prefix [HIK]
+            string name = displayName.Replace("[HIK]", "").Trim();
+
+            // _hikDevices ถูกโหลดตอน DiscoverAndPopulateCameras()
+            for (int i = 0; i < _hikDevices.Count; i++)
+            {
+                if (_hikDevices[i] == name)
+                    return i;
+            }
+
+            // ⭐ ถ้าไม่เจอ (เพราะไม่ต่อกล้อง) → คืน 0 เพื่อให้ flow ทำงานครบ
+            return 0;
+        }
+
+
 
         private void StopCamera()
         {
@@ -250,201 +470,25 @@ namespace VisionAICam.Pages
                 });
             }
         }
-
-        private void OnFrameReady(BitmapSource bitmap)
-        {
-            Dispatcher.BeginInvoke(() =>
-            {
-                if (!IsLoaded) return;
-
-                try
-                {
-                    var copy = bitmap.Clone();
-                    if (copy.CanFreeze) copy.Freeze();
-                    _lastFrame = copy;
-
-                    // show in main preview
-                    CameraImage.Source = copy;
-
-                    // show same image in calibrate preview
-                    // reusing the same frozen BitmapSource is fine for both Image controls
-                    CalibImage.Source = copy;
-
-                    // re-draw overlays on both canvases if boxes exist
-                    if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
-                        ShowOverlayCanvasRects(_overlaySourceRects);
-                }
-                catch
-                {
-                    try { CameraImage.Source = bitmap; } catch { }
-                    try { CalibImage.Source = bitmap; } catch { }
-                    _lastFrame = bitmap;
-                }
-            });
-        }
-
-        private void DiscoverAndPopulateCameras()
-        {
-            CameraComboBox.Items.Clear();
-            var devices = new List<string>();
-            try
-            {
-                using var searcher = new ManagementObjectSearcher(
-                    "SELECT * FROM Win32_PnPEntity WHERE (PNPClass = 'Image' OR PNPClass = 'Camera')");
-                foreach (ManagementObject device in searcher.Get())
-                {
-                    var name = device["Name"]?.ToString();
-                    if (!string.IsNullOrEmpty(name)) devices.Add(name);
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"WMI device discovery error: {ex.Message}");
-            }
-
-            foreach (var device in devices)
-                CameraComboBox.Items.Add(new ComboBoxItem { Content = device });
-
-            if (CameraComboBox.Items.Count == 0)
-            {
-                MessageBox.Show("No imaging devices or cameras detected.");
-                CameraComboBox.SelectedIndex = -1;
-            }
-            else
-            {
-                if (_appSettings != null && _appSettings.CameraIndex >= 0 && _appSettings.CameraIndex < CameraComboBox.Items.Count)
-                    CameraComboBox.SelectedIndex = _appSettings.CameraIndex;
-                else
-                    CameraComboBox.SelectedIndex = 0;
-            }
-        }
-
-        private void CameraComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (_appSettings == null) return;
-            _appSettings.CameraIndex = CameraComboBox.SelectedIndex;
-            try { SettingsManager.Save(_appSettings); } catch { }
-        }
-
-        private void SelectCameraButton_Click_1(object sender, RoutedEventArgs e)
-        {
-            StopCamera();
-            _appSettings = SettingsManager.Load();
-
-            int camIndex = CameraComboBox.SelectedIndex;
-            if (camIndex < 0)
-            {
-                MessageBox.Show("Please select a camera.");
-                return;
-            }
-
-            try
-            {
-                _camera = CameraFactory.Create(CameraBackend.OpenCv);
-                _camera.FrameReady += OnFrameReady;
-
-                var options = _appSettings != null
-                    ? new CameraOptions { Brightness = _appSettings.Brightness, Contrast = _appSettings.Contrast, Exposure = _appSettings.Exposure }
-                    : null;
-
-                _camera.Start(camIndex, options);
-
-                if (!_camera.IsOpened)
-                {
-                    MessageBox.Show("Could not open selected camera.");
-                    StopCamera();
-                    return;
-                }
-
-                _suspendSliderSave = true;
-                Dispatcher.Invoke(() =>
-                {
-                    try
-                    {
-                        BrightnessSlider.Value = _camera.GetProperty(VideoCaptureProperties.Brightness);
-                        ContrastSlider.Value = _camera.GetProperty(VideoCaptureProperties.Contrast);
-                        ExposureSlider.Value = _camera.GetProperty(VideoCaptureProperties.Exposure);
-
-                        // ensure pending values reflect actual device values
-                        _pendingBrightness = BrightnessSlider.Value;
-                        _pendingContrast = ContrastSlider.Value;
-                        _pendingExposure = ExposureSlider.Value;
-
-                        // clear dirty state after syncing from device
-                        _cameraSettingsDirty = false;
-                        if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
-                        if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
-                    }
-                    catch { }
-                });
-                _suspendSliderSave = false;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to start camera: {ex.Message}", "Camera Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                StopCamera();
-            }
-        }
-
-        private void StopCameraButton_Click(object sender, RoutedEventArgs e) => StopCamera();
-
-        private void SnapshotButton_Click(object sender, RoutedEventArgs e)
-        {
-            Mat? mat = null;
-            try
-            {
-                mat = _camera?.CaptureCurrentFrame();
-                if (mat == null)
-                {
-                    MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-
-                string basePath = _appSettings?.DefaultImagePath ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-                string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
-                string savePath = System.IO.Path.Combine(basePath, folderName);
-
-                if (!System.IO.Directory.Exists(savePath))
-                    System.IO.Directory.CreateDirectory(savePath);
-
-                string className = ClassComboBox.Text ?? "Class";
-                string category = CategoryComboBox.Text ?? "Category";
-                string fileName = $"{className}_{category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-                string filePath = System.IO.Path.Combine(savePath, fileName);
-
-                mat.SaveImage(filePath);
-                MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally
-            {
-                try { mat?.Dispose(); } catch { }
-            }
-        }
-
         private void BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_suspendSliderSave) return;
 
             try
             {
-                // Apply to live camera immediately if running
                 if (_camera != null && _camera.IsOpened)
                     _camera.SetProperty(VideoCaptureProperties.Brightness, e.NewValue);
             }
             catch { }
 
-            // store pending value until user explicitly saves
             _pendingBrightness = e.NewValue;
             _cameraSettingsDirty = true;
+
             try
             {
-                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
-                if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
+                SaveCameraButton.IsEnabled = true;
+                SaveStatusSmall.Text = "Modified";
+                lblSaveStatus.Text = "Modified";
             }
             catch { }
         }
@@ -462,11 +506,12 @@ namespace VisionAICam.Pages
 
             _pendingContrast = e.NewValue;
             _cameraSettingsDirty = true;
+
             try
             {
-                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
-                if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
+                SaveCameraButton.IsEnabled = true;
+                SaveStatusSmall.Text = "Modified";
+                lblSaveStatus.Text = "Modified";
             }
             catch { }
         }
@@ -484,19 +529,62 @@ namespace VisionAICam.Pages
 
             _pendingExposure = e.NewValue;
             _cameraSettingsDirty = true;
+
             try
             {
-                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
-                if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
+                SaveCameraButton.IsEnabled = true;
+                SaveStatusSmall.Text = "Modified";
+                lblSaveStatus.Text = "Modified";
             }
             catch { }
+        }
+        private void SnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+            BitmapSource? frame = null;
+
+            try
+            {
+                frame = _camera?.CaptureCurrentFrame();
+                if (frame == null)
+                {
+                    MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                // Convert BitmapSource → Mat (OpenCV)
+                Mat mat = OpenCvSharp.WpfExtensions.BitmapSourceConverter.ToMat(frame);
+
+                string basePath = _appSettings?.DefaultImagePath ??
+                                  Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
+                string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
+                string savePath = System.IO.Path.Combine(basePath, folderName);
+
+                if (!System.IO.Directory.Exists(savePath))
+                    System.IO.Directory.CreateDirectory(savePath);
+
+                string className = ClassComboBox.Text ?? "Class";
+                string category = CategoryComboBox.Text ?? "Category";
+                string fileName = $"{className}_{category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                string filePath = System.IO.Path.Combine(savePath, fileName);
+
+                mat.SaveImage(filePath);
+                MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                mat.Dispose();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private (byte R, byte G, byte B)? SampleMatPatch(OpenCvSharp.Rect roi)
         {
-            Mat? mat = _camera?.CaptureCurrentFrame();
-            if (mat == null) return null;
+            BitmapSource? frame = _camera?.CaptureCurrentFrame();
+            if (frame == null) return null;
+
+            Mat mat = OpenCvSharp.WpfExtensions.BitmapSourceConverter.ToMat(frame);
 
             try
             {
@@ -544,28 +632,55 @@ namespace VisionAICam.Pages
             ShowOverlayCanvasRects(sourceRects);
         }
 
-        // Render overlays on both main preview and calibrate preview so boxes appear in both places.
         private void ShowOverlayCanvasRects(List<System.Windows.Rect> sourceRects)
         {
-            // render on main preview
             try
             {
                 RenderOverlayFor(CameraImage, OverlayCanvas, ref _overlayRects, ref _overlayLabels, sourceRects);
             }
-            catch { /* tolerate errors */ }
+            catch { }
 
-            // render on calibration preview
             try
             {
                 RenderOverlayFor(CalibImage, CalibOverlayCanvas, ref _calibOverlayRects, ref _calibOverlayLabels, sourceRects);
             }
-            catch { /* tolerate errors */ }
+            catch { }
+        }
+        private void CameraImage_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
+                ShowOverlayCanvasRects(_overlaySourceRects);
         }
 
-        // Generic renderer to draw rectangles and labels for a given Image/Canvas pair.
-        private void RenderOverlayFor(Image img, Canvas canvas, ref System.Windows.Shapes.Rectangle[]? rectsRef, ref TextBlock[]? labelsRef, List<System.Windows.Rect> sourceRects)
+        private void CameraImage_LayoutUpdated(object? sender, EventArgs e)
         {
-            if (img == null || canvas == null || _lastFrame == null) return;
+            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
+                ShowOverlayCanvasRects(_overlaySourceRects);
+        }
+
+        private void CalibImage_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
+                ShowOverlayCanvasRects(_overlaySourceRects);
+        }
+
+        private void CalibImage_LayoutUpdated(object? sender, EventArgs e)
+        {
+            if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
+                ShowOverlayCanvasRects(_overlaySourceRects);
+        }
+
+     
+
+        private void RenderOverlayFor(
+            Image img,
+            Canvas canvas,
+            ref System.Windows.Shapes.Rectangle[]? rectsRef,
+            ref TextBlock[]? labelsRef,
+            List<System.Windows.Rect> sourceRects)
+        {
+            if (img == null || canvas == null || _lastFrame == null)
+                return;
 
             try
             {
@@ -580,7 +695,8 @@ namespace VisionAICam.Pages
                 double ctrlW = img.ActualWidth;
                 double ctrlH = img.ActualHeight;
 
-                if (srcW <= 0 || srcH <= 0 || ctrlW <= 0 || ctrlH <= 0) return;
+                if (srcW <= 0 || srcH <= 0 || ctrlW <= 0 || ctrlH <= 0)
+                    return;
 
                 double scale = Math.Min(ctrlW / srcW, ctrlH / srcH);
                 double dispW = srcW * scale;
@@ -595,11 +711,12 @@ namespace VisionAICam.Pages
                 {
                     rectsRef = new System.Windows.Shapes.Rectangle[3];
                     labelsRef = new TextBlock[3];
+
                     for (int i = 0; i < 3; i++)
                     {
                         var rect = new System.Windows.Shapes.Rectangle
                         {
-                            Fill = System.Windows.Media.Brushes.Transparent,
+                            Fill = Brushes.Transparent,
                             StrokeThickness = 3,
                             Visibility = Visibility.Collapsed
                         };
@@ -609,8 +726,8 @@ namespace VisionAICam.Pages
                         var tb = new TextBlock
                         {
                             FontSize = 12,
-                            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(200, 0, 0, 0)),
-                            Foreground = System.Windows.Media.Brushes.White,
+                            Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0)),
+                            Foreground = Brushes.White,
                             Padding = new Thickness(4, 2, 4, 2),
                             TextWrapping = TextWrapping.Wrap,
                             Visibility = Visibility.Collapsed
@@ -620,19 +737,21 @@ namespace VisionAICam.Pages
                     }
                 }
 
-                System.Windows.Media.Brush[] strokeBrushes = new System.Windows.Media.Brush[3];
+                Brush[] strokeBrushes = new Brush[3];
                 try
                 {
-                    strokeBrushes[0] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(236, 10, 10));
-                    strokeBrushes[1] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(10, 236, 10));
-                    strokeBrushes[2] = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(10, 10, 236));
-                    foreach (var b in strokeBrushes) if (b is System.Windows.Media.SolidColorBrush sb) sb.Freeze();
+                    strokeBrushes[0] = new SolidColorBrush(Color.FromRgb(236, 10, 10));
+                    strokeBrushes[1] = new SolidColorBrush(Color.FromRgb(10, 236, 10));
+                    strokeBrushes[2] = new SolidColorBrush(Color.FromRgb(10, 10, 236));
+
+                    foreach (var b in strokeBrushes)
+                        if (b is SolidColorBrush sb) sb.Freeze();
                 }
                 catch
                 {
-                    strokeBrushes[0] = System.Windows.Media.Brushes.Red;
-                    strokeBrushes[1] = System.Windows.Media.Brushes.Lime;
-                    strokeBrushes[2] = System.Windows.Media.Brushes.DodgerBlue;
+                    strokeBrushes[0] = Brushes.Red;
+                    strokeBrushes[1] = Brushes.Lime;
+                    strokeBrushes[2] = Brushes.DodgerBlue;
                 }
 
                 GeneralTransform imageToCanvas;
@@ -643,8 +762,8 @@ namespace VisionAICam.Pages
                 {
                     if (i >= sourceRects.Count)
                     {
-                        if (rectsRef[i] != null) rectsRef[i].Visibility = Visibility.Collapsed;
-                        if (labelsRef[i] != null) labelsRef[i].Visibility = Visibility.Collapsed;
+                        rectsRef[i].Visibility = Visibility.Collapsed;
+                        labelsRef[i].Visibility = Visibility.Collapsed;
                         continue;
                     }
 
@@ -654,6 +773,7 @@ namespace VisionAICam.Pages
                     var brImg = new System.Windows.Point(offsetX + (s.X + s.Width) * scale, offsetY + (s.Y + s.Height) * scale);
 
                     System.Windows.Point tlCanvas, brCanvas;
+
                     try
                     {
                         if (imageToCanvas != null)
@@ -681,17 +801,21 @@ namespace VisionAICam.Pages
                     var rect = rectsRef[i];
                     rect.Width = w;
                     rect.Height = h;
-                    rect.Stroke = strokeBrushes[Math.Min(i, strokeBrushes.Length - 1)];
+                    rect.Stroke = strokeBrushes[i];
                     Canvas.SetLeft(rect, left);
                     Canvas.SetTop(rect, top);
                     rect.Visibility = Visibility.Visible;
 
                     var label = labelsRef[i];
-                    string? text = ( _overlayLabelTexts != null && i < _overlayLabelTexts.Length) ? _overlayLabelTexts[i] : null;
+                    string? text = (_overlayLabelTexts != null && i < _overlayLabelTexts.Length)
+                        ? _overlayLabelTexts[i]
+                        : null;
+
                     if (!string.IsNullOrEmpty(text))
                     {
                         label.Text = text;
                         label.Measure(new WpfSize(canvas.ActualWidth, canvas.ActualHeight));
+
                         double lblW = label.DesiredSize.Width;
                         double lblH = label.DesiredSize.Height;
 
@@ -719,6 +843,32 @@ namespace VisionAICam.Pages
                 // tolerate overlay errors
             }
         }
+        private void OnFrameReady(BitmapSource bitmap)
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!IsLoaded) return;
+
+                try
+                {
+                    var copy = bitmap.Clone();
+                    if (copy.CanFreeze) copy.Freeze();
+                    _lastFrame = copy;
+
+                    CameraImage.Source = copy;
+                    CalibImage.Source = copy;
+
+                    if (_overlaySourceRects != null && _overlaySourceRects.Count > 0)
+                        ShowOverlayCanvasRects(_overlaySourceRects);
+                }
+                catch
+                {
+                    try { CameraImage.Source = bitmap; } catch { }
+                    try { CalibImage.Source = bitmap; } catch { }
+                    _lastFrame = bitmap;
+                }
+            });
+        }
 
         private MessageBoxResult AskUser(string text, string caption, MessageBoxButton buttons)
         {
@@ -729,518 +879,349 @@ namespace VisionAICam.Pages
         private double ComputeErrorAgainstRefs(List<(byte R, byte G, byte B)?> samples)
         {
             double err = 0.0;
+
             try
             {
                 for (int i = 0; i < samples.Count && i < 3; i++)
                 {
                     var s = samples[i];
-                    if (!s.HasValue) continue;
-                    var (r, g, b) = s.Value;
+                    if (s == null) continue;
 
-                    (byte R, byte G, byte B)? tref = i == 0 ? _refRed : i == 1 ? _refGreen : _refBlue;
-                    if (!tref.HasValue) continue;
-                    var (tr, tg, tb) = tref.Value;
+                    (byte R, byte G, byte B) sample = s.Value;
 
-                    err += Math.Pow(r - tr, 2) + Math.Pow(g - tg, 2) + Math.Pow(b - tb, 2);
+                    (byte R, byte G, byte B)? reference = i switch
+                    {
+                        0 => _refRed,
+                        1 => _refGreen,
+                        2 => _refBlue,
+                        _ => null
+                    };
+
+                    if (reference == null) continue;
+
+                    double dr = Math.Abs(sample.R - reference.Value.R);
+                    double dg = Math.Abs(sample.G - reference.Value.G);
+                    double db = Math.Abs(sample.B - reference.Value.B);
+
+                    err += dr + dg + db;
                 }
             }
             catch { }
+
             return err;
         }
 
-        private async Task<List<(byte R, byte G, byte B)?>> SampleRoisAsync(List<System.Windows.Rect> rois)
+        private void ApplyColorToRect(Border rect, (byte R, byte G, byte B) color)
         {
-            return await Task.Run(() =>
+            try
             {
-                var results = new List<(byte R, byte G, byte B)?>();
-
-                foreach (var r in rois)
-                {
-                    var rr = new OpenCvSharp.Rect((int)Math.Round(r.X), (int)Math.Round(r.Y), (int)Math.Round(r.Width), (int)Math.Round(r.Height));
-                    results.Add(SampleMatPatch(rr));
-                }
-
-                return results;
-            });
+                rect.Background = new SolidColorBrush(Color.FromRgb(color.R, color.G, color.B));
+            }
+            catch { }
         }
-        
-        private async Task<(bool Success, (byte R, byte G, byte B)? Box1, (byte R, byte G, byte B)? Box2, (byte R, byte G, byte B)? Box3, double Brightness, double Contrast, double Exposure)> AutoTuneToRefsAsync(List<System.Windows.Rect> rois, int tolerance = 2)
+
+        private void CameraPage_Loaded(object sender, RoutedEventArgs e)
         {
-            if (_camera == null || !_camera.IsOpened) return (false, null, null, null, 0, 0, 0);
-            if (!_refRed.HasValue || !_refGreen.HasValue || !_refBlue.HasValue) return (false, null, null, null, 0, 0, 0);
+            // nothing special here
+        }
+
+        private void CameraPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (e.NewValue is bool isVisible && !isVisible)
+                StopCamera();
+        }
+
+        private void CameraPage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            StopCamera();
+
+            Unloaded -= CameraPage_Unloaded;
+            IsVisibleChanged -= CameraPage_IsVisibleChanged;
+            Loaded -= CameraPage_Loaded;
+        }
+        private void UpdateCollapseButton()
+        {
+            if (CollapseButton == null || ControlExpander == null) return;
+            CollapseButton.Content = ControlExpander.IsExpanded ? "▾" : "▴";
+            CollapseButton.ToolTip = ControlExpander.IsExpanded ? "Collapse controls" : "Expand controls";
+        }
+        private void ControlExpander_Expanded(object sender, RoutedEventArgs e) { try { UpdateCollapseButton(); } catch { } }
+        private void ControlExpander_Collapsed(object sender, RoutedEventArgs e) { try { UpdateCollapseButton(); } catch { } }
+
+        private void CollapseButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ControlExpander == null) return;
+                ControlExpander.IsExpanded = !ControlExpander.IsExpanded;
+                UpdateCollapseButton();
+            }
+            catch { }
+        }
+        private async void SaveCameraSettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
+
+            // use pending (unsaved) values to persist
+            double brightness = _pendingBrightness;
+            double contrast = _pendingContrast;
+            double exposure = _pendingExposure;
 
             try
             {
-                // Local readonly reference copies — tuning must not overwrite stored refs.
-                var refRedLocal = _refRed.Value;
-                var refGreenLocal = _refGreen.Value;
-                var refBlueLocal = _refBlue.Value;
-
-                // Read initial camera properties
-                double currentB = SafeGet(VideoCaptureProperties.Brightness);
-                double currentC = SafeGet(VideoCaptureProperties.Contrast);
-                double currentE = SafeGet(VideoCaptureProperties.Exposure);
-
-                double bestB = currentB, bestC = currentC, bestE = currentE;
-
-                // Initial sample + error
-                var baseline = await SampleRoisAsync(rois);
-                if (baseline == null || baseline.Count < rois.Count)
-                    return (false, null, null, null, currentB, currentC, currentE);
-
-                double bestErr = ComputeErrorAgainstRefs(baseline);
-
-                // If already within tolerance, return current readings
-                if (bestErr <= tolerance)
+                if (_camera != null && _camera.IsOpened)
                 {
-                    return (true, baseline.ElementAtOrDefault(0), baseline.ElementAtOrDefault(1), baseline.ElementAtOrDefault(2), currentB, currentC, currentE);
+                    _camera.SetProperty(VideoCaptureProperties.Brightness, brightness);
+                    _camera.SetProperty(VideoCaptureProperties.Exposure, contrast);
+                    _camera.SetProperty(VideoCaptureProperties.Brightness, exposure);
                 }
+            }
+            catch { }
 
-                // Tuning policy:
-                // - Try small signed steps for each property (positive & negative) and combinations.
-                // - Accept any candidate that reduces the error.
-                // - If none improve, reduce the step and try again (finer search).
-                // - Stop when error <= tolerance or step becomes very small or max iterations reached.
+            // Persist to settings
+            _appSettings.Brightness = brightness;
+            _appSettings.Contrast = contrast;
+            _appSettings.Exposure = exposure;
+            try { SettingsManager.Save(_appSettings); } catch { }
 
-                const int maxIters = 30;
-                const int settleMs = 200;
-                double step = 6.0;             // initial step size (camera property units)
-                const double minStep = 0.25;   // stop when step smaller than this
-                const double stepShrink = 0.5; // shrink factor when no improvement
-                const double stepGrow = 1.15;  // grow factor after improvement (bounded)
+            // Clear dirty state and update UI
+            _cameraSettingsDirty = false;
+            try
+            {
+                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved";
+                if (lblSaveStatus != null) lblSaveStatus.Text = "Saved";
 
-                var lastReadings = baseline.ToArray();
+                await Task.Delay(1500);
 
-                for (int iter = 0; iter < maxIters; iter++)
+                if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
+                // keep the main lblSaveStatus visible a bit longer, but clear if desired:
+                if (lblSaveStatus != null) lblSaveStatus.Text = "--";
+            }
+            catch { }
+        }
+        private void StopCameraButton_Click(object sender, RoutedEventArgs e) => StopCamera();
+        private void ImgPrepToggleButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (ImagePrepGroupBox == null || ImgPrepToggleButton == null) return;
+
+                if (ImagePrepGroupBox.Visibility == Visibility.Visible)
                 {
-                    // Read latest camera-reported values
-                    currentB = SafeGet(VideoCaptureProperties.Brightness);
-                    currentC = SafeGet(VideoCaptureProperties.Contrast);
-                    currentE = SafeGet(VideoCaptureProperties.Exposure);
-
-                    // Build candidate deltas: try +/- step on each control and useful combinations.
-                    var deltas = new List<(double dB, double dC, double dE)>();
-
-                    // Individual moves
-                    deltas.Add((step, 0, 0));
-                    deltas.Add((-step, 0, 0));
-                    deltas.Add((0, step, 0));
-                    deltas.Add((0, -step, 0));
-                    deltas.Add((0, 0, step));
-                    deltas.Add((0, 0, -step));
-
-                    // Pairwise combinations
-                    deltas.Add((step, step, 0));
-                    deltas.Add((step, -step, 0));
-                    deltas.Add((-step, step, 0));
-                    deltas.Add((-step, -step, 0));
-
-                    deltas.Add((step, 0, step));
-                    deltas.Add((step, 0, -step));
-                    deltas.Add((-step, 0, step));
-                    deltas.Add((-step, 0, -step));
-
-                    deltas.Add((0, step, step));
-                    deltas.Add((0, step, -step));
-                    deltas.Add((0, -step, step));
-                    deltas.Add((0, -step, -step));
-
-                    // Full combination (coarse)
-                    deltas.Add((step, step, step));
-                    deltas.Add((-step, -step, -step));
-                    deltas.Add((step, -step, step));
-                    deltas.Add((-step, step, -step));
-
-                    bool anyImproved = false;
-                    double bestCandidateErr = bestErr;
-                    double candBestB = bestB, candBestC = bestC, candBestE = bestE;
-                    (byte R, byte G, byte B)?[] candBestSamples = lastReadings;
-
-                    // Evaluate each candidate (apply, wait, sample, evaluate), pick the best that improves
-                    foreach (var (dB, dC, dE) in deltas)
-                    {
-                        double tryB = currentB + dB;
-                        double tryC = currentC + dC;
-                        double tryE = currentE + dE;
-
-                        // Apply candidate
-                        SafeSet(VideoCaptureProperties.Brightness, tryB);
-                        SafeSet(VideoCaptureProperties.Contrast, tryC);
-                        SafeSet(VideoCaptureProperties.Exposure, tryE);
-
-                        // Allow camera to adjust
-                        await Task.Delay(settleMs);
-
-                        // Sample and compute error
-                        var samples = await SampleRoisAsync(rois);
-                        if (samples == null || samples.Count < rois.Count)
-                        {
-                            // revert to previous camera state and continue
-                            SafeSet(VideoCaptureProperties.Brightness, currentB);
-                            SafeSet(VideoCaptureProperties.Contrast, currentC);
-                            SafeSet(VideoCaptureProperties.Exposure, currentE);
-                            await Task.Delay(80);
-                            continue;
-                        }
-
-                        double err = ComputeErrorAgainstRefs(samples);
-
-                        if (err < bestCandidateErr - 1e-9) // strict improvement
-                        {
-                            anyImproved = true;
-                            bestCandidateErr = err;
-
-                            // read back actual applied properties reported by camera
-                            candBestB = SafeGet(VideoCaptureProperties.Brightness);
-                            candBestC = SafeGet(VideoCaptureProperties.Contrast);
-                            candBestE = SafeGet(VideoCaptureProperties.Exposure);
-
-                            candBestSamples = samples.ToArray();
-                        }
-
-                        // Revert to current state before trying next candidate to maintain consistent baseline
-                        SafeSet(VideoCaptureProperties.Brightness, currentB);
-                        SafeSet(VideoCaptureProperties.Contrast, currentC);
-                        SafeSet(VideoCaptureProperties.Exposure, currentE);
-
-                        // brief pause to allow revert to take effect (keeps camera stable between candidates)
-                        await Task.Delay(80);
-                    }
-
-                    if (anyImproved)
-                    {
-                        // Accept the best found candidate
-                        bestErr = bestCandidateErr;
-                        bestB = candBestB;
-                        bestC = candBestC;
-                        bestE = candBestE;
-                        lastReadings = candBestSamples;
-
-                        // Apply accepted values and allow settle
-                        SafeSet(VideoCaptureProperties.Brightness, bestB);
-                        SafeSet(VideoCaptureProperties.Contrast, bestC);
-                        SafeSet(VideoCaptureProperties.Exposure, bestE);
-                        await Task.Delay(settleMs);
-
-                        // Slightly increase step to converge faster when progress is being made
-                        step = Math.Min(20.0, step * stepGrow);
-                    }
-                    else
-                    {
-                        // No candidate improved -> shrink step and try more precise adjustments
-                        step = Math.Max(minStep, step * stepShrink);
-                    }
-
-                    // Update overlay quickly to show latest measured values and refs
-                    try
-                    {
-                        _overlayLabelTexts ??= new string[rois.Count];
-                        for (int i = 0; i < Math.Min(rois.Count, lastReadings.Length); i++)
-                        {
-                            var v = lastReadings[i];
-                            string measText = v.HasValue ? $"Meas:{v.Value.R},{v.Value.G},{v.Value.B}" : "Meas:---";
-                            // Correct per-channel reference text (previous code mistakenly used refGreenLocal for red's G/B).
-                            string refText = i == 0 ? $"{refRedLocal.R},{refRedLocal.G},{refRedLocal.B}"
-                                               : i == 1 ? $"{refGreenLocal.R},{refGreenLocal.G},{refGreenLocal.B}"
-                                                        : $"{refBlueLocal.R},{refBlueLocal.G},{refBlueLocal.B}";
-                            _overlayLabelTexts[i] = v.HasValue ? $"{measText}\nRef:{refText}" : $"Meas:---\nRef:{refText}";
-                        }
-                        await Dispatcher.BeginInvoke(() => { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); });
-                    }
-                    catch { /* ignore UI issues */ }
-
-                    // Termination conditions
-                    if (bestErr <= tolerance) break;
-                    if (step <= minStep + 1e-9) break;
+                    ImagePrepGroupBox.Visibility = Visibility.Collapsed;
+                    ImgPrepToggleButton.Content = "▴";
                 }
-
-                // Apply final best-known settings to device
-                SafeSet(VideoCaptureProperties.Brightness, bestB);
-                SafeSet(VideoCaptureProperties.Contrast, bestC);
-                SafeSet(VideoCaptureProperties.Exposure, bestE);
-                await Task.Delay(150);
-
-                // Final sample for return
-                var finalSamples = await SampleRoisAsync(rois);
-                var finalReadings = (finalSamples != null && finalSamples.Count >= rois.Count) ? finalSamples.ToArray() : lastReadings;
-
-                // Update UI sliders without triggering save during assignment
-                await Dispatcher.BeginInvoke(() =>
+                else
                 {
-                    _suspendSliderSave = true;
-                    try
+                    ImagePrepGroupBox.Visibility = Visibility.Visible;
+                    ImgPrepToggleButton.Content = "▾";
+                }
+            }
+            catch
+            {
+                // tolerate UI toggle errors
+            }
+        }
+        private async void AutoCalibrateButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_camera == null || !_camera.IsOpened)
+            {
+                MessageBox.Show("Open camera first and make sure preview is running.", "Auto Calibrate", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (_lastFrame == null)
+            {
+                MessageBox.Show("No live frame available. Start camera and try again.", "Auto Calibrate", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            DrawThreeRectsOnImage();
+            await ReadBoxesAndAnnotateAsync();
+
+            if (_overlaySourceRects != null && _overlaySourceRects.Count >= 3)
+            {
+                var sampled = await Task.Run(() =>
+                {
+                    var results = new List<(byte R, byte G, byte B)?>();
+                    foreach (var r in _overlaySourceRects)
                     {
-                        BrightnessSlider.Value = bestB;
-                        ContrastSlider.Value = bestC;
-                        ExposureSlider.Value = bestE;
-
-                        // update pending values to match tuned results
-                        _pendingBrightness = bestB;
-                        _pendingContrast = bestC;
-                        _pendingExposure = bestE;
-
-                        // reflect that these are now unsaved until user presses Save
-                        _cameraSettingsDirty = true;
-                        if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
-                        if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
-                        if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
+                        var rr = new OpenCvSharp.Rect((int)Math.Round(r.X), (int)Math.Round(r.Y), (int)Math.Round(r.Width), (int)Math.Round(r.Height));
+                        results.Add(SampleMatPatch(rr));
                     }
-                    catch { }
-                    finally { _suspendSliderSave = false; }
+                    return results;
                 });
 
-                // Persist final camera properties and APPLY them to the running camera immediately
-                try
+                bool ok = sampled.Count >= 3 && sampled.All(s => s != null);
+                if (ok)
                 {
-                    if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
+                    _refRed = sampled[0]!.Value;
+                    _refGreen = sampled[1]!.Value;
+                    _refBlue = sampled[2]!.Value;
 
-                    _appSettings.Brightness = bestB;
-                    _appSettings.Contrast = bestC;
-                    _appSettings.Exposure = bestE;
+                    try { ApplyColorToRect(RectRed, _refRed.Value); } catch { }
+                    try { ApplyColorToRect(RectGreen, _refGreen.Value); } catch { }
+                    try { ApplyColorToRect(RectBlue, _refBlue.Value); } catch { }
 
-                    // persist per-channel tolerances as well (keeps UI/behavior consistent)
-                    _appSettings.TolerancePercentR = toleranceR;
-                    _appSettings.TolerancePercentG = toleranceG;
-                    _appSettings.TolerancePercentB = toleranceB;
-
-                    // Apply to current camera (explicitly call ICamera.SetProperty in addition to SafeSet)
                     try
                     {
-                        if (_camera != null && _camera.IsOpened)
+                        if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
+                        _appSettings.RefRed = _refRed.Value;
+                        _appSettings.RefGreen = _refGreen.Value;
+                        _appSettings.RefBlue = _refBlue.Value;
+                        SettingsManager.Save(_appSettings);
+                    }
+                    catch { }
+
+                    try { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); } catch { }
+                }
+                else
+                {
+                    SetCalibStatus("Auto-calibrate: sampling failed.");
+                    return;
+                }
+            }
+
+            FinishCalibrationAndPromptSave();
+        }
+        private void FinishCalibrationAndPromptSave()
+        {
+            try
+            {
+                // Ensure UI update runs on UI thread
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        // switch to Calibrate tab (index 1) so the inline prompt is visible on the Calibrate page only
+                        try
                         {
-                            _camera.SetProperty(VideoCaptureProperties.Brightness, bestB);
-                            _camera.SetProperty(VideoCaptureProperties.Contrast, bestC);
-                            _camera.SetProperty(VideoCaptureProperties.Exposure, bestE);
+                            if (MainTabControl != null && MainTabControl.Items.Count > 1)
+                                MainTabControl.SelectedIndex = 1;
+                        }
+                        catch { /* tolerate tab switch errors */ }
+
+                        // hide overlay visuals immediately
+                        ClearOverlayVisuals();
+
+                        // show inline calibration-complete prompt (user can Save or Don't Save)
+                        ShowCalibrationCompletePrompt();
+                    }
+                    catch
+                    {
+                        // fallback: show a modal prompt if inline prompt fails
+                        try
+                        {
+                            var result = MessageBox.Show(
+                                "Station calibration complete.\n\nSave current Brightness / Contrast / Exposure to application settings?",
+                                "Station Calibration Complete",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Question);
+
+                            if (result == MessageBoxResult.Yes)
+                            {
+                                // reuse existing save handler to persist current sliders
+                                _ = Task.Run(() =>
+                                {
+                                    Dispatcher.BeginInvoke(async () => await Task.Run(() => SaveCameraSettingsButton_Click(null!, null!)));
+                                });
+                            }
+
+                            SetCalibStatus(result == MessageBoxResult.Yes ? "Calibration complete — settings saved." : "Calibration complete — settings not saved.");
+                        }
+                        catch { }
+                    }
+                });
+            }
+            catch { }
+        }
+        private void ClearOverlayVisuals()
+        {
+            try
+            {
+                // Clear logical overlay data
+                _overlaySourceRects = null;
+                _overlayLabelTexts = null;
+
+                // Collapse any existing overlay shapes/labels on UI
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (_overlayRects != null)
+                        {
+                            foreach (var r in _overlayRects) if (r != null) r.Visibility = Visibility.Collapsed;
+                        }
+                        if (_overlayLabels != null)
+                        {
+                            foreach (var l in _overlayLabels) if (l != null) l.Visibility = Visibility.Collapsed;
+                        }
+                        if (_calibOverlayRects != null)
+                        {
+                            foreach (var r in _calibOverlayRects) if (r != null) r.Visibility = Visibility.Collapsed;
+                        }
+                        if (_calibOverlayLabels != null)
+                        {
+                            foreach (var l in _calibOverlayLabels) if (l != null) l.Visibility = Visibility.Collapsed;
                         }
                     }
-                    catch { /* tolerate device write error */ }
-
-                    try { SettingsManager.Save(_appSettings); } catch { /* tolerate save error */ }
-
-                    // after AutoTune we saved final tuned values into persisted settings; clear dirty flag
-                    _cameraSettingsDirty = false;
-                    if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
-                    try { if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved"; } catch { }
-                }
-                catch { /* tolerate persistence errors */ }
-
-                // Read back actual camera-reported final values
-                double finalB = SafeGet(VideoCaptureProperties.Brightness);
-                double finalC = SafeGet(VideoCaptureProperties.Contrast);
-                double finalE = SafeGet(VideoCaptureProperties.Exposure);
-
-                return (true, finalReadings.ElementAtOrDefault(0), finalReadings.ElementAtOrDefault(1), finalReadings.ElementAtOrDefault(2), finalB, finalC, finalE);
+                    catch { /* tolerate UI errors */ }
+                });
             }
-            catch
-            {
-                return (false, null, null, null, 0, 0, 0);
-            }
-        }
-        // Safe wrappers for reading/writing camera properties (avoid CS0103)
-        private double SafeGet(VideoCaptureProperties prop)
-        {
-            try
-            {
-                if (_camera != null && _camera.IsOpened)
-                    return _camera.GetProperty(prop);
-            }
-            catch
-            {
-                // tolerate device read errors
-            }
-
-            // Fall back to slider values when available (keeps UI and returned values consistent)
-            try
-            {
-                return prop switch
-                {
-                    VideoCaptureProperties.Brightness => BrightnessSlider?.Value ?? 0.0,
-                    VideoCaptureProperties.Contrast => ContrastSlider?.Value ?? 0.0,
-                    VideoCaptureProperties.Exposure => ExposureSlider?.Value ?? 0.0,
-                    _ => 0.0
-                };
-            }
-            catch
-            {
-                return 0.0;
-            }
+            catch { /* tolerate errors */ }
         }
 
-        private void SafeSet(VideoCaptureProperties prop, double value)
+        private void ShowCalibrationCompletePrompt()
         {
-            try
-            {
-                if (_camera != null && _camera.IsOpened)
-                    _camera.SetProperty(prop, value);
-            }
-            catch
-            {
-                // tolerate device set errors
-            }
-
-            // Keep UI sliders in sync when calling SafeSet from non-UI threads
             try
             {
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
-                        if (prop == VideoCaptureProperties.Brightness && BrightnessSlider != null) BrightnessSlider.Value = value;
-                        if (prop == VideoCaptureProperties.Contrast && ContrastSlider != null) ContrastSlider.Value = value;
-                        if (prop == VideoCaptureProperties.Exposure && ExposureSlider != null) ExposureSlider.Value = value;
+                        if (CalibCompletePanel != null)
+                            CalibCompletePanel.Visibility = Visibility.Visible;
+                        SetCalibStatus("Station calibration complete.");
                     }
                     catch { }
                 });
             }
             catch { }
         }
-        private double AutoTunePromptThresholdPercent;
-        //private const int AutoTuneTolerance = 3;
-
-        private static double PercentDifference((byte R, byte G, byte B) measured, (byte R, byte G, byte B) reference)
+        private void SetCalibStatus(string text)
         {
-            double mr = measured.R, mg = measured.G, mb = measured.B;
-            double rr = reference.R, rg = reference.G, rb = reference.B;
-            double dist = Math.Sqrt((mr - rr) * (mr - rr) + (mg - rg) * (mg - rg) + (mb - rb) * (mb - rb));
-            double refMag = Math.Sqrt(rr * rr + rg * rg + rb * rb);
-            if (refMag < 1e-6) return 100.0;
-            return (dist / refMag) * 100.0;
+            try { if (CalibStatus != null) CalibStatus.Content = text; } catch { }
+            try { if (CalibTabStatus != null) CalibTabStatus.Content = text; } catch { }
         }
-
-        private static double ChannelPercentDiff(byte measured, byte reference)
+        // Add this helper method inside CameraPage class (anywhere with other helpers)
+        public Task<bool> ShowSamplePreparePanelAsync(string message)
         {
-            // If reference is zero, treat identical zero as 0% diff; otherwise 100% (can't normalize)
-            if (reference == 0) return measured == 0 ? 0.0 : 100.0;
-            return Math.Abs(measured - reference) / (double)reference * 100.0;
-        }
+            var tcs = new TaskCompletionSource<bool>();
+            _samplePrepareTcs = tcs;
 
-        private void UpdateRefTextDisplays()
-        {
-            try
+            Dispatcher.BeginInvoke(() =>
             {
-                if (TxtRefRed != null && _refRed.HasValue)
-                    TxtRefRed.Text = $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}";
-
-                if (TxtRefGreen != null && _refGreen.HasValue)
-                    TxtRefGreen.Text = $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}";
-
-                if (TxtRefBlue != null && _refBlue.HasValue)
-                    TxtRefBlue.Text = $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}";
-
-                if (TxtRefRed != null) TxtRefRed.IsReadOnly = true;
-                if (TxtRefGreen != null) TxtRefGreen.IsReadOnly = true;
-                if (TxtRefBlue != null) TxtRefBlue.IsReadOnly = true;
-            }
-            catch { }
-        }
-
-        private void EditSaveRef_Click(object? sender, RoutedEventArgs e)
-        {
-            if (sender is not Button btn) return;
-            string name = btn.Name ?? "";
-
-            TextBox? tb = name.Contains("Red") ? TxtRefRed
-                          : name.Contains("Green") ? TxtRefGreen
-                          : name.Contains("Blue") ? TxtRefBlue
-                          : null;
-
-            if (tb == null) return;
-
-            if (btn.Content?.ToString()?.StartsWith("Edit", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                var ok = AskUser(
-                    "Editing reference values is sensitive. Are you sure you want to edit this reference?\nYou will be able to Save or Cancel after editing.",
-                    "Edit Reference",
-                    MessageBoxButton.OKCancel);
-
-                if (ok != MessageBoxResult.OK) return;
-
-                tb.IsReadOnly = false;
-                tb.Focus();
-                btn.Content = "Save";
-                SetCalibStatus("Editing reference...");
-                return;
-            }
-
-            if (btn.Content?.ToString()?.StartsWith("Save", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                if (!TryParseRgb(tb.Text, out var rgb))
-                {
-                    MessageBox.Show("Invalid RGB format. Use: R,G,B (0-255).", "Parse Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                var confirm = AskUser("Save this reference value to application settings?", "Confirm Save", MessageBoxButton.YesNo);
-                if (confirm != MessageBoxResult.Yes)
-                {
-                    tb.IsReadOnly = true;
-                    btn.Content = "Edit";
-                    SetCalibStatus("Reference edit cancelled.");
-                    return;
-                }
-
                 try
                 {
-                    if (name.Contains("Red")) { _refRed = rgb; if (_appSettings != null) _appSettings.RefRed = rgb; }
-                    if (name.Contains("Green")) { _refGreen = rgb; if (_appSettings != null) _appSettings.RefGreen = rgb; }
-                    if (name.Contains("Blue")) { _refBlue = rgb; if (_appSettings != null) _appSettings.RefBlue = rgb; }
-
-                    try { SettingsManager.Save(_appSettings); } catch { }
-
-                    try
+                    if (SamplePrepareText != null) SamplePrepareText.Text = message ?? SamplePrepareText.Text;
+                    if (SamplePreparePanel != null)
                     {
-                        if (name.Contains("Red") && _refRed.HasValue) ApplyColorToRect(RectRed, _refRed.Value);
-                        if (name.Contains("Green") && _refGreen.HasValue) ApplyColorToRect(RectGreen, _refGreen.Value);
-                        if (name.Contains("Blue") && _refBlue.HasValue) ApplyColorToRect(RectBlue, _refBlue.Value);
+                        SamplePreparePanel.Visibility = Visibility.Visible;
+                        try { SamplePrepareOk?.Focus(); } catch { }
                     }
-                    catch { }
-
-                    try { UpdateRefTextDisplays(); } catch { }
-
-                    try
+                    else
                     {
-                        if (_overlayLabelTexts != null)
-                        {
-                            for (int i = 0; i < _overlayLabelTexts.Length && i < 3; i++)
-                            {
-                                var parts = _overlayLabelTexts[i].Split(new[] { '\n' }, 2);
-                                string meas = parts.Length > 0 ? parts[0] : _overlayLabelTexts[i];
-                                string refLine = i == 0 ? $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}"
-                                                   : i == 1 ? $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}"
-                                                            : i == 2 ? $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}" : "";
-                                _overlayLabelTexts[i] = string.IsNullOrEmpty(refLine) ? meas : $"{meas}\nRef:{refLine}";
-                            }
-
-                            Dispatcher.BeginInvoke(() => { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); });
-                        }
+                        tcs.TrySetResult(false);
                     }
-                    catch { }
-
-                    tb.IsReadOnly = true;
-                    btn.Content = "Edit";
-                    SetCalibStatus("Reference saved.");
                 }
                 catch
                 {
-                    tb.IsReadOnly = true;
-                    btn.Content = "Edit";
-                    SetCalibStatus("Failed to save reference.");
+                    tcs.TrySetResult(false);
                 }
-            }
-        }
+            });
 
-        private static bool TryParseRgb(string text, out (byte R, byte G, byte B) rgb)
-        {
-            rgb = (0, 0, 0);
-            if (string.IsNullOrWhiteSpace(text)) return false;
-            var parts = text.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) return false;
-            if (!int.TryParse(parts[0], out var r)) return false;
-            if (!int.TryParse(parts[1], out var g)) return false;
-            if (!int.TryParse(parts[2], out var b)) return false;
-            if (r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) return false;
-            rgb = ((byte)r, (byte)g, (byte)b);
-            return true;
+            return tcs.Task;
         }
 
         private async Task ReadBoxesAndAnnotateAsync()
@@ -1530,287 +1511,329 @@ namespace VisionAICam.Pages
                 SetCalibStatus("Calibration cancelled.");
             }
         }
-
-        private void UpdateCollapseButton()
+        private async Task<(bool Success, (byte R, byte G, byte B)? Box1, (byte R, byte G, byte B)? Box2, (byte R, byte G, byte B)? Box3, double Brightness, double Contrast, double Exposure)> AutoTuneToRefsAsync(List<System.Windows.Rect> rois, int tolerance = 2)
         {
-            if (CollapseButton == null || ControlExpander == null) return;
-            CollapseButton.Content = ControlExpander.IsExpanded ? "▾" : "▴";
-            CollapseButton.ToolTip = ControlExpander.IsExpanded ? "Collapse controls" : "Expand controls";
-        }
-
-        private void ControlExpander_Expanded(object sender, RoutedEventArgs e) { try { UpdateCollapseButton(); } catch { } }
-        private void ControlExpander_Collapsed(object sender, RoutedEventArgs e) { try { UpdateCollapseButton(); } catch { } }
-
-        private void CollapseButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (ControlExpander == null) return;
-                ControlExpander.IsExpanded = !ControlExpander.IsExpanded;
-                UpdateCollapseButton();
-            }
-            catch { }
-        }
-
-        private async void SaveCameraSettingsButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
-
-            // use pending (unsaved) values to persist
-            double brightness = _pendingBrightness;
-            double contrast = _pendingContrast;
-            double exposure = _pendingExposure;
+            if (_camera == null || !_camera.IsOpened) return (false, null, null, null, 0, 0, 0);
+            if (!_refRed.HasValue || !_refGreen.HasValue || !_refBlue.HasValue) return (false, null, null, null, 0, 0, 0);
 
             try
             {
-                if (_camera != null && _camera.IsOpened)
+                // Local readonly reference copies — tuning must not overwrite stored refs.
+                var refRedLocal = _refRed.Value;
+                var refGreenLocal = _refGreen.Value;
+                var refBlueLocal = _refBlue.Value;
+
+                // Read initial camera properties
+                double currentB = SafeGet(VideoCaptureProperties.Brightness);
+                double currentC = SafeGet(VideoCaptureProperties.Contrast);
+                double currentE = SafeGet(VideoCaptureProperties.Exposure);
+
+                double bestB = currentB, bestC = currentC, bestE = currentE;
+
+                // Initial sample + error
+                var baseline = await SampleRoisAsync(rois);
+                if (baseline == null || baseline.Count < rois.Count)
+                    return (false, null, null, null, currentB, currentC, currentE);
+
+                double bestErr = ComputeErrorAgainstRefs(baseline);
+
+                // If already within tolerance, return current readings
+                if (bestErr <= tolerance)
                 {
-                    _camera.SetProperty(VideoCaptureProperties.Brightness, brightness);
-                    _camera.SetProperty(VideoCaptureProperties.Contrast, contrast);
-                    _camera.SetProperty(VideoCaptureProperties.Exposure, exposure);
+                    return (true, baseline.ElementAtOrDefault(0), baseline.ElementAtOrDefault(1), baseline.ElementAtOrDefault(2), currentB, currentC, currentE);
                 }
-            }
-            catch { }
 
-            // Persist to settings
-            _appSettings.Brightness = brightness;
-            _appSettings.Contrast = contrast;
-            _appSettings.Exposure = exposure;
-            try { SettingsManager.Save(_appSettings); } catch { }
+                // Tuning policy:
+                // - Try small signed steps for each property (positive & negative) and combinations.
+                // - Accept any candidate that reduces the error.
+                // - If none improve, reduce the step and try again (finer search).
+                // - Stop when error <= tolerance or step becomes very small or max iterations reached.
 
-            // Clear dirty state and update UI
-            _cameraSettingsDirty = false;
-            try
-            {
-                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved";
-                if (lblSaveStatus != null) lblSaveStatus.Text = "Saved";
+                const int maxIters = 30;
+                const int settleMs = 200;
+                double step = 6.0;             // initial step size (camera property units)
+                const double minStep = 0.25;   // stop when step smaller than this
+                const double stepShrink = 0.5; // shrink factor when no improvement
+                const double stepGrow = 1.15;  // grow factor after improvement (bounded)
 
-                await Task.Delay(1500);
+                var lastReadings = baseline.ToArray();
 
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
-                // keep the main lblSaveStatus visible a bit longer, but clear if desired:
-                if (lblSaveStatus != null) lblSaveStatus.Text = "--";
-            }
-            catch { }
-        }
-
-        private void ApplyColorToRect(Border rect, (byte R, byte G, byte B) col)
-        {
-            if (rect == null) return;
-            var brush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(col.R, col.G, col.B));
-            brush.Freeze();
-            rect.Background = brush;
-        }
-
-        // Update both CalibStatus (General tab) and CalibTabStatus (Calibrate tab) so status is visible from either tab.
-        private void SetCalibStatus(string text)
-        {
-            try { if (CalibStatus != null) CalibStatus.Content = text; } catch { }
-            try { if (CalibTabStatus != null) CalibTabStatus.Content = text; } catch { }
-        }
-
-        private async void AutoCalibrateButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_camera == null || !_camera.IsOpened)
-            {
-                MessageBox.Show("Open camera first and make sure preview is running.", "Auto Calibrate", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (_lastFrame == null)
-            {
-                MessageBox.Show("No live frame available. Start camera and try again.", "Auto Calibrate", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            DrawThreeRectsOnImage();
-            await ReadBoxesAndAnnotateAsync();
-
-            if (_overlaySourceRects != null && _overlaySourceRects.Count >= 3)
-            {
-                var sampled = await Task.Run(() =>
+                for (int iter = 0; iter < maxIters; iter++)
                 {
-                    var results = new List<(byte R, byte G, byte B)?>();
-                    foreach (var r in _overlaySourceRects)
+                    // Read latest camera-reported values
+                    currentB = SafeGet(VideoCaptureProperties.Brightness);
+                    currentC = SafeGet(VideoCaptureProperties.Contrast);
+                    currentE = SafeGet(VideoCaptureProperties.Exposure);
+
+                    // Build candidate deltas: try +/- step on each control and useful combinations.
+                    var deltas = new List<(double dB, double dC, double dE)>();
+
+                    // Individual moves
+                    deltas.Add((step, 0, 0));
+                    deltas.Add((-step, 0, 0));
+                    deltas.Add((0, step, 0));
+                    deltas.Add((0, -step, 0));
+                    deltas.Add((0, 0, step));
+                    deltas.Add((0, 0, -step));
+
+                    // Pairwise combinations
+                    deltas.Add((step, step, 0));
+                    deltas.Add((step, -step, 0));
+                    deltas.Add((-step, step, 0));
+                    deltas.Add((-step, -step, 0));
+
+                    deltas.Add((step, 0, step));
+                    deltas.Add((step, 0, -step));
+                    deltas.Add((-step, 0, step));
+                    deltas.Add((-step, 0, -step));
+
+                    deltas.Add((0, step, step));
+                    deltas.Add((0, step, -step));
+                    deltas.Add((0, -step, step));
+                    deltas.Add((0, -step, -step));
+
+                    // Full combination (coarse)
+                    deltas.Add((step, step, step));
+                    deltas.Add((-step, -step, -step));
+                    deltas.Add((step, -step, step));
+                    deltas.Add((-step, step, -step));
+
+                    bool anyImproved = false;
+                    double bestCandidateErr = bestErr;
+                    double candBestB = bestB, candBestC = bestC, candBestE = bestE;
+                    (byte R, byte G, byte B)?[] candBestSamples = lastReadings;
+
+                    // Evaluate each candidate (apply, wait, sample, evaluate), pick the best that improves
+                    foreach (var (dB, dC, dE) in deltas)
                     {
-                        var rr = new OpenCvSharp.Rect((int)Math.Round(r.X), (int)Math.Round(r.Y), (int)Math.Round(r.Width), (int)Math.Round(r.Height));
-                        results.Add(SampleMatPatch(rr));
+                        double tryB = currentB + dB;
+                        double tryC = currentC + dC;
+                        double tryE = currentE + dE;
+
+                        // Apply candidate
+                        SafeSet(VideoCaptureProperties.Brightness, tryB);
+                        SafeSet(VideoCaptureProperties.Contrast, tryC);
+                        SafeSet(VideoCaptureProperties.Exposure, tryE);
+
+                        // Allow camera to adjust
+                        await Task.Delay(settleMs);
+
+                        // Sample and compute error
+                        var samples = await SampleRoisAsync(rois);
+                        if (samples == null || samples.Count < rois.Count)
+                        {
+                            // revert to previous camera state and continue
+                            SafeSet(VideoCaptureProperties.Brightness, currentB);
+                            SafeSet(VideoCaptureProperties.Contrast, currentC);
+                            SafeSet(VideoCaptureProperties.Exposure, currentE);
+                            await Task.Delay(80);
+                            continue;
+                        }
+
+                        double err = ComputeErrorAgainstRefs(samples);
+
+                        if (err < bestCandidateErr - 1e-9) // strict improvement
+                        {
+                            anyImproved = true;
+                            bestCandidateErr = err;
+
+                            // read back actual applied properties reported by camera
+                            candBestB = SafeGet(VideoCaptureProperties.Brightness);
+                            candBestC = SafeGet(VideoCaptureProperties.Contrast);
+                            candBestE = SafeGet(VideoCaptureProperties.Exposure);
+
+                            candBestSamples = samples.ToArray();
+                        }
+
+                        // Revert to current state before trying next candidate to maintain consistent baseline
+                        SafeSet(VideoCaptureProperties.Brightness, currentB);
+                        SafeSet(VideoCaptureProperties.Contrast, currentC);
+                        SafeSet(VideoCaptureProperties.Exposure, currentE);
+
+                        // brief pause to allow revert to take effect (keeps camera stable between candidates)
+                        await Task.Delay(80);
                     }
-                    return results;
-                });
 
-                bool ok = sampled.Count >= 3 && sampled.All(s => s != null);
-                if (ok)
-                {
-                    _refRed = sampled[0]!.Value;
-                    _refGreen = sampled[1]!.Value;
-                    _refBlue = sampled[2]!.Value;
+                    if (anyImproved)
+                    {
+                        // Accept the best found candidate
+                        bestErr = bestCandidateErr;
+                        bestB = candBestB;
+                        bestC = candBestC;
+                        bestE = candBestE;
+                        lastReadings = candBestSamples;
 
-                    try { ApplyColorToRect(RectRed, _refRed.Value); } catch { }
-                    try { ApplyColorToRect(RectGreen, _refGreen.Value); } catch { }
-                    try { ApplyColorToRect(RectBlue, _refBlue.Value); } catch { }
+                        // Apply accepted values and allow settle
+                        SafeSet(VideoCaptureProperties.Brightness, bestB);
+                        SafeSet(VideoCaptureProperties.Contrast, bestC);
+                        SafeSet(VideoCaptureProperties.Exposure, bestE);
+                        await Task.Delay(settleMs);
 
+                        // Slightly increase step to converge faster when progress is being made
+                        step = Math.Min(20.0, step * stepGrow);
+                    }
+                    else
+                    {
+                        // No candidate improved -> shrink step and try more precise adjustments
+                        step = Math.Max(minStep, step * stepShrink);
+                    }
+
+                    // Update overlay quickly to show latest measured values and refs
                     try
                     {
-                        if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
-                        _appSettings.RefRed = _refRed.Value;
-                        _appSettings.RefGreen = _refGreen.Value;
-                        _appSettings.RefBlue = _refBlue.Value;
-                        SettingsManager.Save(_appSettings);
+                        _overlayLabelTexts ??= new string[rois.Count];
+                        for (int i = 0; i < Math.Min(rois.Count, lastReadings.Length); i++)
+                        {
+                            var v = lastReadings[i];
+                            string measText = v.HasValue ? $"Meas:{v.Value.R},{v.Value.G},{v.Value.B}" : "Meas:---";
+                            // Correct per-channel reference text (previous code mistakenly used refGreenLocal for red's G/B).
+                            string refText = i == 0 ? $"{refRedLocal.R},{refRedLocal.G},{refRedLocal.B}"
+                                               : i == 1 ? $"{refGreenLocal.R},{refGreenLocal.G},{refGreenLocal.B}"
+                                                        : $"{refBlueLocal.R},{refBlueLocal.G},{refBlueLocal.B}";
+                            _overlayLabelTexts[i] = v.HasValue ? $"{measText}\nRef:{refText}" : $"Meas:---\nRef:{refText}";
+                        }
+                        await Dispatcher.BeginInvoke(() => { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); });
+                    }
+                    catch { /* ignore UI issues */ }
+
+                    // Termination conditions
+                    if (bestErr <= tolerance) break;
+                    if (step <= minStep + 1e-9) break;
+                }
+
+                // Apply final best-known settings to device
+                SafeSet(VideoCaptureProperties.Brightness, bestB);
+                SafeSet(VideoCaptureProperties.Contrast, bestC);
+                SafeSet(VideoCaptureProperties.Exposure, bestE);
+                await Task.Delay(150);
+
+                // Final sample for return
+                var finalSamples = await SampleRoisAsync(rois);
+                var finalReadings = (finalSamples != null && finalSamples.Count >= rois.Count) ? finalSamples.ToArray() : lastReadings;
+
+                // Update UI sliders without triggering save during assignment
+                await Dispatcher.BeginInvoke(() =>
+                {
+                    _suspendSliderSave = true;
+                    try
+                    {
+                        BrightnessSlider.Value = bestB;
+                        ContrastSlider.Value = bestC;
+                        ExposureSlider.Value = bestE;
+
+                        // update pending values to match tuned results
+                        _pendingBrightness = bestB;
+                        _pendingContrast = bestC;
+                        _pendingExposure = bestE;
+
+                        // reflect that these are now unsaved until user presses Save
+                        _cameraSettingsDirty = true;
+                        if (SaveCameraButton != null) SaveCameraButton.IsEnabled = true;
+                        if (SaveStatusSmall != null) SaveStatusSmall.Text = "Modified";
+                        if (lblSaveStatus != null) lblSaveStatus.Text = "Modified";
                     }
                     catch { }
+                    finally { _suspendSliderSave = false; }
+                });
 
-                    try { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); } catch { }
-                }
-                else
+                // Persist final camera properties and APPLY them to the running camera immediately
+                try
                 {
-                    SetCalibStatus("Auto-calibrate: sampling failed.");
-                    return;
-                }
-            }
+                    if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
 
-            FinishCalibrationAndPromptSave();
-        }
-        private void FinishCalibrationAndPromptSave()
-        {
-            try
-            {
-                // Ensure UI update runs on UI thread
-                Dispatcher.BeginInvoke(() =>
-                {
+                    _appSettings.Brightness = bestB;
+                    _appSettings.Contrast = bestC;
+                    _appSettings.Exposure = bestE;
+
+                    // persist per-channel tolerances as well (keeps UI/behavior consistent)
+                    _appSettings.TolerancePercentR = toleranceR;
+                    _appSettings.TolerancePercentG = toleranceG;
+                    _appSettings.TolerancePercentB = toleranceB;
+
+                    // Apply to current camera (explicitly call ICamera.SetProperty in addition to SafeSet)
                     try
                     {
-                        // switch to Calibrate tab (index 1) so the inline prompt is visible on the Calibrate page only
-                        try
+                        if (_camera != null && _camera.IsOpened)
                         {
-                            if (MainTabControl != null && MainTabControl.Items.Count > 1)
-                                MainTabControl.SelectedIndex = 1;
+                            _camera.SetProperty(VideoCaptureProperties.Brightness, bestB);
+                            _camera.SetProperty(VideoCaptureProperties.Contrast, bestC);
+                            _camera.SetProperty(VideoCaptureProperties.Exposure, bestE);
                         }
-                        catch { /* tolerate tab switch errors */ }
-
-                        // hide overlay visuals immediately
-                        ClearOverlayVisuals();
-
-                        // show inline calibration-complete prompt (user can Save or Don't Save)
-                        ShowCalibrationCompletePrompt();
                     }
-                    catch
-                    {
-                        // fallback: show a modal prompt if inline prompt fails
-                        try
-                        {
-                            var result = MessageBox.Show(
-                                "Station calibration complete.\n\nSave current Brightness / Contrast / Exposure to application settings?",
-                                "Station Calibration Complete",
-                                MessageBoxButton.YesNo,
-                                MessageBoxImage.Question);
+                    catch { /* tolerate device write error */ }
 
-                            if (result == MessageBoxResult.Yes)
-                            {
-                                // reuse existing save handler to persist current sliders
-                                _ = Task.Run(() =>
-                                {
-                                    Dispatcher.BeginInvoke(async () => await Task.Run(() => SaveCameraSettingsButton_Click(null!, null!)));
-                                });
-                            }
+                    try { SettingsManager.Save(_appSettings); } catch { /* tolerate save error */ }
 
-                            SetCalibStatus(result == MessageBoxResult.Yes ? "Calibration complete — settings saved." : "Calibration complete — settings not saved.");
-                        }
-                        catch { }
-                    }
-                });
-            }
-            catch { }
-        }
-        private void ImgPrepToggleButton_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (ImagePrepGroupBox == null || ImgPrepToggleButton == null) return;
-
-                if (ImagePrepGroupBox.Visibility == Visibility.Visible)
-                {
-                    ImagePrepGroupBox.Visibility = Visibility.Collapsed;
-                    ImgPrepToggleButton.Content = "▴";
+                    // after AutoTune we saved final tuned values into persisted settings; clear dirty flag
+                    _cameraSettingsDirty = false;
+                    if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
+                    try { if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved"; } catch { }
                 }
-                else
-                {
-                    ImagePrepGroupBox.Visibility = Visibility.Visible;
-                    ImgPrepToggleButton.Content = "▾";
-                }
+                catch { /* tolerate persistence errors */ }
+
+                // Read back actual camera-reported final values
+                double finalB = SafeGet(VideoCaptureProperties.Brightness);
+                double finalC = SafeGet(VideoCaptureProperties.Contrast);
+                double finalE = SafeGet(VideoCaptureProperties.Exposure);
+
+                return (true, finalReadings.ElementAtOrDefault(0), finalReadings.ElementAtOrDefault(1), finalReadings.ElementAtOrDefault(2), finalB, finalC, finalE);
             }
             catch
             {
-                // tolerate UI toggle errors
+                return (false, null, null, null, 0, 0, 0);
             }
         }
-        // Clear any existing overlay visuals (rectangles, labels) from the UI and internal state.
-        private void ClearOverlayVisuals()
+        private double SafeGet(VideoCaptureProperties prop)
         {
             try
             {
-                // Clear logical overlay data
-                _overlaySourceRects = null;
-                _overlayLabelTexts = null;
-
-                // Collapse any existing overlay shapes/labels on UI
-                Dispatcher.BeginInvoke(() =>
-                {
-                    try
-                    {
-                        if (_overlayRects != null)
-                        {
-                            foreach (var r in _overlayRects) if (r != null) r.Visibility = Visibility.Collapsed;
-                        }
-                        if (_overlayLabels != null)
-                        {
-                            foreach (var l in _overlayLabels) if (l != null) l.Visibility = Visibility.Collapsed;
-                        }
-                        if (_calibOverlayRects != null)
-                        {
-                            foreach (var r in _calibOverlayRects) if (r != null) r.Visibility = Visibility.Collapsed;
-                        }
-                        if (_calibOverlayLabels != null)
-                        {
-                            foreach (var l in _calibOverlayLabels) if (l != null) l.Visibility = Visibility.Collapsed;
-                        }
-                    }
-                    catch { /* tolerate UI errors */ }
-                });
+                if (_camera != null && _camera.IsOpened)
+                    return _camera.GetProperty(prop);
             }
-            catch { /* tolerate errors */ }
+            catch
+            {
+                // tolerate device read errors
+            }
+
+            // Fall back to slider values when available (keeps UI and returned values consistent)
+            try
+            {
+                return prop switch
+                {
+                    VideoCaptureProperties.Brightness => BrightnessSlider?.Value ?? 0.0,
+                    VideoCaptureProperties.Contrast => ContrastSlider?.Value ?? 0.0,
+                    VideoCaptureProperties.Exposure => ExposureSlider?.Value ?? 0.0,
+                    _ => 0.0
+                };
+            }
+            catch
+            {
+                return 0.0;
+            }
         }
 
-        // Show the inline "calibration complete" prompt (does not save)
-        private void ShowCalibrationCompletePrompt()
+        private void SafeSet(VideoCaptureProperties prop, double value)
         {
             try
             {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    try
-                    {
-                        if (CalibCompletePanel != null)
-                            CalibCompletePanel.Visibility = Visibility.Visible;
-                        SetCalibStatus("Station calibration complete.");
-                    }
-                    catch { }
-                });
+                if (_camera != null && _camera.IsOpened)
+                    _camera.SetProperty(prop, value);
             }
-            catch { }
-        }
+            catch
+            {
+                // tolerate device set errors
+            }
 
-        private void HideCalibrationCompletePrompt()
-        {
+            // Keep UI sliders in sync when calling SafeSet from non-UI threads
             try
             {
                 Dispatcher.BeginInvoke(() =>
                 {
                     try
                     {
-                        if (CalibCompletePanel != null)
-                            CalibCompletePanel.Visibility = Visibility.Collapsed;
+                        if (prop == VideoCaptureProperties.Brightness && BrightnessSlider != null) BrightnessSlider.Value = value;
+                        if (prop == VideoCaptureProperties.Contrast && ContrastSlider != null) ContrastSlider.Value = value;
+                        if (prop == VideoCaptureProperties.Exposure && ExposureSlider != null) ExposureSlider.Value = value;
                     }
                     catch { }
                 });
@@ -1818,7 +1841,230 @@ namespace VisionAICam.Pages
             catch { }
         }
 
-        // User clicked "Save Settings" on inline prompt
+        private static double ChannelPercentDiff(byte measured, byte reference)
+        {
+            // If reference is zero, treat identical zero as 0% diff; otherwise 100% (can't normalize)
+            if (reference == 0) return measured == 0 ? 0.0 : 100.0;
+            return Math.Abs(measured - reference) / (double)reference * 100.0;
+        }
+
+        public Task<MessageBoxResult> ShowCalibDecisionPanelAsync()
+        {
+            var tcs = new TaskCompletionSource<MessageBoxResult>();
+            _calibDecisionTcs = tcs;
+
+            Dispatcher.BeginInvoke(() =>
+            {
+                try
+                {
+                    if (CalibDecisionPanel != null)
+                    {
+                        CalibDecisionPanel.Visibility = Visibility.Visible;
+                        // optional: focus the primary action
+                        try { CalibDecisionSaveButton?.Focus(); } catch { }
+                    }
+                    else
+                    {
+                        // fallback to showing dialog immediately if panel missing
+                        tcs.TrySetResult(MessageBoxResult.Cancel);
+                    }
+                }
+                catch
+                {
+                    tcs.TrySetResult(MessageBoxResult.Cancel);
+                }
+            });
+
+            return tcs.Task;
+        }
+
+        private void UpdateRefTextDisplays()
+        {
+            try
+            {
+                if (TxtRefRed != null && _refRed.HasValue)
+                    TxtRefRed.Text = $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}";
+
+                if (TxtRefGreen != null && _refGreen.HasValue)
+                    TxtRefGreen.Text = $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}";
+
+                if (TxtRefBlue != null && _refBlue.HasValue)
+                    TxtRefBlue.Text = $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}";
+
+                if (TxtRefRed != null) TxtRefRed.IsReadOnly = true;
+                if (TxtRefGreen != null) TxtRefGreen.IsReadOnly = true;
+                if (TxtRefBlue != null) TxtRefBlue.IsReadOnly = true;
+            }
+            catch { }
+        }
+
+        private async Task<List<(byte R, byte G, byte B)?>> SampleRoisAsync(List<System.Windows.Rect> rois)
+        {
+            return await Task.Run(() =>
+            {
+                var results = new List<(byte R, byte G, byte B)?>();
+
+                foreach (var r in rois)
+                {
+                    var rr = new OpenCvSharp.Rect((int)Math.Round(r.X), (int)Math.Round(r.Y), (int)Math.Round(r.Width), (int)Math.Round(r.Height));
+                    results.Add(SampleMatPatch(rr));
+                }
+
+                return results;
+            });
+        }
+        private void EditSaveRef_Click(object? sender, RoutedEventArgs e)
+        {
+            if (sender is not Button btn) return;
+            string name = btn.Name ?? "";
+
+            TextBox? tb = name.Contains("Red") ? TxtRefRed
+                          : name.Contains("Green") ? TxtRefGreen
+                          : name.Contains("Blue") ? TxtRefBlue
+                          : null;
+
+            if (tb == null) return;
+
+            if (btn.Content?.ToString()?.StartsWith("Edit", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var ok = AskUser(
+                    "Editing reference values is sensitive. Are you sure you want to edit this reference?\nYou will be able to Save or Cancel after editing.",
+                    "Edit Reference",
+                    MessageBoxButton.OKCancel);
+
+                if (ok != MessageBoxResult.OK) return;
+
+                tb.IsReadOnly = false;
+                tb.Focus();
+                btn.Content = "Save";
+                SetCalibStatus("Editing reference...");
+                return;
+            }
+
+            if (btn.Content?.ToString()?.StartsWith("Save", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                if (!TryParseRgb(tb.Text, out var rgb))
+                {
+                    MessageBox.Show("Invalid RGB format. Use: R,G,B (0-255).", "Parse Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var confirm = AskUser("Save this reference value to application settings?", "Confirm Save", MessageBoxButton.YesNo);
+                if (confirm != MessageBoxResult.Yes)
+                {
+                    tb.IsReadOnly = true;
+                    btn.Content = "Edit";
+                    SetCalibStatus("Reference edit cancelled.");
+                    return;
+                }
+
+                try
+                {
+                    if (name.Contains("Red")) { _refRed = rgb; if (_appSettings != null) _appSettings.RefRed = rgb; }
+                    if (name.Contains("Green")) { _refGreen = rgb; if (_appSettings != null) _appSettings.RefGreen = rgb; }
+                    if (name.Contains("Blue")) { _refBlue = rgb; if (_appSettings != null) _appSettings.RefBlue = rgb; }
+
+                    try { SettingsManager.Save(_appSettings); } catch { }
+
+                    try
+                    {
+                        if (name.Contains("Red") && _refRed.HasValue) ApplyColorToRect(RectRed, _refRed.Value);
+                        if (name.Contains("Green") && _refGreen.HasValue) ApplyColorToRect(RectGreen, _refGreen.Value);
+                        if (name.Contains("Blue") && _refBlue.HasValue) ApplyColorToRect(RectBlue, _refBlue.Value);
+                    }
+                    catch { }
+
+                    try { UpdateRefTextDisplays(); } catch { }
+
+                    try
+                    {
+                        if (_overlayLabelTexts != null)
+                        {
+                            for (int i = 0; i < _overlayLabelTexts.Length && i < 3; i++)
+                            {
+                                var parts = _overlayLabelTexts[i].Split(new[] { '\n' }, 2);
+                                string meas = parts.Length > 0 ? parts[0] : _overlayLabelTexts[i];
+                                string refLine = i == 0 ? $"{_refRed.Value.R},{_refRed.Value.G},{_refRed.Value.B}"
+                                                   : i == 1 ? $"{_refGreen.Value.R},{_refGreen.Value.G},{_refGreen.Value.B}"
+                                                            : i == 2 ? $"{_refBlue.Value.R},{_refBlue.Value.G},{_refBlue.Value.B}" : "";
+                                _overlayLabelTexts[i] = string.IsNullOrEmpty(refLine) ? meas : $"{meas}\nRef:{refLine}";
+                            }
+
+                            Dispatcher.BeginInvoke(() => { if (_overlaySourceRects != null) ShowOverlayCanvasRects(_overlaySourceRects); });
+                        }
+                    }
+                    catch { }
+
+                    tb.IsReadOnly = true;
+                    btn.Content = "Edit";
+                    SetCalibStatus("Reference saved.");
+                }
+                catch
+                {
+                    tb.IsReadOnly = true;
+                    btn.Content = "Edit";
+                    SetCalibStatus("Failed to save reference.");
+                }
+            }
+        }
+        private bool TryParseRgb(string text, out (byte R, byte G, byte B) rgb)
+        {
+            rgb = (0, 0, 0);
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var parts = text.Split(',');
+
+            if (parts.Length != 3)
+                return false;
+
+            if (byte.TryParse(parts[0].Trim(), out byte r) &&
+                byte.TryParse(parts[1].Trim(), out byte g) &&
+                byte.TryParse(parts[2].Trim(), out byte b))
+            {
+                rgb = (r, g, b);
+                return true;
+            }
+
+            return false;
+        }
+
+
+        private void CalibDecision_SaveRefs_Click(object sender, RoutedEventArgs e)
+        {
+            CompleteCalibDecision(MessageBoxResult.Yes);
+        }
+        private void CompleteCalibDecision(MessageBoxResult result)
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try { if (CalibDecisionPanel != null) CalibDecisionPanel.Visibility = Visibility.Collapsed; } catch { }
+                });
+            }
+            catch { }
+
+            try
+            {
+                _calibDecisionTcs?.TrySetResult(result);
+            }
+            catch { }
+            finally
+            {
+                _calibDecisionTcs = null;
+            }
+        }
+
+        private void CalibDecision_AutoTune_Click(object sender, RoutedEventArgs e)
+        {
+            CompleteCalibDecision(MessageBoxResult.No);
+        }
+        private void CalibDecision_Cancel_Click(object sender, RoutedEventArgs e)
+        {
+            CompleteCalibDecision(MessageBoxResult.Cancel);
+        }
         private async void CalibSaveButton_Click(object? sender, RoutedEventArgs e)
         {
             try
@@ -1867,6 +2113,22 @@ namespace VisionAICam.Pages
                 catch { }
             }
         }
+        private void HideCalibrationCompletePrompt()
+        {
+            try
+            {
+                Dispatcher.BeginInvoke(() =>
+                {
+                    try
+                    {
+                        if (CalibCompletePanel != null)
+                            CalibCompletePanel.Visibility = Visibility.Collapsed;
+                    }
+                    catch { }
+                });
+            }
+            catch { }
+        }
 
         // User clicked "Don't Save" on inline prompt
         private void CalibDontSaveButton_Click(object sender, RoutedEventArgs e)
@@ -1879,138 +2141,6 @@ namespace VisionAICam.Pages
             }
             catch { }
         }
-
-        // Inline decision panel support ------------------------------------------------
-
-        // Shows the inline decision panel and awaits the user's selection.
-        // Returns MessageBoxResult.Yes to save refs, No to auto-tune, Cancel to abort.
-        public Task<MessageBoxResult> ShowCalibDecisionPanelAsync()
-        {
-            var tcs = new TaskCompletionSource<MessageBoxResult>();
-            _calibDecisionTcs = tcs;
-
-            Dispatcher.BeginInvoke(() =>
-            {
-                try
-                {
-                    if (CalibDecisionPanel != null)
-                    {
-                        CalibDecisionPanel.Visibility = Visibility.Visible;
-                        // optional: focus the primary action
-                        try { CalibDecisionSaveButton?.Focus(); } catch { }
-                    }
-                    else
-                    {
-                        // fallback to showing dialog immediately if panel missing
-                        tcs.TrySetResult(MessageBoxResult.Cancel);
-                    }
-                }
-                catch
-                {
-                    tcs.TrySetResult(MessageBoxResult.Cancel);
-                }
-            });
-
-            return tcs.Task;
-        }
-
-        private void CalibDecision_SaveRefs_Click(object sender, RoutedEventArgs e)
-        {
-            CompleteCalibDecision(MessageBoxResult.Yes);
-        }
-
-        private void CalibDecision_AutoTune_Click(object sender, RoutedEventArgs e)
-        {
-            CompleteCalibDecision(MessageBoxResult.No);
-        }
-
-        private void CalibDecision_Cancel_Click(object sender, RoutedEventArgs e)
-        {
-            CompleteCalibDecision(MessageBoxResult.Cancel);
-        }
-
-        private void CompleteCalibDecision(MessageBoxResult result)
-        {
-            try
-            {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    try { if (CalibDecisionPanel != null) CalibDecisionPanel.Visibility = Visibility.Collapsed; } catch { }
-                });
-            }
-            catch { }
-
-            try
-            {
-                _calibDecisionTcs?.TrySetResult(result);
-            }
-            catch { }
-            finally
-            {
-                _calibDecisionTcs = null;
-            }
-        }
-
-        // Add this public helper inside the CameraPage class (near other helpers, e.g. after SetCalibStatus)
-        public void RefreshTolerances()
-        {
-            try
-            {
-                // Load fresh settings and update runtime tolerances used by CameraPage
-                var s = SettingsManager.Load();
-                if (s != null)
-                {
-                    toleranceR = s.TolerancePercentR;
-                    toleranceG = s.TolerancePercentG;
-                    toleranceB = s.TolerancePercentB;
-                }
-
-                // Give short UI feedback so user knows new tolerances applied
-                try
-                {
-                    SetCalibStatus($"Tolerances loaded: R:{toleranceR:F2}% G:{toleranceG:F2}% B:{toleranceB:F2}%");
-                }
-                catch { }
-            }
-            catch
-            {
-                // tolerate errors silently
-            }
-        }
-
-        // Add these members near the other private fields at top of class:
-        //private TaskCompletionSource<bool>? _samplePrepareTcs;
-
-        // Add this helper method inside CameraPage class (anywhere with other helpers)
-        public Task<bool> ShowSamplePreparePanelAsync(string message)
-        {
-            var tcs = new TaskCompletionSource<bool>();
-            _samplePrepareTcs = tcs;
-
-            Dispatcher.BeginInvoke(() =>
-            {
-                try
-                {
-                    if (SamplePrepareText != null) SamplePrepareText.Text = message ?? SamplePrepareText.Text;
-                    if (SamplePreparePanel != null)
-                    {
-                        SamplePreparePanel.Visibility = Visibility.Visible;
-                        try { SamplePrepareOk?.Focus(); } catch { }
-                    }
-                    else
-                    {
-                        tcs.TrySetResult(false);
-                    }
-                }
-                catch
-                {
-                    tcs.TrySetResult(false);
-                }
-            });
-
-            return tcs.Task;
-        }
-
         // Add these two button handlers to the CameraPage class:
         private void SamplePrepareOk_Click(object sender, RoutedEventArgs e)
         {
@@ -2022,7 +2152,6 @@ namespace VisionAICam.Pages
 
             try { _samplePrepareTcs?.TrySetResult(true); } catch { } finally { _samplePrepareTcs = null; }
         }
-
         private void SamplePrepareCancel_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -2033,5 +2162,6 @@ namespace VisionAICam.Pages
 
             try { _samplePrepareTcs?.TrySetResult(false); } catch { } finally { _samplePrepareTcs = null; }
         }
+
     }
 }

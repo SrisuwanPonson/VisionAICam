@@ -19,6 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Page Remove="Themes\ContrastWithBlue.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="Assets\ai_vision_bg.png">
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
@@ -73,6 +77,10 @@
 			<Generator>SettingsSingleFileGenerator</Generator>
 			<LastGenOutput>Settings.Designer.cs</LastGenOutput>
 		</None>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Themes\" />
 	</ItemGroup>
 
 </Project>

@@ -21,7 +21,7 @@ using System.Threading.Tasks;
 using System.ComponentModel;
 using System.Reflection; // <-- add this
 using ClearEngine.Logging;
-
+using VisionAICam.Helpers; // UiHelpers
 namespace VisionAICam.Pages
 {
     /// <summary>
@@ -316,7 +316,7 @@ namespace VisionAICam.Pages
                 }
                 finally
                 {
-                    mat.Dispose();
+                    mat.Freeze();
                 }
             }
             catch (Exception ex)
@@ -550,13 +550,16 @@ namespace VisionAICam.Pages
                 var token = _inferenceCts.Token;
 
                 Mat mat = null!;
-                if (/*InitCount==0*/true)
+                if (true) // InitCount==0
                 {
                     try
                     {
-                        mat = bitmap.ToMat();
+                        // ใช้ ToMat ของ VisionAICam.Helpers แบบเจาะจง
+                        mat = VisionAICam.Helpers.BitmapSourceToMatExtensions.ToMat(bitmap);
+
                         var targetSize = new OpenCvSharp.Size(640, 480);
 
+                        // Convert BGRA → BGR
                         if (mat.Channels() == 4)
                         {
                             var tmp = new Mat();
@@ -565,6 +568,7 @@ namespace VisionAICam.Pages
                             mat = tmp;
                         }
 
+                        // Resize
                         if (mat.Width != targetSize.Width || mat.Height != targetSize.Height)
                         {
                             var resized = new Mat();
@@ -584,21 +588,20 @@ namespace VisionAICam.Pages
 
                 ClearEngine.Model.Inference.DetectionResult[] detections = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
 
-                // Run inference on a background thread and track the task so we can cancel/wait during cleanup.
                 _runningInferenceTask = Task.Run(() =>
                 {
                     ClearEngine.Model.Inference.InferenceEngine? engine = null;
                     var modelPath = _app_settings?.DefaultModelPath ?? "model.pt";
                     var logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
                     bool engineIsCached = false;
+
                     try
                     {
-                        if (/*InitCount==0*/true)
+                        if (true) // InitCount==0
                         {
                             InitCount++;
                             token.ThrowIfCancellationRequested();
 
-                            // Prefer cached engine when available
                             if (_cachedEngine != null)
                             {
                                 engine = _cachedEngine;
@@ -606,16 +609,10 @@ namespace VisionAICam.Pages
                             }
                             else
                             {
-                                // Use user-configured Python DLL path if available; otherwise fall back to the same hardcoded default used in Production
-                                string pythonDllPath;
-                                if (!string.IsNullOrWhiteSpace(_app_settings?.PythonDllPath))
-                                {
-                                    pythonDllPath = _app_settings.PythonDllPath;
-                                }
-                                else
-                                {
-                                    pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
-                                }
+                                string pythonDllPath =
+                                    !string.IsNullOrWhiteSpace(_app_settings?.PythonDllPath)
+                                    ? _app_settings.PythonDllPath
+                                    : System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
 
                                 if (!InferenceEngine.TryCreate(pythonDllPath, ClearEngine.Logging.Logger.Instance, out engine, out var initError))
                                 {
@@ -623,16 +620,14 @@ namespace VisionAICam.Pages
                                     return;
                                 }
 
-                                // if we created it here, don't mark _pythonInitialized globally unless you want to persist it
                                 lock (_pythonInitLock) { _pythonInitialized = true; }
                             }
 
                             token.ThrowIfCancellationRequested();
-
-
                         }
 
                         ClearEngine.Model.Inference.DetectionResult[] remoteResults = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+
                         try
                         {
                             if (engine != null)
@@ -647,7 +642,6 @@ namespace VisionAICam.Pages
                         }
 
                         token.ThrowIfCancellationRequested();
-
                         detections = remoteResults;
                     }
                     catch (OperationCanceledException)
@@ -660,25 +654,16 @@ namespace VisionAICam.Pages
                     }
                     finally
                     {
-                        // Dispose only if engine was created locally (not the cached one)
-                        try
+                        if (!engineIsCached)
                         {
-                            if (!engineIsCached)
-                            {
-                                engine?.Dispose();
-                                engine = null;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogInfo($"Failed to dispose inference engine: {ex.Message}");
+                            try { engine?.Dispose(); } catch { }
+                            engine = null;
                         }
                     }
                 }, token);
 
                 try
                 {
-                    // await the task but honor cancellation
                     await _runningInferenceTask;
                 }
                 catch (OperationCanceledException)
@@ -694,13 +679,9 @@ namespace VisionAICam.Pages
                     _runningInferenceTask = null;
                     try { _inferenceCts?.Dispose(); } catch { }
                     _inferenceCts = null;
-                    if (mat != null)
-                    {
-                        mat.Dispose();
-                    }
+                    mat?.Dispose();
                 }
 
-                // Update UI from main thread
                 DrawModelBoundingBoxes(detections, bitmap);
             }
             finally
@@ -708,17 +689,16 @@ namespace VisionAICam.Pages
                 sw.Stop();
                 SafeInvokeOnUi(() =>
                 {
-                    // Show elapsed time or cancellation state
                     if (InferenceTimeText != null)
-                    {
                         InferenceTimeText.Text = sw.ElapsedMilliseconds > 0 ? $"{sw.ElapsedMilliseconds} ms" : "Done";
-                    }
+
                     CameraStatusText.Text = "Idle";
                     RunInferenceButton.IsEnabled = true;
                     LoadImageButton.IsEnabled = true;
                     ToggleModelDetailsButton.IsEnabled = true;
                 });
             }
+
         }
 
         // Drawing helpers

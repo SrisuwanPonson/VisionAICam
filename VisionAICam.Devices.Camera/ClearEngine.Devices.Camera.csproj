@@ -8,7 +8,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Compile Remove="HikCamera.cs" />
 	  <Compile Remove="HikCameraFactory.cs" />
 	  <Compile Remove="HikvisionCamera.cs" />
 	  <Compile Remove="MvCameraHandle.cs" />

@@ -19,6 +19,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using VisionAICam;
 using VisionAICam.Core; // <- use MasterController
+using VisionAICam.Helpers;
 using VisionAICam.Properties;
 using VisionAICam.Services;
 
@@ -273,14 +274,22 @@ namespace VisionAICam.Pages
         private bool _cameraLoopRunning = false;
         public bool Prewarm()
         {
-            // Read python DLL path from settings if available
-            var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
-            string? pythonDllPath = settings?.PythonDllPath;
+            // Load settings
+            var settings = _appSettings
+                           ?? MasterController.Instance.GetService<AppSettings>()
+                           ?? SettingsManager.Load();
+
+            // Resolve Python DLL path
+            string pythonDllPath = settings?.PythonDllPath;
             if (string.IsNullOrWhiteSpace(pythonDllPath))
             {
-                pythonDllPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Script", "NewEnv", "Python313", "python313.dll");
+                pythonDllPath = System.IO.Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "Script", "NewEnv", "Python313", "python313.dll"
+                );
             }
 
+            // Validate Python DLL exists
             if (!File.Exists(pythonDllPath))
             {
                 Dispatcher.BeginInvoke(() =>
@@ -288,32 +297,45 @@ namespace VisionAICam.Pages
                     StatusTextBlock.Text = $"Python DLL not found: {pythonDllPath}";
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                 });
+
                 _cameraLoopRunning = false;
                 return false;
             }
 
-            // Let the inference library handle initialization + instance creation
-            if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(pythonDllPath, _logger, out _inferenceEngine, out initError))
+            // Initialize inference engine
+            if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(
+                    pythonDllPath,
+                    _logger,
+                    out _inferenceEngine,
+                    out initError))
             {
                 Dispatcher.BeginInvoke(() =>
                 {
                     StatusTextBlock.Text = $"Failed to initialize inference: {initError}";
                     LoadingOverlay.Visibility = Visibility.Collapsed;
                 });
+
                 _cameraLoopRunning = false;
                 return false;
             }
 
-            Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}");
+            // Show Python DLL being used
+            Dispatcher.BeginInvoke(() =>
+            {
+                StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}";
+            });
 
-        
-            // Configure inference engine instance paths
-            var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? "model.pt";
+            // Configure inference engine paths
+            var modelPath = _appSettings?.DefaultModelPath
+                            ?? settings?.DefaultModelPath
+                            ?? "model.pt";
+
             var logDir = _logger.GetLogDirectory();
+
             _inferenceEngine.modelPath = modelPath;
             _inferenceEngine.logDir = logDir;
 
-            // Ask inference engine to prewarm (uses existing instance)
+            // Prewarm engine
             try
             {
                 _inferenceEngine?.PrewarmFirstFrameAsync();
@@ -323,11 +345,10 @@ namespace VisionAICam.Pages
                 try { _logger.LogError($"PrewarmFirstFrameAsync threw: {ex}"); } catch { }
             }
 
-      
             return true;
         }
-        private void 
-            CameraLoop()
+
+        private void CameraLoop()
         {
             if (_cameraLoopRunning)
             {
@@ -339,39 +360,22 @@ namespace VisionAICam.Pages
             }
 
             _cameraLoopRunning = true;
+
+            // Initialize inference engine
             Prewarm();
-
-
-            
-           
 
             Dispatcher.BeginInvoke(() =>
             {
                 LoadingOverlay.Visibility = Visibility.Collapsed;
                 StatusTextBlock.Text = "Production started";
-               
             });
 
-         
-            
-            #region New Inference Engine - simplified (initialization moved into TryCreate)
-            try
-            {
-                // Log some runtime info
-                string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? ".";
-            }
-            catch (Exception ex)
-            {
-                Dispatcher.BeginInvoke(() => StatusTextBlock.Text = $"Inference init error: {ex.Message}");
-                _cameraLoopRunning = false;
-                return;
-            }
             var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
             var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? "model.pt";
             var logDir = _logger.GetLogDirectory();
+
             try
             {
-                // Main loop
                 while (_isRunning && _camera != null && _camera.IsOpened)
                 {
                     if (_isPaused)
@@ -380,19 +384,25 @@ namespace VisionAICam.Pages
                         continue;
                     }
 
-                    if (this.frameTrigger)
+                    if (frameTrigger)
                     {
-                        // reset trigger
                         frameTrigger = false;
 
-                        var mat = _camera.CaptureCurrentFrame();
-                        if (mat != null && !mat.Empty())
+                        // BitmapSource from HikCamera
+                        var bitmap = _camera.CaptureCurrentFrame();
+                        if (bitmap != null)
                         {
+                            Mat cvMat = null;
+
                             try
                             {
-                                // run detection using inference engine
-                                var remoteResults = InferenceEngineInstance?.Detect(mat, modelPath, logDir);
+                                // Convert BitmapSource → Mat (use our extension explicitly)
+                                cvMat = VisionAICam.Helpers.BitmapSourceToMatExtensions.ToMat(bitmap);
 
+                                // Run inference
+                                var remoteResults = InferenceEngineInstance?.Detect(cvMat, modelPath, logDir);
+
+                                // Map results
                                 var mapped = new Collection<DetectionResult>();
                                 if (remoteResults != null)
                                 {
@@ -408,71 +418,61 @@ namespace VisionAICam.Pages
                                     }
                                 }
 
-                                // convert for UI and freeze while still on background thread
-                                var bitmapSource = mat.ToBitmapSource();
-                                bitmapSource.Freeze();
+                                // Freeze bitmap for UI thread
+                                if (bitmap.CanFreeze)
+                                    bitmap.Freeze();
 
+                                // Update UI
                                 Dispatcher.BeginInvoke(() =>
                                 {
-                                    ProductionImage.Source = bitmapSource;
+                                    ProductionImage.Source = bitmap;
                                     DrawBoundingBoxes(mapped);
                                     FpsTextBlock.Text = "FPS: 30";
                                     InferenceTimeTextBlock.Text = "Inference: ~";
 
-                                    // Update the per-frame summary (clears previous and shows counts for this frame)
                                     UpdateFrameSummary(mapped);
 
-                                    // Safely send first detection if present
-                                    if (mapped != null && mapped.Count > 0)
+                                    if (mapped.Count > 0)
                                     {
                                         var firstClassName = mapped[0].ClassName;
-                                        // fire-and-forget so camera loop not blocked
-                                        _ = System.Threading.Tasks.Task.Run(() => SendFirstDetectionToRobotUsingServiceAsync(firstClassName));
+                                        _ = Task.Run(() =>
+                                            SendFirstDetectionToRobotUsingServiceAsync(firstClassName)
+                                        );
                                     }
                                 });
 
-                                // --- after building `mapped` (Collection<DetectionResult>)
+                                // Push results to MasterController
                                 try
                                 {
-                                    // push to shared Results so DataPage shows them in real-time
                                     MasterController.Instance.AddDetectionResults(mapped);
                                 }
                                 catch (Exception ex)
                                 {
-                                    try { _logger.LogError($"Failed to add detection results to MasterController: {ex}"); } catch { }
+                                    _logger.LogError($"Failed to add detection results: {ex}");
                                 }
 
-                                // Persist latest predictions via the store registered in MasterController (non-blocking).
+                                // Persist predictions
                                 try
                                 {
                                     var store = MasterController.Instance.GetService<VisionAICam.Services.PredictionStore>();
                                     if (store != null)
-                                    {
-                                        // Use delta update to write only changed records, or ReplaceDetectionResultsAsync to replace all.
                                         _ = store.ReplaceDetectionResultsDeltaAsync(mapped);
-                                    }
                                     else
-                                    {
-                                        // Fallback to direct singleton if for some reason MasterController didn't register it.
                                         _ = VisionAICam.Services.PredictionStore.Instance.ReplaceDetectionResultsDeltaAsync(mapped);
-                                    }
                                 }
                                 catch (Exception ex)
                                 {
-                                    try { _logger.LogError($"Failed to persist predictions via PredictionStore: {ex}"); } catch { }
+                                    _logger.LogError($"Failed to persist predictions: {ex}");
                                 }
                             }
                             finally
                             {
-                                // dispose Mat after conversion & freeze
-                                mat.Dispose();
+                                // Dispose only Mat
+                                cvMat?.Dispose();
                             }
                         }
                         else
                         {
-                            mat?.Dispose();
-
-                            // If no detections / no frame, clear per-frame summary on UI thread
                             Dispatcher.BeginInvoke(() => _perFrameSummary.Clear());
                         }
                     }
@@ -491,20 +491,15 @@ namespace VisionAICam.Pages
             {
                 try
                 {
-                    // Dispose the InferenceEngine instance rather than directly calling PythonEngine.Shutdown().
-                    // InferenceEngine.Dispose() is responsible for shutting down the Python runtime and clearing
-                    // the singleton in a safe, thread-locked manner.
                     _inferenceEngine?.Dispose();
                     _inferenceEngine = null;
                 }
-                catch (Exception ex)
-                {
-                    try { /* _logger.LogError($"InferenceEngine.Dispose threw: {ex}"); */ } catch { }
-                }
+                catch { }
+
                 _cameraLoopRunning = false;
             }
-            #endregion
         }
+
 
         // Improved color generation: produce bright / saturated colors for high contrast.
         private SolidColorBrush GetBrushForClass(string className)
@@ -680,40 +675,45 @@ namespace VisionAICam.Pages
 
         private void SnapshotButton_Click(object sender, RoutedEventArgs e)
         {
-            var mat = _camera?.CaptureCurrentFrame();
-            if (mat != null)
+            // bitmap = BitmapSource จาก HikCamera
+            var bitmap = _camera?.CaptureCurrentFrame();
+            if (bitmap != null)
             {
                 try
                 {
-                    string basePath = _appSettings?.DefaultImagePath ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                    string basePath = _appSettings?.DefaultImagePath
+                                      ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
                     string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
                     string savePath = System.IO.Path.Combine(basePath, folderName);
 
-                    if (!System.IO.Directory.Exists(savePath))
-                        System.IO.Directory.CreateDirectory(savePath);
+                    if (!Directory.Exists(savePath))
+                        Directory.CreateDirectory(savePath);
 
-                    string ClassName = ""; // adapt if you have class/category controls here
+                    string ClassName = "";
                     string Category = "";
-                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd}.png";
+                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
                     string filePath = System.IO.Path.Combine(savePath, fileName);
 
-                    mat.SaveImage(filePath);
-                    MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+                    // ใช้ extension SaveImage() ที่เราเขียนไว้ใน BitmapSourceExtensions.cs
+                    bitmap.SaveImage(filePath);
+
+                    MessageBox.Show($"Snapshot saved to {filePath}.",
+                        "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
-                finally
-                {
-                    mat.Dispose();
+                    MessageBox.Show($"Failed to save snapshot: {ex.Message}",
+                        "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             else
             {
-                MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Camera is not running.",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
 
         // Add this helper method inside Production (non-blocking, swallows errors)
         private async Task SendFirstDetectionToRobotUsingServiceAsync(string className)

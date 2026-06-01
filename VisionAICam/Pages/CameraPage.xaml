@@ -90,6 +90,13 @@
 
                         <StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,12">
+                                <!-- ⭐ NEW: Backend Selector -->
+                                <ComboBox x:Name="BackendComboBox"
+                                          Style="{StaticResource RoundedComboBoxStyle}"
+                                          Width="150"
+                                          Margin="0,0,12,0"
+                                          ToolTip="Select backend (OpenCV / Hikvision)"/>
+                                <!-- ⭐ EXISTING Camera Selector (unchanged) -->
                                 <ComboBox x:Name="CameraComboBox"
                                           Style="{StaticResource RoundedComboBoxStyle}"
                                           ToolTip="Select camera device"

@@ -1,12 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace ClearEngine.Devices.Camera
+﻿namespace ClearEngine.Devices.Camera
 {
-    public enum CameraBackend { OpenCv }
+    public enum CameraBackend
+    {
+        OpenCv,
+        Hikvision
+    }
 
     public static class CameraFactory
     {
@@ -14,7 +12,8 @@ namespace ClearEngine.Devices.Camera
         {
             return backend switch
             {
-                CameraBackend.OpenCv => new OpenCvCamera(),
+                CameraBackend.OpenCv    => new OpenCvCamera(),
+                CameraBackend.Hikvision => new HikCamera(),
                 _ => throw new NotSupportedException($"Camera backend '{backend}' not supported.")
             };
         }
