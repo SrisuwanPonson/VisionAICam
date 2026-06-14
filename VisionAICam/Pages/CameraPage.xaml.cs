@@ -129,7 +129,10 @@ namespace VisionAICam.Pages
                 _selectedBackend = BackendComboBox.SelectedIndex == 0
                     ? CameraBackend.OpenCv
                     : CameraBackend.Hikvision;
+
+                DiscoverAndPopulateCameras();   // ⭐ ค้นหาใหม่ทันที
             };
+
         }
 
         private void initialClass()
@@ -194,9 +197,25 @@ namespace VisionAICam.Pages
         private void DiscoverAndPopulateCameras()
         {
             CameraComboBox.Items.Clear();
-            var devices = new List<string>();
 
-            // ⭐ 1) ค้นหา OpenCV/Webcam (ของเดิม)
+            if (_selectedBackend == CameraBackend.OpenCv)
+            {
+                // 🔍 ค้นหาเฉพาะ OpenCV/Webcam
+                DiscoverOpenCvCameras();
+            }
+            else
+            {
+                // 🔍 ค้นหาเฉพาะ Hikvision
+                DiscoverHikOnly();
+            }
+
+            // restore selection
+            if (CameraComboBox.Items.Count > 0)
+                CameraComboBox.SelectedIndex = 0;
+        }
+
+        private void DiscoverOpenCvCameras()
+        {
             try
             {
                 using var searcher = new ManagementObjectSearcher(
@@ -205,16 +224,13 @@ namespace VisionAICam.Pages
                 {
                     var name = device["Name"]?.ToString();
                     if (!string.IsNullOrEmpty(name))
-                        devices.Add(name);
+                        CameraComboBox.Items.Add(new ComboBoxItem { Content = name });
                 }
             }
             catch { }
-
-            // ⭐ 2) ใส่รายการ OpenCV/Webcam ลง ComboBox (ของเดิม)
-            foreach (var device in devices)
-                CameraComboBox.Items.Add(new ComboBoxItem { Content = device });
-
-            // ⭐⭐ 3) ตรงนี้แหละที่ต้องใส่ Hikvision ⭐⭐
+        }
+        private void DiscoverHikOnly()
+        {
             _hikDevices = DiscoverHikvisionCameras();
 
             foreach (var hik in _hikDevices)
@@ -223,26 +239,6 @@ namespace VisionAICam.Pages
                 {
                     Content = "[HIK] " + hik
                 });
-            }
-
-            // ⭐ 4) Restore index จาก appsettings (ของเดิม)
-            if (CameraComboBox.Items.Count == 0)
-            {
-                MessageBox.Show("No imaging devices detected.");
-                CameraComboBox.SelectedIndex = -1;
-            }
-            else
-            {
-                if (_appSettings != null &&
-                    _appSettings.CameraIndex >= 0 &&
-                    _appSettings.CameraIndex < CameraComboBox.Items.Count)
-                {
-                    CameraComboBox.SelectedIndex = _appSettings.CameraIndex;
-                }
-                else
-                {
-                    CameraComboBox.SelectedIndex = 0;
-                }
             }
         }
 
@@ -371,23 +367,22 @@ namespace VisionAICam.Pages
 
                 int backendIndex;
 
-                // ⭐ ถ้าเป็น Hikvision → map index จาก Python list
-                if (selectedName.StartsWith("[HIK]"))
+                // ⭐ เลือก backend ตาม combobox
+                if (_selectedBackend == CameraBackend.Hikvision)
                 {
+                    // หา index จาก _hikDevices
                     backendIndex = GetHikvisionIndexFromLoadedList(selectedName);
 
-
+                    Debug.WriteLine($"[START] Backend = HIKVISION");
                     Debug.WriteLine($"[START] HIK selected: {selectedName}");
                     Debug.WriteLine($"[START] HIK backend index = {backendIndex}");
-
-                    // ⭐ ทดสอบได้แม้ไม่ต่อกล้อง
-                    // ถ้าไม่มี Hikvision จริง → HikCamera.Start() จะ fail → เราจับได้
                 }
                 else
                 {
-                    // ⭐ ถ้าเป็น OpenCV → ใช้ SelectedIndex เดิม
+                    // OpenCV ใช้ index ตรง ๆ
                     backendIndex = CameraComboBox.SelectedIndex;
 
+                    Debug.WriteLine($"[START] Backend = OpenCV");
                     Debug.WriteLine($"[START] OpenCV selected index = {backendIndex}");
                 }
 
@@ -430,6 +425,7 @@ namespace VisionAICam.Pages
                 StopCamera();
             }
         }
+
         private int GetHikvisionIndexFromLoadedList(string displayName)
         {
             // ตัด prefix [HIK]
