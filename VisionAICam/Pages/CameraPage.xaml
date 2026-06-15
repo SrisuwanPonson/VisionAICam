@@ -117,23 +117,78 @@
                                        Click="StopCameraButton_Click"/>
                             </StackPanel>
 
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12" HorizontalAlignment="Left">
-                                <StackPanel Margin="0,0,24,0">
-                                    <TextBlock Text="Brightness" FontWeight="Bold"/>
-                                    <Slider x:Name="BrightnessSlider" Minimum="0" Maximum="255" Width="140"
-                                            ValueChanged="BrightnessSlider_ValueChanged"/>
+                            <!-- ========================= -->
+                            <!--   CAMERA SLIDERS (OVERLAY) -->
+                            <!-- ========================= -->
+                            <Grid Margin="0,0,0,12">
+
+                                <!-- ⭐ OpenCV Sliders -->
+                                <StackPanel x:Name="OpenCVSliderPanel"
+                Orientation="Horizontal"
+                HorizontalAlignment="Left"
+                Visibility="Visible">
+
+                                    <StackPanel Margin="0,0,24,0">
+                                        <TextBlock Text="Brightness" FontWeight="Bold"/>
+                                        <Slider x:Name="BrightnessSlider"
+                    Minimum="0" Maximum="255" Width="140"
+                    ValueChanged="BrightnessSlider_ValueChanged"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,0,24,0">
+                                        <TextBlock Text="Contrast" FontWeight="Bold"/>
+                                        <Slider x:Name="ContrastSlider"
+                    Minimum="0" Maximum="255" Width="140"
+                    ValueChanged="ContrastSlider_ValueChanged"/>
+                                    </StackPanel>
+
+                                    <StackPanel>
+                                        <TextBlock Text="Exposure" FontWeight="Bold"/>
+                                        <Slider x:Name="ExposureSlider"
+                    Minimum="-10" Maximum="10" Width="140"
+                    ValueChanged="ExposureSlider_ValueChanged"/>
+                                    </StackPanel>
+
                                 </StackPanel>
-                                <StackPanel Margin="0,0,24,0">
-                                    <TextBlock Text="Contrast" FontWeight="Bold"/>
-                                    <Slider x:Name="ContrastSlider" Minimum="0" Maximum="255" Width="140"
-                                            ValueChanged="ContrastSlider_ValueChanged"/>
+
+                                <!-- ⭐ Hikvision Sliders -->
+                                <StackPanel x:Name="HikSliderPanel"
+                Orientation="Horizontal"
+                HorizontalAlignment="Left"
+                Visibility="Collapsed">
+
+                                    <StackPanel Margin="0,0,24,0">
+                                        <TextBlock Text="Exposure (µs)" FontWeight="Bold"/>
+                                        <Slider x:Name="HikExposureSlider"
+                    Minimum="100" Maximum="60000" Width="140"
+                    ValueChanged="HikExposureSlider_ValueChanged"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,0,24,0">
+                                        <TextBlock Text="Gain" FontWeight="Bold"/>
+                                        <Slider x:Name="HikGainSlider"
+                    Minimum="0" Maximum="20" Width="140"
+                    ValueChanged="HikGainSlider_ValueChanged"/>
+                                    </StackPanel>
+
+                                    <StackPanel Margin="0,0,24,0">
+                                        <TextBlock Text="Gamma" FontWeight="Bold"/>
+                                        <Slider x:Name="HikGammaSlider"
+                    Minimum="0.1" Maximum="3.0" Width="140"
+                    ValueChanged="HikGammaSlider_ValueChanged"/>
+                                    </StackPanel>
+
+                                    <StackPanel>
+                                        <TextBlock Text="Black Level" FontWeight="Bold"/>
+                                        <Slider x:Name="HikBlackSlider"
+                    Minimum="0" Maximum="20" Width="140"
+                    ValueChanged="HikBlackSlider_ValueChanged"/>
+                                    </StackPanel>
+
                                 </StackPanel>
-                                <StackPanel>
-                                    <TextBlock Text="Exposure" FontWeight="Bold"/>
-                                    <Slider x:Name="ExposureSlider" Minimum="-10" Maximum="10" Width="140"
-                                            ValueChanged="ExposureSlider_ValueChanged"/>
-                                </StackPanel>
-                            </StackPanel>
+
+                            </Grid>
+
 
                             <!-- New Save button for camera sliders (explicit save required) -->
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,12" HorizontalAlignment="Left">

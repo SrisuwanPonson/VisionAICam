@@ -21,6 +21,12 @@ namespace VisionAICam
         public double Contrast { get; set; } = 128;
         public double Exposure { get; set; } = -6;
 
+        // ⭐ NEW: Hikvision parameters
+        public double HikExposureTime { get; set; } = 25000;   // µs
+        public double HikGain { get; set; } = 10;              // dB
+        public double HikGamma { get; set; } = 1.5;            // gamma
+        public double HikBlackLevel { get; set; } = 2;         // black level
+
         // keep this if you still use Model tab elsewhere
         public string DefaultModelPath { get; set; } = "";
 

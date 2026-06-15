@@ -3,8 +3,10 @@ using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Management;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -12,6 +14,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using VisionAICam;
+using VisionAICam.Helpers;
 using WpfSize = System.Windows.Size;
 
 namespace VisionAICam.Pages
@@ -20,7 +23,7 @@ namespace VisionAICam.Pages
     {
         private ICamera? _camera;
         private AppSettings? _appSettings;
-
+        private MjpegStreamReader _mjpeg;
         private bool _initialClassesLoaded = false;
         private bool _suspendSliderSave = false;
         private bool _cameraSettingsDirty = false;
@@ -28,6 +31,11 @@ namespace VisionAICam.Pages
         private double _pendingBrightness = 128.0;
         private double _pendingContrast = 128.0;
         private double _pendingExposure = -6.0;
+
+        // ⭐ เพิ่มตัวแปรสำหรับ Hikvision
+        private double _pendingGamma = 1.0;
+        private double _pendingGain = 0.0;
+        private double _pendingBlackLevel = 0.0;
 
         private List<System.Windows.Rect>? _overlaySourceRects;
         private System.Windows.Shapes.Rectangle[]? _overlayRects;
@@ -49,7 +57,7 @@ namespace VisionAICam.Pages
         private List<string> _hikDevices = new();
         private TaskCompletionSource<MessageBoxResult>? _calibDecisionTcs;
         private TaskCompletionSource<bool>? _samplePrepareTcs;
-
+        private static readonly HttpClient http = new HttpClient();
         // ⭐ NEW: backend selector
         private CameraBackend _selectedBackend = CameraBackend.OpenCv;
 
@@ -130,9 +138,24 @@ namespace VisionAICam.Pages
                     ? CameraBackend.OpenCv
                     : CameraBackend.Hikvision;
 
+                UpdateSliderVisibility();       // ⭐ สลับ Slider ตาม backend
                 DiscoverAndPopulateCameras();   // ⭐ ค้นหาใหม่ทันที
             };
 
+
+        }
+        private void UpdateSliderVisibility()
+        {
+            if (_selectedBackend == CameraBackend.Hikvision)
+            {
+                OpenCVSliderPanel.Visibility = Visibility.Collapsed;
+                HikSliderPanel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                OpenCVSliderPanel.Visibility = Visibility.Visible;
+                HikSliderPanel.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void initialClass()
@@ -229,10 +252,11 @@ namespace VisionAICam.Pages
             }
             catch { }
         }
-        private void DiscoverHikOnly()
+        private async void DiscoverHikOnly()
         {
-            _hikDevices = DiscoverHikvisionCameras();
+            _hikDevices = await DiscoverHikvisionCameras();
 
+            CameraComboBox.Items.Clear();
             foreach (var hik in _hikDevices)
             {
                 CameraComboBox.Items.Add(new ComboBoxItem
@@ -242,67 +266,35 @@ namespace VisionAICam.Pages
             }
         }
 
-        private List<string> DiscoverHikvisionCameras()
+
+        private async Task<List<string>> DiscoverHikvisionCameras()
         {
             var list = new List<string>();
 
-            Debug.WriteLine("=== HIK SEARCH START ===");
-
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = @"C:\Program Files\Python313\python.exe",
-                    Arguments = "\"C:\\ClearEngine\\VisionAICam\\PythonScripts\\list_hikvision.py\"",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
+                string url = "http://localhost:5005/list";
+                var json = await http.GetStringAsync(url);
 
-                Debug.WriteLine("[HIK] Starting Python process...");
+                var devices = System.Text.Json.JsonSerializer.Deserialize<List<HikDevice>>(json);
 
-                using var p = Process.Start(psi);
-
-                while (!p.StandardOutput.EndOfStream)
-                {
-                    string? line = p.StandardOutput.ReadLine();
-                    if (string.IsNullOrWhiteSpace(line))
-                        continue;
-
-                    Debug.WriteLine("[HIK-OUT] " + line);
-
-                    if (line.Contains("No devices found"))
-                    {
-                        Debug.WriteLine("[HIK] No Hikvision devices detected.");
-                        return list;
-                    }
-
-                    if (line.StartsWith("USB:") || line.StartsWith("GigE:"))
-                    {
-                        string name = line.Substring(line.IndexOf(":") + 1).Trim();
-                        Debug.WriteLine("[HIK] Device found: " + name);
-                        list.Add(name);
-                    }
-                }
-
-                // อ่าน error stream ด้วย
-                while (!p.StandardError.EndOfStream)
-                {
-                    string? err = p.StandardError.ReadLine();
-                    if (!string.IsNullOrWhiteSpace(err))
-                        Debug.WriteLine("[HIK-ERR] " + err);
-                }
+                foreach (var dev in devices)
+                    list.Add(dev.name);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine("[HIK-EXCEPTION] " + ex.Message);
             }
 
-            Debug.WriteLine("=== HIK SEARCH END ===");
-
             return list;
         }
+
+        public class HikDevice
+        {
+            public string type { get; set; }
+            public string name { get; set; }
+        }
+
 
 
         private void CameraComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -336,8 +328,24 @@ namespace VisionAICam.Pages
                 // tolerate errors silently
             }
         }
+        private void LoadHikSlidersAsync()
+        {
+            _suspendSliderSave = true;
 
-        private void SelectCameraButton_Click_1(object sender, RoutedEventArgs e)
+            HikExposureSlider.Value = _appSettings.HikExposureTime;
+            HikGainSlider.Value = _appSettings.HikGain;
+            HikGammaSlider.Value = _appSettings.HikGamma;
+            HikBlackSlider.Value = _appSettings.HikBlackLevel;
+
+            _pendingExposure = _appSettings.HikExposureTime;
+            _pendingGain = _appSettings.HikGain;
+            _pendingGamma = _appSettings.HikGamma;
+            _pendingBlackLevel = _appSettings.HikBlackLevel;
+
+            _suspendSliderSave = false;
+        }
+
+        private async void SelectCameraButton_Click_1(object sender, RoutedEventArgs e)
         {
             StopCamera();
             _appSettings = SettingsManager.Load();
@@ -352,7 +360,81 @@ namespace VisionAICam.Pages
 
             try
             {
-                // ⭐ create backend dynamically
+                int backendIndex;
+
+                // ⭐ HIKVISION BACKEND
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    // 1) หา index ของกล้องจาก list_hikvision.py
+                    backendIndex = GetHikvisionIndexFromLoadedList(selectedName);
+
+                    Debug.WriteLine($"[START] Backend = HIKVISION");
+                    Debug.WriteLine($"[START] HIK selected: {selectedName}");
+                    Debug.WriteLine($"[START] HIK backend index = {backendIndex}");
+
+                    // 2) เรียก Flask เพื่อ start camera
+                    string url = $"http://localhost:5005/start/{backendIndex}";
+                    var json = await http.GetStringAsync(url);
+
+                    Debug.WriteLine("[HIK-START] " + json);
+
+                    if (!json.Contains("started"))
+                    {
+                        MessageBox.Show("Failed to start Hikvision camera.",
+                                        "HIK", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+
+                    //MessageBox.Show("Hikvision camera started.",
+                    //                "HIK", MessageBoxButton.OK, MessageBoxImage.Information);
+
+                    // 3) set default exposure, gain, gamma, blacklevel from AppSettings
+                    try
+                    {
+                        double exp = _appSettings.HikExposureTime;
+                        double gain = _appSettings.HikGain;
+                        double gamma = _appSettings.HikGamma;
+                        double black = _appSettings.HikBlackLevel;
+
+                        await http.GetStringAsync($"http://localhost:5005/set/exposure/{exp}");
+                        await http.GetStringAsync($"http://localhost:5005/set/gain/{gain}");
+                        await http.GetStringAsync($"http://localhost:5005/set/gamma/{gamma}");
+                        await http.GetStringAsync($"http://localhost:5005/set/blacklevel/{black}");
+
+                        Debug.WriteLine("[HIK-SET] Applied settings from AppSettings.");
+                        LoadHikSlidersAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("[HIK-SET-ERROR] " + ex.Message);
+                    }
+
+
+
+
+                    // 3) ป้องกัน stream ซ้อน
+                    _mjpeg?.Stop();
+
+                    // 4) เริ่มอ่าน MJPEG STREAM (640x640)
+                    _mjpeg = new MjpegStreamReader();
+                    _ = _mjpeg.StartAsync("http://localhost:5005/stream", frame =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            CameraImage.Source = frame;   // BitmapImage 640x640
+                        });
+                    });
+
+                    return; // ไม่ใช้ OpenCV backend
+                }
+
+
+                // ⭐ OPENCV BACKEND (โค้ดเดิม)
+                backendIndex = CameraComboBox.SelectedIndex;
+
+                Debug.WriteLine($"[START] Backend = OpenCV");
+                Debug.WriteLine($"[START] OpenCV selected index = {backendIndex}");
+
                 _camera = CameraFactory.Create(_selectedBackend);
                 _camera.FrameReady += OnFrameReady;
 
@@ -365,28 +447,6 @@ namespace VisionAICam.Pages
                     }
                     : null;
 
-                int backendIndex;
-
-                // ⭐ เลือก backend ตาม combobox
-                if (_selectedBackend == CameraBackend.Hikvision)
-                {
-                    // หา index จาก _hikDevices
-                    backendIndex = GetHikvisionIndexFromLoadedList(selectedName);
-
-                    Debug.WriteLine($"[START] Backend = HIKVISION");
-                    Debug.WriteLine($"[START] HIK selected: {selectedName}");
-                    Debug.WriteLine($"[START] HIK backend index = {backendIndex}");
-                }
-                else
-                {
-                    // OpenCV ใช้ index ตรง ๆ
-                    backendIndex = CameraComboBox.SelectedIndex;
-
-                    Debug.WriteLine($"[START] Backend = OpenCV");
-                    Debug.WriteLine($"[START] OpenCV selected index = {backendIndex}");
-                }
-
-                // ⭐ Start camera
                 _camera.Start(backendIndex, options);
 
                 if (!_camera.IsOpened)
@@ -396,28 +456,70 @@ namespace VisionAICam.Pages
                     return;
                 }
 
-                // ⭐ load slider values
                 _suspendSliderSave = true;
-                Dispatcher.Invoke(() =>
+
+                try
                 {
-                    try
+                    if (_selectedBackend == CameraBackend.OpenCv)
                     {
-                        BrightnessSlider.Value = _camera.GetProperty(VideoCaptureProperties.Brightness);
-                        ContrastSlider.Value = _camera.GetProperty(VideoCaptureProperties.Contrast);
-                        ExposureSlider.Value = _camera.GetProperty(VideoCaptureProperties.Exposure);
+                        // ⭐ โหลดค่าจากกล้อง
+                        double b = _camera.GetProperty(VideoCaptureProperties.Brightness);
+                        double c = _camera.GetProperty(VideoCaptureProperties.Contrast);
+                        double exp = _camera.GetProperty(VideoCaptureProperties.Exposure);   // ✔ เปลี่ยนชื่อ
 
-                        _pendingBrightness = BrightnessSlider.Value;
-                        _pendingContrast = ContrastSlider.Value;
-                        _pendingExposure = ExposureSlider.Value;
+                        // ⭐ อัปเดต UI
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            BrightnessSlider.Value = b;
+                            ContrastSlider.Value = c;
+                            ExposureSlider.Value = exp;
 
+                            _pendingBrightness = b;
+                            _pendingContrast = c;
+                            _pendingExposure = exp;
+                        });
+                    }
+                    else
+                    {
+                        // ⭐ โหลดค่าจาก AppSettings
+                        double exp = _appSettings.HikExposureTime;
+                        double gain = _appSettings.HikGain;
+                        double gamma = _appSettings.HikGamma;
+                        double black = _appSettings.HikBlackLevel;
+
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            HikExposureSlider.Value = exp;
+                            HikGainSlider.Value = gain;
+                            HikGammaSlider.Value = gamma;
+                            HikBlackSlider.Value = black;
+
+                            _pendingExposure = exp;
+                            _pendingGain = gain;
+                            _pendingGamma = gamma;
+                            _pendingBlackLevel = black;
+                        });
+                    }
+
+                    // ⭐ reset UI
+                    await Dispatcher.InvokeAsync(() =>
+                    {
                         _cameraSettingsDirty = false;
                         SaveCameraButton.IsEnabled = false;
                         SaveStatusSmall.Text = "";
                         lblSaveStatus.Text = "";
-                    }
-                    catch { }
-                });
-                _suspendSliderSave = false;
+                    });
+                }
+                finally
+                {
+                    _suspendSliderSave = false;
+                }
+
+
+
+
+
+
             }
             catch (Exception ex)
             {
@@ -425,6 +527,8 @@ namespace VisionAICam.Pages
                 StopCamera();
             }
         }
+
+
 
         private int GetHikvisionIndexFromLoadedList(string displayName)
         {
@@ -444,21 +548,43 @@ namespace VisionAICam.Pages
 
 
 
-        private void StopCamera()
+        private async void StopCamera()
         {
             try
             {
-                if (_camera != null)
+                // ⭐ ถ้าเป็น Hikvision → เรียก Flask server
+                if (_selectedBackend == CameraBackend.Hikvision)
                 {
-                    try { _camera.FrameReady -= OnFrameReady; } catch { }
-                    try { _camera.Stop(); } catch { }
-                    try { _camera.Dispose(); } catch { }
+                    try
+                    {
+                        string url = "http://localhost:5005/stop";
+                        var json = await http.GetStringAsync(url);
+                        Debug.WriteLine("[HIK-STOP] " + json);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("[HIK-STOP-ERR] " + ex.Message);
+                    }
+
+                    // ⭐ ไม่ต้องยุ่งกับ _camera เพราะ Hikvision ไม่ใช้ ICamera
                     _camera = null;
+                }
+                else
+                {
+                    // ⭐ OpenCV backend → ใช้โค้ดเดิม
+                    if (_camera != null)
+                    {
+                        try { _camera.FrameReady -= OnFrameReady; } catch { }
+                        try { _camera.Stop(); } catch { }
+                        try { _camera.Dispose(); } catch { }
+                        _camera = null;
+                    }
                 }
             }
             catch { }
             finally
             {
+                // ⭐ เคลียร์ภาพบน UI เหมือนเดิม
                 Dispatcher.BeginInvoke(() =>
                 {
                     try { CameraImage.Source = null; } catch { }
@@ -466,14 +592,25 @@ namespace VisionAICam.Pages
                 });
             }
         }
-        private void BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+
+        private async void BrightnessSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_suspendSliderSave) return;
 
             try
             {
-                if (_camera != null && _camera.IsOpened)
-                    _camera.SetProperty(VideoCaptureProperties.Brightness, e.NewValue);
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    //// ⭐ ส่งไป Flask server
+                    //string url = $"http://localhost:5005/set/brightness/{e.NewValue}";
+                    //await http.GetStringAsync(url);
+                }
+                else
+                {
+                    // ⭐ OpenCV backend
+                    if (_camera != null && _camera.IsOpened)
+                        _camera.SetProperty(VideoCaptureProperties.Brightness, e.NewValue);
+                }
             }
             catch { }
 
@@ -489,14 +626,25 @@ namespace VisionAICam.Pages
             catch { }
         }
 
-        private void ContrastSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+
+        private async void ContrastSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_suspendSliderSave) return;
 
             try
             {
-                if (_camera != null && _camera.IsOpened)
-                    _camera.SetProperty(VideoCaptureProperties.Contrast, e.NewValue);
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    //// ⭐ ส่งไป Flask server
+                    //string url = $"http://localhost:5005/set/contrast/{e.NewValue}";
+                    //await http.GetStringAsync(url);
+                }
+                else
+                {
+                    // ⭐ OpenCV backend
+                    if (_camera != null && _camera.IsOpened)
+                        _camera.SetProperty(VideoCaptureProperties.Contrast, e.NewValue);
+                }
             }
             catch { }
 
@@ -512,14 +660,25 @@ namespace VisionAICam.Pages
             catch { }
         }
 
-        private void ExposureSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+
+        private async void ExposureSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_suspendSliderSave) return;
 
             try
             {
-                if (_camera != null && _camera.IsOpened)
-                    _camera.SetProperty(VideoCaptureProperties.Exposure, e.NewValue);
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    //// ⭐ ส่งไป Flask server
+                    //string url = $"http://localhost:5005/set/exposure/{e.NewValue}";
+                    //await http.GetStringAsync(url);
+                }
+                else
+                {
+                    // ⭐ OpenCV backend
+                    if (_camera != null && _camera.IsOpened)
+                        _camera.SetProperty(VideoCaptureProperties.Exposure, e.NewValue);
+                }
             }
             catch { }
 
@@ -534,20 +693,192 @@ namespace VisionAICam.Pages
             }
             catch { }
         }
-        private void SnapshotButton_Click(object sender, RoutedEventArgs e)
+
+        // ===============================
+        //   HIKVISION SLIDER HANDLERS
+        // ===============================
+
+        // Exposure (µs)
+        private CancellationTokenSource _hikExpCts;
+        private async void HikExposureSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            BitmapSource? frame = null;
+            if (_suspendSliderSave) return;
+
+            double exposureTime = e.NewValue;   // µs
+
+            _hikExpCts?.Cancel();
+            _hikExpCts = new CancellationTokenSource();
+            var token = _hikExpCts.Token;
 
             try
             {
-                frame = _camera?.CaptureCurrentFrame();
-                if (frame == null)
+                await Task.Delay(80, token);
+
+                if (_selectedBackend == CameraBackend.Hikvision)
                 {
-                    MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
+                    string url = $"http://localhost:5005/set/exposure/{exposureTime}";
+                    await http.GetStringAsync(url);
+                }
+            }
+            catch { }
+
+            _pendingExposure = exposureTime;
+            MarkCameraSettingsDirty();
+        }
+
+
+
+        // Gain
+        private CancellationTokenSource _hikGainCts;
+        private async void HikGainSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suspendSliderSave) return;
+
+            double value = e.NewValue;
+
+            _hikGainCts?.Cancel();
+            _hikGainCts = new CancellationTokenSource();
+            var token = _hikGainCts.Token;
+
+            try
+            {
+                await Task.Delay(80, token);
+
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    string url = $"http://localhost:5005/set/gain/{value}";
+                    await http.GetStringAsync(url);
+                }
+            }
+            catch { }
+
+            _pendingGain = value;
+            MarkCameraSettingsDirty();
+        }
+
+
+        // Gamma
+        private CancellationTokenSource _hikGammaCts;
+        private async void HikGammaSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suspendSliderSave) return;
+
+            double value = e.NewValue;
+
+            _hikGammaCts?.Cancel();
+            _hikGammaCts = new CancellationTokenSource();
+            var token = _hikGammaCts.Token;
+
+            try
+            {
+                await Task.Delay(80, token);
+
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    string url = $"http://localhost:5005/set/gamma/{value}";
+                    await http.GetStringAsync(url);
+                }
+            }
+            catch { }
+
+            _pendingGamma = value;
+            MarkCameraSettingsDirty();
+        }
+
+
+        // BlackLevel
+        private CancellationTokenSource _hikBlackCts;
+        private async void HikBlackSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (_suspendSliderSave) return;
+
+            double value = e.NewValue;
+
+            _hikBlackCts?.Cancel();
+            _hikBlackCts = new CancellationTokenSource();
+            var token = _hikBlackCts.Token;
+
+            try
+            {
+                await Task.Delay(80, token);
+
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    string url = $"http://localhost:5005/set/blacklevel/{value}";
+                    await http.GetStringAsync(url);
+                }
+            }
+            catch { }
+
+            _pendingBlackLevel = value;
+            MarkCameraSettingsDirty();
+        }
+        private void MarkCameraSettingsDirty()
+        {
+            _cameraSettingsDirty = true;
+
+            try
+            {
+                SaveCameraButton.IsEnabled = true;
+                SaveStatusSmall.Text = "Modified";
+                lblSaveStatus.Text = "Modified";
+            }
+            catch { }
+        }
+
+        private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                BitmapSource? frame = null;
+
+                // ⭐ HIKVISION BACKEND → ใช้ Flask server
+                if (_selectedBackend == CameraBackend.Hikvision)
+                {
+                    try
+                    {
+                        string url = "http://localhost:5005/snapshot";
+                        string json = await http.GetStringAsync(url);
+
+                        // JSON: { "image": "<base64>" }
+                        var obj = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+
+                        if (obj == null || !obj.ContainsKey("image"))
+                        {
+                            MessageBox.Show("Invalid snapshot data from Hikvision server.");
+                            return;
+                        }
+
+                        byte[] bytes = Convert.FromBase64String(obj["image"]);
+
+                        using var ms = new MemoryStream(bytes);
+                        var bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.StreamSource = ms;
+                        bmp.EndInit();
+                        bmp.Freeze();
+
+                        frame = bmp;
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to get Hikvision snapshot: {ex.Message}");
+                        return;
+                    }
+                }
+                else
+                {
+                    // ⭐ OPENCV BACKEND → ใช้โค้ดเดิม
+                    frame = _camera?.CaptureCurrentFrame();
+                    if (frame == null)
+                    {
+                        MessageBox.Show("Camera is not running.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
                 }
 
-                // Convert BitmapSource → Mat (OpenCV)
+                // ⭐ Convert BitmapSource → Mat (OpenCV)
                 Mat mat = OpenCvSharp.WpfExtensions.BitmapSourceConverter.ToMat(frame);
 
                 string basePath = _appSettings?.DefaultImagePath ??
@@ -556,13 +887,13 @@ namespace VisionAICam.Pages
                 string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
                 string savePath = System.IO.Path.Combine(basePath, folderName);
 
-                if (!System.IO.Directory.Exists(savePath))
-                    System.IO.Directory.CreateDirectory(savePath);
+                if (!Directory.Exists(savePath))
+                    Directory.CreateDirectory(savePath);
 
                 string className = ClassComboBox.Text ?? "Class";
                 string category = CategoryComboBox.Text ?? "Category";
                 string fileName = $"{className}_{category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-                string filePath = System.IO.Path.Combine(savePath, fileName);
+                string filePath = Path.Combine(savePath, fileName);
 
                 mat.SaveImage(filePath);
                 MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -574,6 +905,7 @@ namespace VisionAICam.Pages
                 MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
+
 
         private (byte R, byte G, byte B)? SampleMatPatch(OpenCvSharp.Rect roi)
         {
@@ -954,48 +1286,91 @@ namespace VisionAICam.Pages
             }
             catch { }
         }
-        private async void SaveCameraSettingsButton_Click(object sender, RoutedEventArgs e)
+        private static readonly HttpClient _http = new HttpClient
         {
-            if (_appSettings == null) _appSettings = SettingsManager.Load() ?? new AppSettings();
+            Timeout = Timeout.InfiniteTimeSpan
+        };
 
-            // use pending (unsaved) values to persist
-            double brightness = _pendingBrightness;
-            double contrast = _pendingContrast;
-            double exposure = _pendingExposure;
-
+        private async Task HikSet(string name, double value)
+        {
             try
             {
-                if (_camera != null && _camera.IsOpened)
-                {
-                    _camera.SetProperty(VideoCaptureProperties.Brightness, brightness);
-                    _camera.SetProperty(VideoCaptureProperties.Exposure, contrast);
-                    _camera.SetProperty(VideoCaptureProperties.Brightness, exposure);
-                }
-            }
-            catch { }
-
-            // Persist to settings
-            _appSettings.Brightness = brightness;
-            _appSettings.Contrast = contrast;
-            _appSettings.Exposure = exposure;
-            try { SettingsManager.Save(_appSettings); } catch { }
-
-            // Clear dirty state and update UI
-            _cameraSettingsDirty = false;
-            try
-            {
-                if (SaveCameraButton != null) SaveCameraButton.IsEnabled = false;
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "Saved";
-                if (lblSaveStatus != null) lblSaveStatus.Text = "Saved";
-
-                await Task.Delay(1500);
-
-                if (SaveStatusSmall != null) SaveStatusSmall.Text = "";
-                // keep the main lblSaveStatus visible a bit longer, but clear if desired:
-                if (lblSaveStatus != null) lblSaveStatus.Text = "--";
+                await _http.GetAsync($"http://127.0.0.1:5005/set/{name}/{value}");
             }
             catch { }
         }
+
+        private async void SaveCameraSettingsButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_appSettings == null)
+                _appSettings = SettingsManager.Load() ?? new AppSettings();
+
+            try
+            {
+                if (_selectedBackend == CameraBackend.OpenCv)
+                {
+                    // ⭐ ใช้ pending values
+                    double brightness = _pendingBrightness;
+                    double contrast = _pendingContrast;
+                    double exposure = _pendingExposure;
+
+                    // ⭐ เซฟลงกล้อง OpenCV
+                    try
+                    {
+                        if (_camera != null && _camera.IsOpened)
+                        {
+                            _camera.SetProperty(VideoCaptureProperties.Brightness, brightness);
+                            _camera.SetProperty(VideoCaptureProperties.Contrast, contrast);
+                            _camera.SetProperty(VideoCaptureProperties.Exposure, exposure);
+                        }
+                    }
+                    catch { }
+
+                    // ⭐ เซฟลง AppSettings
+                    _appSettings.Brightness = brightness;
+                    _appSettings.Contrast = contrast;
+                    _appSettings.Exposure = exposure;
+                }
+                else
+                {
+                    // ⭐ HIKVISION MODE
+                    double exp = _pendingExposure;
+                    double gain = _pendingGain;
+                    double gamma = _pendingGamma;
+                    double black = _pendingBlackLevel;
+
+                    // ⭐ เซฟลงกล้อง HIK ผ่าน Flask API
+                    await HikSet("exposure", exp);
+                    await HikSet("gain", gain);
+                    await HikSet("gamma", gamma);
+                    await HikSet("blacklevel", black);
+
+                    // ⭐ เซฟลง AppSettings
+                    _appSettings.HikExposureTime = exp;
+                    _appSettings.HikGain = gain;
+                    _appSettings.HikGamma = gamma;
+                    _appSettings.HikBlackLevel = black;
+                }
+
+                // ⭐ Persist settings
+                try { SettingsManager.Save(_appSettings); } catch { }
+
+                // ⭐ UI feedback
+                _cameraSettingsDirty = false;
+
+                SaveCameraButton.IsEnabled = false;
+                SaveStatusSmall.Text = "Saved";
+                lblSaveStatus.Text = "Saved";
+
+                await Task.Delay(1500);
+
+                SaveStatusSmall.Text = "";
+                lblSaveStatus.Text = "--";
+            }
+            catch { }
+        }
+
+
         private void StopCameraButton_Click(object sender, RoutedEventArgs e) => StopCamera();
         private void ImgPrepToggleButton_Click(object sender, RoutedEventArgs e)
         {

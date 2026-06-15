@@ -9,20 +9,23 @@ using System.Reflection;
 using VisionAICam.Core;
 using System.Windows.Navigation;
 using System.Threading.Tasks;
+using System.Diagnostics;
 
 namespace VisionAICam
 {
     public partial class MainWindow : Window
     {
+        private Process? _hikServerProcess;
+
         public MainWindow()
         {
             InitializeComponent();
 
-            // Attach to navigation events so we can show/hide side panels depending on the page
+            StartPythonServer();   // ⭐ Start Python server automatically
+
             MainContent.Navigated -= MainContent_Navigated;
             MainContent.Navigated += MainContent_Navigated;
 
-            // Responsive nav buttons: adjust sizes on load and when window resizes
             this.Loaded += (s, e) => { AdjustNavButtons(); UpdateSidePanelVisibility(); };
             this.SizeChanged += (s, e) => AdjustNavButtons();
 
@@ -37,12 +40,49 @@ namespace VisionAICam
                 MainContent.Navigate(MasterController.Instance.Production);
             }
 
-            // Ensure side panels reflect the current content initially
             UpdateSidePanelVisibility();
 
-            // Subscribe to window closing to perform final cleanup
             this.Closing -= MainWindow_Closing;
             this.Closing += MainWindow_Closing;
+        }
+
+        private void StartPythonServer()
+        {
+            try
+            {
+                if (_hikServerProcess != null && !_hikServerProcess.HasExited)
+                    return;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python.exe",
+                    Arguments = "\"C:\\ClearEngine\\VisionAICam\\PythonScripts\\hik_server.py\"",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = @"C:\ClearEngine\VisionAICam\PythonScripts"
+                };
+
+                _hikServerProcess = Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Failed to start hik_server.py: " + ex.Message);
+            }
+        }
+
+        private void StopPythonServer()
+        {
+            try
+            {
+                if (_hikServerProcess != null && !_hikServerProcess.HasExited)
+                {
+                    _hikServerProcess.Kill();
+                    _hikServerProcess.Dispose();
+                }
+            }
+            catch { }
         }
 
         private void MainContent_Navigated(object? sender, NavigationEventArgs e)
@@ -50,10 +90,6 @@ namespace VisionAICam
             UpdateSidePanelVisibility();
         }
 
-        /// <summary>
-        /// Shows side panels only when the Production page is displayed; hides them for all other pages.
-        /// Also updates the small expand buttons visibility.
-        /// </summary>
         private void UpdateSidePanelVisibility()
         {
             try
@@ -61,29 +97,19 @@ namespace VisionAICam
                 bool isProduction = MainContent?.Content is Production;
 
                 if (LeftPanel != null)
-                {
                     LeftPanel.Visibility = isProduction ? Visibility.Visible : Visibility.Collapsed;
-                }
 
                 if (RightPanel != null)
-                {
                     RightPanel.Visibility = isProduction ? Visibility.Visible : Visibility.Collapsed;
-                }
 
-                // Expand buttons shown only when corresponding panel is collapsed and Production page is active
                 if (LeftExpandButton != null)
-                {
                     LeftExpandButton.Visibility = (isProduction && (LeftPanel == null || LeftPanel.Visibility == Visibility.Collapsed))
                                                   ? Visibility.Visible : Visibility.Collapsed;
-                }
 
                 if (RightExpandButton != null)
-                {
                     RightExpandButton.Visibility = (isProduction && (RightPanel == null || RightPanel.Visibility == Visibility.Collapsed))
                                                    ? Visibility.Visible : Visibility.Collapsed;
-                }
 
-                // Also keep Start/Stop and Pause buttons consistent when panels hidden
                 if (!isProduction)
                 {
                     StartStopButton.IsEnabled = false;
@@ -108,8 +134,8 @@ namespace VisionAICam
 
         private bool IsAnotherInstanceRunning()
         {
-            var currentProcess = System.Diagnostics.Process.GetCurrentProcess();
-            var processes = System.Diagnostics.Process.GetProcessesByName(currentProcess.ProcessName);
+            var currentProcess = Process.GetCurrentProcess();
+            var processes = Process.GetProcessesByName(currentProcess.ProcessName);
             return processes.Length > 1;
         }
 
@@ -120,15 +146,15 @@ namespace VisionAICam
                 if (!production.IsRunning)
                 {
                     production.StartProduction();
-                    StartStopButton.Content = "\uE71A"; // Stop icon
+                    StartStopButton.Content = "\uE71A";
                     PauseButton.IsEnabled = true;
                 }
                 else
                 {
                     production.StopProduction();
-                    StartStopButton.Content = "\uE768"; // Play icon
+                    StartStopButton.Content = "\uE768";
                     PauseButton.IsEnabled = false;
-                    PauseButton.Content = "\uE769"; // Reset to pause icon
+                    PauseButton.Content = "\uE769";
                 }
             }
             else
@@ -146,12 +172,12 @@ namespace VisionAICam
                     if (!production.IsPaused)
                     {
                         production.PauseProduction();
-                        PauseButton.Content = "\uE768"; // Play icon
+                        PauseButton.Content = "\uE768";
                     }
                     else
                     {
                         production.ResumeProduction();
-                        PauseButton.Content = "\uE769"; // Pause icon
+                        PauseButton.Content = "\uE769";
                     }
                 }
             }
@@ -160,7 +186,6 @@ namespace VisionAICam
                 MessageBox.Show("Please open the Production page to pause/resume production.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
-
         private void NavigateIfNotDuplicate<T>(Page pageInstance, string pageName) where T : Page
         {
             if (MainContent.Content is T)
@@ -214,11 +239,11 @@ namespace VisionAICam
             {
                 var prod = MasterController.Instance.Production;
                 if (prod != null && prod.IsRunning)
-                {
                     prod.StopProduction();
-                }
             }
             catch { }
+
+            StopPythonServer();   // ⭐ Kill Python server on exit
 
             Application.Current.Shutdown();
         }
@@ -233,20 +258,15 @@ namespace VisionAICam
             NavigateIfNotDuplicate<ModelPage>(MasterController.Instance.ModelPage, "Model");
         }
 
-        // Left / Right collapse/expand handlers ------------------------------------
-
         private void LeftCollapseButton_Click(object sender, RoutedEventArgs e)
         {
             try
             {
                 if (LeftPanel != null)
-                {
                     LeftPanel.Visibility = Visibility.Collapsed;
-                }
+
                 if (LeftExpandButton != null)
-                {
                     LeftExpandButton.Visibility = Visibility.Visible;
-                }
             }
             catch { }
         }
@@ -256,13 +276,10 @@ namespace VisionAICam
             try
             {
                 if (LeftPanel != null)
-                {
                     LeftPanel.Visibility = Visibility.Visible;
-                }
+
                 if (LeftExpandButton != null)
-                {
                     LeftExpandButton.Visibility = Visibility.Collapsed;
-                }
             }
             catch { }
         }
@@ -272,13 +289,10 @@ namespace VisionAICam
             try
             {
                 if (RightPanel != null)
-                {
                     RightPanel.Visibility = Visibility.Collapsed;
-                }
+
                 if (RightExpandButton != null)
-                {
                     RightExpandButton.Visibility = Visibility.Visible;
-                }
             }
             catch { }
         }
@@ -288,26 +302,18 @@ namespace VisionAICam
             try
             {
                 if (RightPanel != null)
-                {
                     RightPanel.Visibility = Visibility.Visible;
-                }
+
                 if (RightExpandButton != null)
-                {
                     RightExpandButton.Visibility = Visibility.Collapsed;
-                }
             }
             catch { }
         }
 
-        /// <summary>
-        /// MainWindow_Closing: perform only quick synchronous cleanup and schedule heavier disposal on a background thread.
-        /// This keeps window close fast while still doing final cleanup asynchronously.
-        /// </summary>
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
         {
             try
             {
-                // Quick synchronous work (must be fast)
                 try
                 {
                     var prod = MasterController.Instance.Production;
@@ -315,6 +321,8 @@ namespace VisionAICam
                         prod.StopProduction();
                 }
                 catch { }
+
+                StopPythonServer();   // ⭐ Kill Python server on window close
 
                 try
                 {
@@ -348,7 +356,7 @@ namespace VisionAICam
                 try
                 {
                     if (MainContent != null)
-                        MainContent.Content = null; // trigger Unloaded handlers
+                        MainContent.Content = null;
                 }
                 catch { }
 
@@ -405,17 +413,13 @@ namespace VisionAICam
                 }
                 catch { }
 
-                // Schedule remaining cleanup off-UI (non-blocking)
                 _ = Task.Run(async () =>
                 {
                     try
                     {
                         await LongRunningCleanupAsync().ConfigureAwait(false);
                     }
-                    catch (Exception ex)
-                    {
-                        try { System.Diagnostics.Debug.WriteLine($"LongRunningCleanupAsync error: {ex}"); } catch { }
-                    }
+                    catch { }
                 });
             }
             catch { }
@@ -495,7 +499,7 @@ namespace VisionAICam
                     try
                     {
                         var result = asyncMethod.Invoke(target, null);
-                        if (result is System.Threading.Tasks.Task t)
+                        if (result is Task t)
                         {
                             try { t.Wait(1500); } catch { }
                         }
@@ -519,18 +523,21 @@ namespace VisionAICam
                 }
                 else
                 {
-                    try { System.Diagnostics.Debug.WriteLine("TryRunWithTimeout: operation timed out."); } catch { }
+                    try { Debug.WriteLine("TryRunWithTimeout: operation timed out."); } catch { }
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                try { System.Diagnostics.Debug.WriteLine($"TryRunWithTimeout exception: {ex}"); } catch { }
+                try { Debug.WriteLine($"TryRunWithTimeout exception: {ex}"); } catch { }
                 return false;
             }
         }
 
-        private void UserButton_Click_1(object sender, RoutedEventArgs e) { NavigateIfNotDuplicate<UserPage>(MasterController.Instance.UserPage, "User"); }
+        private void UserButton_Click_1(object sender, RoutedEventArgs e)
+        {
+            NavigateIfNotDuplicate<UserPage>(MasterController.Instance.UserPage, "User");
+        }
 
         private void NavigatorRobotButton_Click(object sender, RoutedEventArgs e)
         {
@@ -567,7 +574,6 @@ namespace VisionAICam
                     if (double.IsNaN(available) || available <= 0) return;
                 }
 
-                // approximate total horizontal margins for children
                 double totalMargins = buttons.Sum(b => b.Margin.Left + b.Margin.Right);
 
                 double target = Math.Floor((available - totalMargins) / buttons.Length);
@@ -582,10 +588,8 @@ namespace VisionAICam
                     btn.FontSize = width < 80 ? 13 : 16;
                 }
             }
-            catch
-            {
-                // best-effort; don't throw on resize
-            }
+            catch { }
         }
     }
 }
+
