@@ -10,6 +10,8 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -22,6 +24,8 @@ using VisionAICam.Core; // <- use MasterController
 using VisionAICam.Helpers;
 using VisionAICam.Properties;
 using VisionAICam.Services;
+using static System.Net.WebRequestMethods;
+using static VisionAICam.Pages.CameraPage;
 
 namespace VisionAICam.Pages
 {
@@ -61,10 +65,12 @@ namespace VisionAICam.Pages
         // Add this field inside the Production class (near the other private fields)
         private ClearEngine.Model.Inference.InferenceEngine? _inferenceEngine;
         public InferenceEngine? InferenceEngineInstance => _inferenceEngine;
-
+        private MjpegStreamReader _mjpeg;
+        private static readonly HttpClient http = new HttpClient();
         // Per-frame summary collection bound to UI DataGrid (cleared and replaced each trigger frame)
         private readonly ObservableCollection<FrameSummary> _perFrameSummary = new();
-
+        private readonly Queue<byte[]> _fifoFrames = new Queue<byte[]>(5);
+        private BitmapSource _latestFrame;
         // Brush cache: colors per class name
         // keep a few sensible defaults, others will be generated with high contrast
         private readonly Dictionary<string, SolidColorBrush> _classBrushes = new(StringComparer.OrdinalIgnoreCase)
@@ -123,10 +129,6 @@ namespace VisionAICam.Pages
             catch { /* non-fatal if UI element not present */ }
         }
 
-        private static string GetDefaultPythonDllPath()
-        {
-            return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory ?? ".", "Script", "NewEnv", "Python313", "python313.dll");
-        }
 
         private void InitializeTimer()
         {
@@ -170,8 +172,19 @@ namespace VisionAICam.Pages
                 Debug.WriteLine($"Timer error: {ex.Message}");
             }
         }
+        public static BitmapSource LoadBitmap(byte[] imageData)
+        {
+            using var ms = new MemoryStream(imageData);
+            BitmapImage bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.StreamSource = ms;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
 
-        public void StartProduction()
+        public async Task StartProduction()
         {
             if (_isRunning) return;
 
@@ -180,75 +193,332 @@ namespace VisionAICam.Pages
             StatusTextBlock.Text = "Production started";
             LoadingOverlay.Visibility = Visibility.Visible;
 
-            // Prefer settings registered in MasterController; fall back to SettingsManager.Load()
             _appSettings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
 
-            // Apply sampling interval from settings to the timer if available
+            int opencvIndex = _appSettings.CameraIndex;
+            int hikIndex = _appSettings.HikCameraIndex;
+            var backend = _appSettings.CameraBackend;
+
+            // Apply sampling interval
             if (_timer != null)
             {
                 int intervalMs = _appSettings?.SamplingInterval ?? 20;
-                // guard against invalid values
                 if (intervalMs <= 0) intervalMs = 20;
                 _timer.Interval = intervalMs;
             }
 
-            // Clear any previous per-frame summary when starting
             _perFrameSummary.Clear();
 
-            int cameraIndex = _appSettings?.CameraIndex ?? 0;
-
-            _camera = CameraFactory.Create(CameraBackend.OpenCv);
-            // Removed per-frame UI subscription; camera loop will capture frames on timer trigger
-            // _camera.FrameReady += OnFrameReady;
-
-            var options = _appSettings != null
-                ? new CameraOptions { Brightness = _appSettings.Brightness, Contrast = _appSettings.Contrast, Exposure = _appSettings.Exposure }
-                : null;
-
-            _camera.Start(cameraIndex, options);
-            if (!_camera.IsOpened)
+            // ---------------------------------------------------------
+            // 🔥 1) HIKVISION BACKEND (STREAMING LOOP)
+            // ---------------------------------------------------------
+            if (backend == CameraBackend.Hikvision)
             {
-                StatusTextBlock.Text = "Could not open camera.";
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                // _camera.FrameReady -= OnFrameReady;
-                _camera.Dispose();
-                _camera = null;
-                _isRunning = false;
-                return;
+                try
+                {
+                    Debug.WriteLine("[START] Backend = HIKVISION");
+
+                    if (!Prewarm())
+                    {
+                        Debug.WriteLine("[INIT] Prewarm failed");
+                        _isRunning = false;
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                        return;
+                    }
+
+                    var engine = _inferenceEngine;
+                    var modelPath = engine.modelPath;
+                    var logDir = engine.logDir;
+
+                    // ---------------------------------------------------------
+                    // ROTATING FILE LIST
+                    // ---------------------------------------------------------
+                    string basePath = @"C:\ClearEngine\VisionAICam\PythonScripts\";
+                    string[] files = new string[]
+                    {
+            basePath + "test1.jpg",
+            basePath + "test2.jpg",
+            basePath + "test3.jpg",
+            basePath + "test4.jpg",
+            basePath + "test5.jpg"
+                    };
+
+                    int index = 0;
+                    _latestFrame = null;
+
+                    // ---------------------------------------------------------
+                    // FILE READER LOOP
+                    // ---------------------------------------------------------
+                    _ = Task.Run(async () =>
+                    {
+                        while (_isRunning)
+                        {
+                            string filePath = files[index];
+
+                            try
+                            {
+                                if (System.IO.File.Exists(filePath))
+                                {
+                                    byte[] bytes = null;
+
+                                    // SAFE READ (avoid Python write-lock)
+                                    for (int i = 0; i < 5; i++)
+                                    {
+                                        try
+                                        {
+                                            bytes = System.IO.File.ReadAllBytes(filePath);
+                                            break;
+                                        }
+                                        catch
+                                        {
+                                            await Task.Delay(5);
+                                        }
+                                    }
+
+                                    if (bytes != null && bytes.Length > 100)
+                                    {
+                                        using (var ms = new MemoryStream(bytes))
+                                        {
+                                            var bmp = new BitmapImage();
+                                            bmp.BeginInit();
+                                            bmp.CacheOption = BitmapCacheOption.OnLoad;
+                                            bmp.StreamSource = ms;
+                                            bmp.EndInit();
+                                            bmp.Freeze();
+
+                                            _latestFrame = bmp;
+
+                                            Dispatcher.Invoke(() =>
+                                            {
+                                                ProductionImage.Source = bmp;
+                                            });
+                                        }
+                                    }
+                                }
+                                else
+                                {
+                                    Debug.WriteLine("[FILE] Missing: " + filePath);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine("[FILE-ERROR] " + ex.Message);
+                            }
+
+                            // Move to next file
+                            index = (index + 1) % files.Length;
+
+                            await Task.Delay(30); // ~33 FPS
+                        }
+                    });
+
+                    // ---------------------------------------------------------
+                    // WAIT FOR FIRST FRAME
+                    // ---------------------------------------------------------
+                    while (_isRunning && _latestFrame == null)
+                    {
+                        Debug.WriteLine("[INIT] Waiting for first testX.jpg...");
+                        await Task.Delay(50);
+                    }
+
+                    // ---------------------------------------------------------
+                    // YOLO LOOP (SAFE)
+                    // ---------------------------------------------------------
+                    _ = Task.Run(async () =>
+                    {
+                        while (_isRunning)
+                        {
+                            try
+                            {
+                                var src = _latestFrame;
+                                if (src == null)
+                                {
+                                    await Task.Delay(10);
+                                    continue;
+                                }
+
+                                using Mat mat = BitmapSourceToMatExtensions.ToMat(src);
+                                if (mat == null || mat.Empty())
+                                {
+                                    Debug.WriteLine("[PREDICT] Empty Mat");
+                                    await Task.Delay(10);
+                                    continue;
+                                }
+
+                                Debug.WriteLine($"[PREDICT] Mat Size = {mat.Width}x{mat.Height}, Channels = {mat.Channels()}");
+
+                                var raw = await Task.Run(() => engine.Detect(mat, modelPath, logDir));
+                                if (raw == null)
+                                    continue;
+
+                                var results = raw.Select(r => new DetectionResult
+                                {
+                                    ClassName = r.ClassName,
+                                    Confidence = r.Confidence,
+                                    Box = r.Box,
+                                    Task = r.Task
+                                }).ToList();
+
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    DrawBoundingBoxes(results);
+                                    UpdateFrameSummary(results);
+                                });
+
+                                if (results.Count > 0)
+                                    _ = SendFirstDetectionToRobotUsingServiceAsync(results[0].ClassName);
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine("[YOLO-ERROR] " + ex.Message);
+                            }
+
+                            await Task.Delay(10);
+                        }
+                    });
+
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    StatusTextBlock.Text = "Hikvision production started (ROTATING FILE MODE)";
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Hikvision start failed: {ex.Message}");
+                    _isRunning = false;
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    return;
+                }
             }
 
-            _cameraThread = new Thread(CameraLoop) { IsBackground = true };
-            _cameraThread.Start();
-            StartTimer();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            // ---------------------------------------------------------
+            // 🔥 2) OPENCV BACKEND (unchanged)
+            // ---------------------------------------------------------
+            try
+            {
+                Debug.WriteLine($"[START] Backend = OpenCV");
+                Debug.WriteLine($"[START] OpenCV Index = {opencvIndex}");
+
+                var options = new CameraOptions
+                {
+                    Brightness = _appSettings.Brightness,
+                    Contrast = _appSettings.Contrast,
+                    Exposure = _appSettings.Exposure
+                };
+
+                _camera = CameraFactory.Create(ClearEngine.Devices.Camera.CameraBackend.OpenCv);
+                _camera.Start(opencvIndex, options);
+
+                if (!_camera.IsOpened)
+                {
+                    StatusTextBlock.Text = "Could not open OpenCV camera.";
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    _camera.Dispose();
+                    _camera = null;
+                    _isRunning = false;
+                    return;
+                }
+
+                _cameraThread = new Thread(CameraLoop) { IsBackground = true };
+                _cameraThread.Start();
+                StartTimer();
+
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                StatusTextBlock.Text = "OpenCV production started";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"OpenCV start failed: {ex.Message}", "OpenCV", MessageBoxButton.OK, MessageBoxImage.Error);
+                _isRunning = false;
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+            }
         }
+
+
+
+
+
 
         public void StopProduction()
         {
             if (!_isRunning) return;
+
+            // Stop flags
             StopTimer();
             _isRunning = false;
             _isPaused = false;
+
             StatusTextBlock.Text = "Production stopped";
             LoadingOverlay.Visibility = Visibility.Collapsed;
 
+            // Stop OpenCV thread
             _cameraThread?.Join();
+            _cameraThread = null;
 
+            // Stop Hikvision camera
+            try
+            {
+                _ = http.GetStringAsync("http://localhost:5005/stop");
+                Debug.WriteLine("[HIK-STOP] Camera stopped.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[HIK-STOP-ERROR] " + ex.Message);
+            }
+
+            // Stop Hikvision MJPEG stream
+            try
+            {
+                _ = http.GetStringAsync("http://localhost:5005/stream/stop");
+                Debug.WriteLine("[HIK-STREAM-STOP] Stream stopped.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[HIK-STREAM-STOP-ERROR] " + ex.Message);
+            }
+
+            // Stop MJPEG reader
+            _mjpeg?.Stop();
+            _mjpeg = null;
+
+            // Stop OpenCV camera
             if (_camera != null)
             {
-                // Removed per-frame UI unsubscribe since we never subscribe now
-                // _camera.FrameReady -= OnFrameReady;
                 _camera.Stop();
                 _camera.Dispose();
                 _camera = null;
             }
 
-            _cameraThread = null;
+            // Clear UI
             ProductionImage.Source = null;
             ClearBoundingBoxes();
-
-            // Clear per-frame summary when production stops
             _perFrameSummary.Clear();
         }
+
+
+
+
+
 
         public void PauseProduction()
         {
@@ -290,7 +560,7 @@ namespace VisionAICam.Pages
             }
 
             // Validate Python DLL exists
-            if (!File.Exists(pythonDllPath))
+            if (!System.IO.File.Exists(pythonDllPath))
             {
                 Dispatcher.BeginInvoke(() =>
                 {

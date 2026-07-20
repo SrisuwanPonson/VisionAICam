@@ -2,7 +2,7 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
-
+using System.Windows.Media;
 namespace VisionAICam.Helpers
 {
     public static class BitmapSourceToMatExtensions
@@ -12,19 +12,19 @@ namespace VisionAICam.Helpers
             if (bitmap == null)
                 return null;
 
-            int bytesPerPixel = bitmap.Format.BitsPerPixel / 8;
-            int stride = bitmap.PixelWidth * bytesPerPixel;
+            // ⭐ Force conversion to BGR24 (3 channels)
+            var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgr24, null, 0);
+            converted.Freeze();
 
-            byte[] pixels = new byte[bitmap.PixelHeight * stride];
-            bitmap.CopyPixels(pixels, stride, 0);
+            int stride = converted.PixelWidth * 3;
+            byte[] pixels = new byte[converted.PixelHeight * stride];
+            converted.CopyPixels(pixels, stride, 0);
 
-            // Create Mat
-            Mat mat = new Mat(bitmap.PixelHeight, bitmap.PixelWidth, MatType.CV_8UC3);
-
-            // Copy byte[] → Mat.Data
+            Mat mat = new Mat(converted.PixelHeight, converted.PixelWidth, MatType.CV_8UC3);
             Marshal.Copy(pixels, 0, mat.Data, pixels.Length);
 
             return mat;
         }
     }
+
 }
