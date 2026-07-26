@@ -577,10 +577,13 @@ namespace VisionAICam.Pages
 
                                 try
                                 {
-                                    Debug.WriteLine($"[HIK-LOOP] Calling DetectWithError directly (not in Task.Run)");
-                                    var result = InferenceEngineInstance?.DetectHikvisionWithError(frameBytes, modelPath, _logDir);
+                                    Debug.WriteLine($"[HIK-LOOP] Calling DetectHikvisionWithError directly (not in Task.Run)");
+
+                                    // ✅ FIX: Assign to inferenceResponse
+                                    inferenceResponse = InferenceEngineInstance?.DetectHikvisionWithError(frameBytes, modelPath, _logDir);
+
                                     Debug.WriteLine($"[PREDICT] Success: {inferenceResponse?.Success}, Detections: {inferenceResponse?.Detections?.Length ?? 0}");
-    
+
                                     // Log the error details if inference failed
                                     if (inferenceResponse != null && !inferenceResponse.Success && inferenceResponse.Error != null)
                                     {
