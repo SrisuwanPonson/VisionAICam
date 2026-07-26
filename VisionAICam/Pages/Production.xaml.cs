@@ -70,7 +70,7 @@ namespace VisionAICam.Pages
         private CancellationTokenSource? _productionCancelTokenSource;
         private CancellationToken _productionCancelToken => _productionCancelTokenSource?.Token ?? CancellationToken.None;
         private string? _logDir;
-
+        private VisionAICam.Helpers.MjpegStreamReader? _mjpegReader;
         private readonly Dictionary<string, SolidColorBrush> _classBrushes = new(StringComparer.OrdinalIgnoreCase)
         {
             ["person"] = Brushes.Red as SolidColorBrush,
@@ -106,6 +106,7 @@ namespace VisionAICam.Pages
             InitializeTimer();
             InitializeFrameSummary();
             _logDir = _logger.GetLogDirectory();
+
         }
 
         private void InitializeFrameSummary()
@@ -244,9 +245,8 @@ namespace VisionAICam.Pages
                     bool needsStart = false;
                     try
                     {
-                        // Create a temporary test path for checking camera status
-                        string testPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hik_test.jpg");
-                        var testResponse = await http.GetAsync($"{serviceUrl}/snapshot_to/{Uri.EscapeDataString(testPath)}",
+                        var testResponse = await http.GetAsync($"{serviceUrl}/stream",
+                            HttpCompletionOption.ResponseHeadersRead,
                             new CancellationTokenSource(1000).Token);
                         needsStart = !testResponse.IsSuccessStatusCode;
                     }
@@ -260,7 +260,6 @@ namespace VisionAICam.Pages
                     {
                         Debug.WriteLine($"[HIK] Starting camera index {cameraIndex}");
 
-                        // Stop any existing camera session
                         try
                         {
                             await http.GetAsync($"{serviceUrl}/stop");
@@ -272,7 +271,6 @@ namespace VisionAICam.Pages
                             Debug.WriteLine($"[HIK] Stop warning: {stopEx.Message}");
                         }
 
-                        // Start the camera
                         var startResponse = await http.GetAsync($"{serviceUrl}/start/{cameraIndex}");
                         var startJson = await startResponse.Content.ReadAsStringAsync();
                         Debug.WriteLine($"[HIK] Start response: {startJson}");
@@ -297,7 +295,6 @@ namespace VisionAICam.Pages
                             _logger?.LogWarning($"Could not apply camera parameters: {paramEx.Message}");
                         }
 
-                        // Wait for camera to stabilize
                         await Task.Delay(500);
                     }
                     else
@@ -307,19 +304,15 @@ namespace VisionAICam.Pages
 
                     _logger?.LogInfo("Hikvision camera ready for production");
 
-                    // 3.5 Initialize Inference Engine (CRITICAL - was missing!)
+                    // 4. Initialize Inference Engine
                     Debug.WriteLine("[HIK] Initializing inference engine...");
 
                     var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
                     string pythonDllPath = settings?.PythonDllPath ?? @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python313.dll";
 
-                    Debug.WriteLine($"[HIK-PREWARM] Python DLL path: {pythonDllPath}");
-
                     if (!System.IO.File.Exists(pythonDllPath))
                     {
-                        string errorMsg = $"Python DLL not found:\n{pythonDllPath}\n\n";
-                        errorMsg += "Expected location:\nC:\\ClearEngine\\VisionAICam\\PythonEnv\\Python313\\python313.dll\n\n";
-                        errorMsg += "Please verify Python 3.13 is installed correctly.";
+                        string errorMsg = $"Python DLL not found:\n{pythonDllPath}";
 
                         await Dispatcher.InvokeAsync(() =>
                         {
@@ -330,8 +323,6 @@ namespace VisionAICam.Pages
 
                         return;
                     }
-
-                    Debug.WriteLine($"[HIK-PREWARM] Creating inference engine...");
 
                     if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(
                             pythonDllPath, _logger, out _inferenceEngine, out var tempInitError))
@@ -349,8 +340,6 @@ namespace VisionAICam.Pages
                         return;
                     }
 
-                    Debug.WriteLine($"[HIK-PREWARM] Inference engine created successfully");
-
                     var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? string.Empty;
 
                     if (!string.IsNullOrWhiteSpace(modelPath))
@@ -358,7 +347,6 @@ namespace VisionAICam.Pages
                         if (!System.IO.File.Exists(modelPath))
                         {
                             string errorMsg = $"Model file not found:\n{modelPath}";
-                            _logger?.LogError(errorMsg);
 
                             await Dispatcher.InvokeAsync(() =>
                             {
@@ -370,8 +358,6 @@ namespace VisionAICam.Pages
                             return;
                         }
 
-                        Debug.WriteLine($"[HIK-PREWARM] Model path: {modelPath}");
-
                         var logDir = _logger.GetLogDirectory();
                         if (_inferenceEngine != null)
                         {
@@ -381,54 +367,15 @@ namespace VisionAICam.Pages
 
                         try
                         {
-                            Debug.WriteLine("[HIK-PREWARM] Prewarming model...");
-                            
-                            // Add detailed exception logging
-                            try
-                            {
-                                _inferenceEngine?.PrewarmFirstFrameAsync();
-                                Debug.WriteLine("[HIK-PREWARM] Model prewarmed successfully");
-                            }
-                            catch (Python.Runtime.PythonException pyEx)
-                            {
-                                Debug.WriteLine($"[HIK-PREWARM] ⚠️ Python exception during prewarm: {pyEx.Message}");
-                                Debug.WriteLine($"[HIK-PREWARM] Python type: {pyEx.Type}");
-                                
-                                // Try to get traceback if available
-                                try
-                                {
-                                    var tb = pyEx.Traceback;
-                                    if (tb != null)
-                                        Debug.WriteLine($"[HIK-PREWARM] Python traceback: {tb}");
-                                }
-                                catch { }
-                                
-                                _logger?.LogWarning($"Python prewarm warning: {pyEx.Message}");
-                                
-                                // Don't fail - model might still work for actual frames
-                                Debug.WriteLine("[HIK-PREWARM] Continuing despite prewarm warning...");
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine($"[HIK-PREWARM] ⚠️ Prewarm warning: {ex.Message}");
-                                _logger?.LogWarning($"Model prewarm warning: {ex.Message}");
-                                
-                                // Don't fail - model might still work for actual frames
-                                Debug.WriteLine("[HIK-PREWARM] Continuing despite prewarm warning...");
-                            }
+                            _inferenceEngine?.PrewarmFirstFrameAsync();
+                            Debug.WriteLine("[HIK-PREWARM] Model prewarmed successfully");
                         }
-                        catch (Exception outerEx)
+                        catch (Exception ex)
                         {
-                            Debug.WriteLine($"[HIK-PREWARM] Error during prewarm setup: {outerEx.Message}");
-                            _logger?.LogError($"Prewarm setup error: {outerEx}");
+                            Debug.WriteLine($"[HIK-PREWARM] Prewarm warning: {ex.Message}");
+                            _logger?.LogWarning($"Model prewarm warning: {ex.Message}");
                         }
                     }
-                    else
-                    {
-                        Debug.WriteLine("[HIK-PREWARM] No model configured, will run in live view mode");
-                    }
-
-                    Debug.WriteLine("[HIK] Inference engine ready");
 
                     await Dispatcher.InvokeAsync(() =>
                     {
@@ -436,198 +383,103 @@ namespace VisionAICam.Pages
                         StatusTextBlock.Text = "Production running";
                     });
 
-                    Debug.WriteLine("[HIK] ✅ UI updated, preparing to start loop");
+                    // 5. Start MJPEG stream reader (same as CameraPage)
+                    Debug.WriteLine("[HIK] Starting MJPEG stream...");
 
-                    // 4. Prepare snapshot directory
-                    string snapshotDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "VisionAICam_Frames");
-                    if (!System.IO.Directory.Exists(snapshotDir))
-                    {
-                        System.IO.Directory.CreateDirectory(snapshotDir);
-                    }
-                    Debug.WriteLine($"[HIK] Snapshot directory: {snapshotDir}");
+                    _mjpegReader = new VisionAICam.Helpers.MjpegStreamReader();
 
-                    Debug.WriteLine($"[HIK] ⚠️ About to check cancellation token...");
-                    Debug.WriteLine($"[HIK] Token source null? {_productionCancelTokenSource == null}");
-                    Debug.WriteLine($"[HIK] Token cancelled? {_productionCancelToken.IsCancellationRequested}");
-                    Debug.WriteLine($"[HIK] _isRunning = {_isRunning}");
-
-                    // 5. Main production loop
                     int frameCount = 0;
                     var fpsTimer = System.Diagnostics.Stopwatch.StartNew();
-                    int consecutiveErrors = 0;
-                    const int maxConsecutiveErrors = 10;
+                    BitmapImage? latestFrame = null;
+                    object frameLock = new object();
 
-                    Debug.WriteLine($"[HIK-LOOP] 🚀 Attempting to enter while loop...");
+                    // Start stream reader
+                    _ = _mjpegReader.StartAsync($"{serviceUrl}/stream", frame =>
+                    {
+                        lock (frameLock)
+                        {
+                            latestFrame = frame;
+                            frameCount++;
+                        }
 
+                        // Display frame on UI thread
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            try
+                            {
+                                ProductionImage.Source = frame;
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[HIK] Display error: {ex.Message}");
+                            }
+                        });
+                    });
+
+                    Debug.WriteLine("[HIK] MJPEG stream started");
+
+                    // 6. Inference loop (processes frames from stream)
                     while (!_productionCancelToken.IsCancellationRequested)
                     {
-                        Debug.WriteLine($"[HIK-LOOP] ✅ INSIDE LOOP - Iteration {frameCount + 1}");
-                        
                         try
                         {
-                            Debug.WriteLine($"[HIK-LOOP] Creating stopwatch...");
-                            var loopStart = System.Diagnostics.Stopwatch.StartNew();
+                            BitmapImage? frameToProcess = null;
 
-                            Debug.WriteLine($"[HIK-LOOP] Generating frame filename...");
-                            // Generate unique filename for this frame
-                            string frameFilename = $"frame_{DateTime.Now:yyyyMMdd_HHmmss_fff}.jpg";
-                            string framePath = System.IO.Path.Combine(snapshotDir, frameFilename);
-                            Debug.WriteLine($"[HIK-LOOP] Frame path: {framePath}");
-
-                            Debug.WriteLine($"[HIK-LOOP] Making HTTP request to snapshot_to...");
-                            // Get frame using snapshot_to endpoint
-                            var frameResponse = await http.GetAsync(
-                                $"{serviceUrl}/snapshot_to/{Uri.EscapeDataString(framePath)}",
-                                _productionCancelToken);
-
-                            Debug.WriteLine($"[HIK-LOOP] Response received: {frameResponse.StatusCode}");
-
-                            if (!frameResponse.IsSuccessStatusCode)
+                            lock (frameLock)
                             {
-                                Debug.WriteLine($"[HIK] Snapshot failed: {frameResponse.StatusCode}");
-                                consecutiveErrors++;
+                                frameToProcess = latestFrame;
+                                latestFrame = null; // Clear to avoid processing same frame twice
+                            }
 
-                                if (consecutiveErrors >= maxConsecutiveErrors)
-                                {
-                                    throw new Exception($"Camera stopped responding after {maxConsecutiveErrors} consecutive failures. The camera may have disconnected.");
-                                }
-
-                                await Task.Delay(100, _productionCancelToken);
+                            if (frameToProcess == null)
+                            {
+                                await Task.Delay(10, _productionCancelToken);
                                 continue;
                             }
 
-                            Debug.WriteLine($"[HIK-LOOP] Checking if file exists...");
-                            // Verify file was created
-                            if (!System.IO.File.Exists(framePath))
-                            {
-                                Debug.WriteLine($"[HIK] Frame file not found: {framePath}");
-                                consecutiveErrors++;
-                                await Task.Delay(100, _productionCancelToken);
-                                continue;
-                            }
+                            // Convert BitmapImage to byte array for inference
+                            byte[]? frameBytes = null;
 
-                            Debug.WriteLine($"[HIK-LOOP] Reading file bytes...");
-                            // Read the saved image file
-                            byte[] frameBytes = await System.IO.File.ReadAllBytesAsync(framePath, _productionCancelToken);
-
-                            Debug.WriteLine($"[HIK-LOOP] ✅ File read: {frameBytes?.Length ?? 0} bytes");
-
-                            if (frameBytes == null || frameBytes.Length == 0)
-                            {
-                                Debug.WriteLine("[HIK] Empty frame received");
-                                consecutiveErrors++;
-                                await Task.Delay(100, _productionCancelToken);
-                                continue;
-                            }
-
-                            // Reset error counter on successful frame
-                            consecutiveErrors = 0;
-                            frameCount++;
-
-                            Debug.WriteLine($"[HIK-LOOP] Starting Dispatcher.InvokeAsync for bitmap decode...");
-
-                            // Decode to BitmapSource for UI display
-                            BitmapSource? bitmapSource = null;
                             await Dispatcher.InvokeAsync(() =>
                             {
-                                Debug.WriteLine($"[HIK-LOOP] Inside Dispatcher - decoding bitmap");
                                 try
                                 {
-                                    using var ms = new System.IO.MemoryStream(frameBytes);
-                                    var decoder = BitmapDecoder.Create(ms,
-                                        BitmapCreateOptions.PreservePixelFormat,
-                                        BitmapCacheOption.OnLoad);
-                                    bitmapSource = decoder.Frames[0];
-                                    bitmapSource.Freeze();
-                                    ProductionImage.Source = bitmapSource;
-                                    Debug.WriteLine($"[HIK-LOOP] ✅ Bitmap displayed");
+                                    var encoder = new JpegBitmapEncoder();
+                                    encoder.Frames.Add(BitmapFrame.Create(frameToProcess));
+
+                                    using var ms = new System.IO.MemoryStream();
+                                    encoder.Save(ms);
+                                    frameBytes = ms.ToArray();
                                 }
                                 catch (Exception ex)
                                 {
-                                    Debug.WriteLine($"[HIK] Frame decode error: {ex.Message}");
+                                    Debug.WriteLine($"[HIK] Frame encode error: {ex.Message}");
                                 }
                             });
 
-                            Debug.WriteLine($"[HIK-LOOP] Returned from Dispatcher.InvokeAsync");
-
-                            // Clean up temporary frame file
-                            try
+                            if (frameBytes == null || frameBytes.Length == 0)
                             {
-                                System.IO.File.Delete(framePath);
-                            }
-                            catch
-                            {
-                                // Ignore cleanup errors
-                            }
-
-                            Debug.WriteLine($"[HIK-LOOP] Checking bitmapSource...");
-
-                            if (bitmapSource == null)
-                            {
-                                await Task.Delay(100, _productionCancelToken);
+                                await Task.Delay(10, _productionCancelToken);
                                 continue;
                             }
 
-                            Debug.WriteLine($"[HIK-LOOP] Bitmap valid, checking model path...");
-
-                            // 6. Run inference if model is configured and engine is initialized
+                            // Run inference if model is configured
                             if (!string.IsNullOrEmpty(modelPath) && _inferenceEngine != null)
                             {
                                 ClearEngine.Model.Inference.InferenceResponse? inferenceResponse = null;
 
                                 try
                                 {
-                                    Debug.WriteLine($"[HIK-LOOP] Calling DetectHikvisionWithError directly (not in Task.Run)");
+                                    inferenceResponse = _inferenceEngine?.DetectHikvisionWithError(frameBytes, modelPath, _logDir);
 
-                                    // ✅ FIX: Assign to inferenceResponse
-                                    inferenceResponse = InferenceEngineInstance?.DetectHikvisionWithError(frameBytes, modelPath, _logDir);
-
-                                    Debug.WriteLine($"[PREDICT] Success: {inferenceResponse?.Success}, Detections: {inferenceResponse?.Detections?.Length ?? 0}");
-
-                                    // Log the error details if inference failed
-                                    if (inferenceResponse != null && !inferenceResponse.Success && inferenceResponse.Error != null)
+                                    if (inferenceResponse?.Error != null)
                                     {
-                                        Debug.WriteLine($"[PREDICT] ❌ Inference failed:");
-                                        Debug.WriteLine($"[PREDICT]   Type: {inferenceResponse.Error.ErrorType}");
-                                        Debug.WriteLine($"[PREDICT]   Message: {inferenceResponse.Error.Message}");
-                                        Debug.WriteLine($"[PREDICT]   Traceback: {inferenceResponse.Error.Traceback}");
+                                        Debug.WriteLine($"[PREDICT] Inference failed: {inferenceResponse.Error.ErrorType} - {inferenceResponse.Error.Message}");
                                     }
-                                }
-                                catch (Python.Runtime.PythonException pyEx)
-                                {
-                                    Debug.WriteLine($"[PREDICT] ❌ Python Exception: {pyEx.Message}");
-                                    Debug.WriteLine($"[PREDICT]   Type: {pyEx.Type}");
-                                    
-                                    // Try to get traceback safely
-                                    try
-                                    {
-                                        var tb = pyEx.Traceback;
-                                        if (tb != null)
-                                            Debug.WriteLine($"[PREDICT]   Traceback: {tb}");
-                                    }
-                                    catch { }
-                                    
-                                    if (!string.IsNullOrEmpty(pyEx.StackTrace))
-                                        Debug.WriteLine($"[PREDICT]   .NET StackTrace: {pyEx.StackTrace}");
-
-                                    _logger?.LogError($"Python inference error: {pyEx.Message} | Type: {pyEx.Type}");
-
-                                    await Dispatcher.InvokeAsync(() =>
-                                    {
-                                        DrawBoundingBoxes(Array.Empty<DetectionResult>());
-                                        UpdateFrameSummary(Array.Empty<DetectionResult>());
-                                        StatusTextBlock.Text = $"Python error: {pyEx.Type}";
-                                    });
-
-                                    await Task.Delay(1000, _productionCancelToken);
-                                    continue;
                                 }
                                 catch (Exception ex)
                                 {
-                                    Debug.WriteLine($"[PREDICT] ❌ Exception: {ex.GetType().Name}: {ex.Message}");
-                                    if (!string.IsNullOrEmpty(ex.StackTrace))
-                                        Debug.WriteLine($"[PREDICT]   StackTrace: {ex.StackTrace}");
-
+                                    Debug.WriteLine($"[PREDICT] Exception: {ex.Message}");
                                     _logger?.LogError($"Inference error: {ex}");
 
                                     await Dispatcher.InvokeAsync(() =>
@@ -643,19 +495,13 @@ namespace VisionAICam.Pages
 
                                 if (inferenceResponse == null || !inferenceResponse.Success)
                                 {
-                                    if (inferenceResponse?.Error != null)
-                                    {
-                                        Debug.WriteLine($"[PREDICT] Python error: {inferenceResponse.Error.ErrorType} - {inferenceResponse.Error.Message}");
-                                        _logger?.LogError($"Python inference error: {inferenceResponse.Error.ErrorType} - {inferenceResponse.Error.Message}");
-                                    }
-
                                     await Dispatcher.InvokeAsync(() =>
                                     {
                                         DrawBoundingBoxes(Array.Empty<DetectionResult>());
                                         UpdateFrameSummary(Array.Empty<DetectionResult>());
                                     });
 
-                                    await Task.Delay(1000, _productionCancelToken);
+                                    await Task.Delay(100, _productionCancelToken);
                                     continue;
                                 }
 
@@ -663,8 +509,6 @@ namespace VisionAICam.Pages
 
                                 if (raw == null || raw.Length == 0)
                                 {
-                                    Debug.WriteLine("[PREDICT] No detections");
-
                                     await Dispatcher.InvokeAsync(() =>
                                     {
                                         DrawBoundingBoxes(Array.Empty<DetectionResult>());
@@ -689,8 +533,6 @@ namespace VisionAICam.Pages
                                         Task = r.Task ?? string.Empty,
                                         Timestamp = DateTime.Now
                                     }).ToArray();
-
-                                    Debug.WriteLine($"[DRAW] Drawing {mappedDetections.Length} detections");
 
                                     await Dispatcher.InvokeAsync(() =>
                                     {
@@ -741,12 +583,12 @@ namespace VisionAICam.Pages
                                     }
 
                                     // Auto-snapshot if enabled
-                                    if (_appSettings.EnableAutoSnapshot && bitmapSource != null)
+                                    if (_appSettings.EnableAutoSnapshot && frameToProcess != null)
                                     {
                                         try
                                         {
                                             string topClass = mappedDetections.FirstOrDefault()?.ClassName ?? "Unknown";
-                                            _ = SaveDetectionSnapshot(bitmapSource, frameCount, topClass, mappedDetections.Length);
+                                            _ = SaveDetectionSnapshot(frameToProcess, frameCount, topClass, mappedDetections.Length);
                                         }
                                         catch (Exception snapEx)
                                         {
@@ -757,7 +599,7 @@ namespace VisionAICam.Pages
                             }
                             else
                             {
-                                // No inference - just display frames
+                                // No inference - just display FPS
                                 await Dispatcher.InvokeAsync(() =>
                                 {
                                     if (fpsTimer.Elapsed.TotalSeconds >= 1.0)
@@ -770,68 +612,39 @@ namespace VisionAICam.Pages
                                 });
                             }
 
-                            // Frame rate control
-                            loopStart.Stop();
-                            int targetDelay = Math.Max(1, 33 - (int)loopStart.ElapsedMilliseconds);
-                            Debug.WriteLine($"[HIK-LOOP] Delaying for {targetDelay}ms before next iteration");
-                            await Task.Delay(targetDelay, _productionCancelToken);
-            
-                            Debug.WriteLine($"[HIK-LOOP] Completed iteration {frameCount}, continuing to next...");
+                            // Small delay to control processing rate
+                            await Task.Delay(10, _productionCancelToken);
                         }
                         catch (OperationCanceledException)
                         {
-                            Debug.WriteLine("[HIK-LOOP] ⚠️ Operation cancelled");
+                            Debug.WriteLine("[HIK-LOOP] Operation cancelled");
                             break;
-                        }
-                        catch (HttpRequestException httpEx)
-                        {
-                            Debug.WriteLine($"[HIK-LOOP] ❌ HTTP Error: {httpEx.Message}");
-                            _logger?.LogError($"Hikvision HTTP error: {httpEx}");
-
-                            consecutiveErrors++;
-                            if (consecutiveErrors >= maxConsecutiveErrors)
-                            {
-                                throw new Exception($"Lost connection to camera service after {maxConsecutiveErrors} attempts. Service may have stopped.", httpEx);
-                            }
-
-                            await Task.Delay(1000, _productionCancelToken);
                         }
                         catch (Exception loopEx)
                         {
-                            Debug.WriteLine($"[HIK-LOOP] ❌ Unexpected error: {loopEx.GetType().Name}: {loopEx.Message}");
-                            Debug.WriteLine($"[HIK-LOOP] Stack trace: {loopEx.StackTrace}");
+                            Debug.WriteLine($"[HIK-LOOP] Error: {loopEx.Message}");
                             _logger?.LogError($"Hikvision loop error: {loopEx}");
-
-                            consecutiveErrors++;
-                            if (consecutiveErrors >= maxConsecutiveErrors)
-                            {
-                                Debug.WriteLine($"[HIK-LOOP] ❌ Max errors reached, throwing...");
-                                throw;
-                            }
-
                             await Task.Delay(1000, _productionCancelToken);
                         }
-                    } // ← End of while loop
+                    }
 
-                    Debug.WriteLine($"[HIK-LOOP] ⚠️ Exited while loop normally");
+                    Debug.WriteLine($"[HIK-LOOP] Exited production loop");
+
+                    // Stop MJPEG stream
+                    _mjpegReader?.Stop();
+                    _mjpegReader?.Dispose();
+                    _mjpegReader = null;
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"[PRODUCTION] Hikvision error: {ex.Message}");
-                    Debug.WriteLine($"[PRODUCTION] Stack: {ex.StackTrace}");
                     _logger?.LogError($"Hikvision backend error: {ex}");
 
                     await Dispatcher.InvokeAsync(() =>
                     {
                         StatusTextBlock.Text = $"Error: {ex.Message}";
                         MessageBox.Show(
-                            $"Hikvision Production Error:\n\n{ex.Message}\n\n" +
-                            $"Troubleshooting:\n" +
-                            $"1. Ensure Flask service is running: python hik_server.py\n" +
-                            $"2. Verify camera is connected and listed in Camera Page\n" +
-                            $"3. Check service is accessible at http://localhost:5005\n" +
-                            $"4. Verify Python DLL and model paths are configured\n" +
-                            $"5. Review logs for detailed error information",
+                            $"Hikvision Production Error:\n\n{ex.Message}",
                             "Hikvision Error",
                             MessageBoxButton.OK,
                             MessageBoxImage.Error);
@@ -839,17 +652,21 @@ namespace VisionAICam.Pages
                 }
                 finally
                 {
-                    // Clean up inference engine
+                    // Clean up
+                    try
+                    {
+                        _mjpegReader?.Stop();
+                        _mjpegReader?.Dispose();
+                        _mjpegReader = null;
+                    }
+                    catch { }
+
                     try
                     {
                         _inferenceEngine?.Dispose();
                         _inferenceEngine = null;
-                        Debug.WriteLine("[HIK] Inference engine disposed");
                     }
-                    catch (Exception disposeEx)
-                    {
-                        Debug.WriteLine($"[HIK] Dispose warning: {disposeEx.Message}");
-                    }
+                    catch { }
 
                     await Dispatcher.InvokeAsync(() =>
                     {
