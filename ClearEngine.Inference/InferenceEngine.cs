@@ -1,9 +1,11 @@
-﻿using System;
-using System.Collections.ObjectModel;
-using System.IO;
+﻿using ClearEngine.Logging;
 using OpenCvSharp;
 using Python.Runtime;
-using ClearEngine.Logging;
+using System;
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.IO;
+using static System.Formats.Asn1.AsnWriter;
 
 namespace ClearEngine.Model.Inference
 {
@@ -54,6 +56,10 @@ namespace ClearEngine.Model.Inference
         // Track disposal state for the singleton instance
         private bool _disposed;
 
+        // Cached Python module and function
+        private dynamic? _cachedInferenceModule;
+        private dynamic? _cachedDetectFunction;
+
         // Private ctor - enforce controlled creation (singleton/factory)
         private InferenceEngine() { }
 
@@ -85,8 +91,12 @@ namespace ClearEngine.Model.Inference
                     }
 
                     PythonEngine.Initialize();
+                    
+                    // ✅ THIS IS CRITICAL - DID YOU ADD THIS LINE?
+                    PythonEngine.BeginAllowThreads();
+                    
                     _initialized = true;
-                    logger?.LogInfo("PythonEngine.Initialize() succeeded.");
+                    logger?.LogInfo("PythonEngine.Initialize() succeeded with threading enabled.");
                     return true;
                 }
                 catch (Exception ex)
@@ -218,396 +228,149 @@ namespace ClearEngine.Model.Inference
         }
 
         // NEW: Detect with comprehensive error handling
-        public InferenceResponse DetectWithError(byte[] jpegBuffer, string modelPath, string? logDir = null)
+        // Replace the entire DetectWithError(byte[] imageBytes...) method with this:
+        public InferenceResponse DetectWithError(byte[] imageBytes, string modelPath, string? logDir = null)
         {
-            if (jpegBuffer == null) 
-                return new InferenceResponse 
-                { 
-                    Success = false, 
-                    Error = new PythonInferenceError 
-                    { 
-                        ErrorType = "InvalidInput", 
-                        Message = "Input buffer is null" 
-                    } 
+            Debug.WriteLine($"[INFERENCE-ENGINE] DetectWithError() called, buffer size: {imageBytes?.Length ?? 0}");
+
+            if (imageBytes == null || imageBytes.Length == 0)
+                return new InferenceResponse
+                {
+                    Success = false,
+                    Error = new PythonInferenceError { ErrorType = "InvalidInput", Message = "Image bytes is null or empty" }
                 };
 
-            // Ensure Python is initialized
-            if (!_initialized || !PythonEngine.IsInitialized)
-            {
-                lock (_initLock)
-                {
-                    if (!_initialized || !PythonEngine.IsInitialized)
-                    {
-                        if (!Initialize(null, Logger, out var initError))
-                        {
-                            Logger?.LogError($"Detect aborted: PythonEngine not initialized: {initError}");
-                            return new InferenceResponse 
-                            { 
-                                Success = false, 
-                                Error = new PythonInferenceError 
-                                { 
-                                    ErrorType = "InitializationError", 
-                                    Message = initError 
-                                } 
-                            };
-                        }
-                    }
-                }
-            }
+            string? tempFile = null;
 
             try
             {
+                // Save to temp file
+                tempFile = Path.Combine(Path.GetTempPath(), $"inference_{Guid.NewGuid():N}.jpg");
+                File.WriteAllBytes(tempFile, imageBytes);
+
+                Debug.WriteLine($"[INFERENCE-ENGINE] Saved temp file: {tempFile}");
+                Debug.WriteLine($"[INFERENCE-ENGINE] Attempting to acquire Python GIL...");
+
+                List<DetectionResult> detections = new List<DetectionResult>();
+
                 using (Py.GIL())
                 {
-                    string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? ".";
-                    
-                    // ✅ Try multiple possible locations
-                    string pythonScriptDir = @"C:\ClearEngine\VisionAICam\PythonScripts";
-                    
-                    // Fallback to local Script folder if PythonScripts doesn't exist
-                    if (!Directory.Exists(pythonScriptDir))
-                    {
-                        pythonScriptDir = Path.Combine(baseDir, "Script");
-                    }
-                    
-                    // Verify inference.py exists
-                    string inferenceFile = Path.Combine(pythonScriptDir, "inference.py");
-                    System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Python script directory: {pythonScriptDir}");
-                    System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] inference.py exists: {File.Exists(inferenceFile)}");
-                    
-                    if (!File.Exists(inferenceFile))
-                    {
-                        string errorMsg = $"inference.py not found at: {inferenceFile}";
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ❌ {errorMsg}");
-                        Logger?.LogError(errorMsg);
-                        return new InferenceResponse 
-                        { 
-                            Success = false, 
-                            Error = new PythonInferenceError 
-                            { 
-                                ErrorType = "FileNotFound", 
-                                Message = errorMsg 
-                            } 
-                        };
-                    }
-                    
+                    Debug.WriteLine($"[INFERENCE-ENGINE] ✅ Acquired Python GIL");
 
-                    // Import sys module
-                    dynamic sys;
-                    try
+                    // Get Python script directory
+                    string scriptDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "PythonScripts");
+                    if (!Directory.Exists(scriptDir))
                     {
-                        sys = Py.Import("sys");
-                    }
-                    catch (PythonException pex)
-                    {
-                        Logger?.LogError($"Failed to import 'sys' module: {pex.Message}");
-                        return new InferenceResponse 
-                        { 
-                            Success = false, 
-                            Error = new PythonInferenceError 
-                            { 
-                                ErrorType = "PythonImportError", 
-                                Message = $"Failed to import sys: {pex.Message}" 
-                            } 
-                        };
+                        scriptDir = @"C:\ClearEngine\VisionAICam\PythonScripts";
                     }
 
-                    // Ensure script folder on sys.path
-                    try
-                    {
-                        bool pathExists = false;
-                        foreach (dynamic p in sys.path)
-                        {
-                            try
-                            {
-                                if (pythonScriptDir.Equals((string)p.ToString(), StringComparison.OrdinalIgnoreCase))
-                                {
-                                    pathExists = true;
-                                    break;
-                                }
-                            }
-                            catch { }
-                        }
-                        if (!pathExists)
-                        {
-                            sys.path.append(pythonScriptDir);
-                            Logger?.LogInfo($"Added '{pythonScriptDir}' to Python sys.path");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger?.LogWarning($"Error modifying sys.path: {ex.Message}");
-                    }
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Python script directory: {scriptDir}");
+
+                    string inferenceScript = Path.Combine(scriptDir, "inference.py");
+                    bool scriptExists = File.Exists(inferenceScript);
+                    Debug.WriteLine($"[INFERENCE-ENGINE] inference.py exists: {scriptExists}");
+
+                    if (!scriptExists)
+                        throw new FileNotFoundException($"inference.py not found at: {inferenceScript}");
+
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Importing Python modules...");
+
+                    // Import Python modules
+                    dynamic sys = Py.Import("sys");
+                    dynamic importlib = Py.Import("importlib");
+
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Adding script dir to sys.path...");
+
+                    // Add script directory to Python path
+                    sys.path.insert(0, scriptDir);
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Added {scriptDir} to sys.path");
+
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Importing inference module...");
 
                     // Import inference module
-                    dynamic inference;
-                    try
+                    if (_cachedInferenceModule == null)
                     {
-                        inference = Py.Import("inference");
+                        Debug.WriteLine($"[INFERENCE-ENGINE] 🔥 Loading inference module for FIRST TIME...");
+                        _cachedInferenceModule = importlib.import_module("inference");
+                        _cachedDetectFunction = _cachedInferenceModule.detect;
                     }
-                    catch (PythonException pex)
+                    else
                     {
-                        string errorMsg = $"Failed to import 'inference' module: {pex.Message}";
-                        Logger?.LogError(errorMsg);
-                        return new InferenceResponse 
-                        { 
-                            Success = false, 
-                            Error = new PythonInferenceError 
-                            { 
-                                ErrorType = "ModuleImportError", 
-                                Message = errorMsg,
-                                Traceback = pex.StackTrace ?? ""
-                            } 
-                        };
+                        Debug.WriteLine($"[INFERENCE-ENGINE] ⚡ Using CACHED inference module");
                     }
 
-                    // Call detect using temp file (most reliable method)
-                    dynamic? result = null;
-                    string tempFile = "";
+                    dynamic detect = _cachedDetectFunction;
 
-                    try
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Calling detect...");
+                    Debug.WriteLine($"[INFERENCE-ENGINE]   Image: {tempFile}");
+                    Debug.WriteLine($"[INFERENCE-ENGINE]   Model: {modelPath}");
+
+                    // Pass both image_path AND model_path
+                    dynamic result = detect(tempFile, modelPath);
+
+                    Debug.WriteLine($"[INFERENCE-ENGINE] ✅ detect(file, model) succeeded");
+
+                    // Parse results
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Parsing result");
+
+                    int count = 0;
+                    foreach (var item in result)
                     {
-                        // Write buffer to temp file
-                        tempFile = Path.Combine(Path.GetTempPath(), $"inference_{Guid.NewGuid():N}.jpg");
-                        File.WriteAllBytes(tempFile, jpegBuffer);
-                        
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Calling detect with temp file: {tempFile}");
-                        
-                        result = inference.detect(tempFile, modelPath, logDir);
-                        
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ✅ detect(file) succeeded");
-                    }
-                    catch (PythonException pex)
-                    {
-                        Logger?.LogError($"detect(file) failed: {pex.Message}");
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ❌ detect(file) failed: {pex.Message}");
-                        
-                        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
-                        
-                        return new InferenceResponse 
-                        { 
-                            Success = false, 
-                            Error = new PythonInferenceError 
-                            { 
-                                ErrorType = "DetectionError", 
-                                Message = pex.Message,
-                                Traceback = pex.StackTrace ?? ""
-                            } 
-                        };
-                    }
-
-                    // Check if result indicates error
-                    try
-                    {
-                        bool success = (bool)result.success;
-                        
-                        if (!success)
-                        {
-                            // Extract error information from Python
-                            string? errorType = result.error_type?.ToString();
-                            string? errorMessage = result.message?.ToString();
-                            string? errorTraceback = result.traceback?.ToString();
-                            
-                            Logger?.LogError($"Python inference error: [{errorType}] {errorMessage}");
-                            
-                            try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
-                            
-                            return new InferenceResponse 
-                            { 
-                                Success = false, 
-                                Error = new PythonInferenceError 
-                                { 
-                                    ErrorType = errorType ?? "UnknownError",
-                                    Message = errorMessage ?? "Unknown error occurred",
-                                    Traceback = errorTraceback ?? ""
-                                } 
-                            };
-                        }
-                    }
-                    catch
-                    {
-                        // If success attribute doesn't exist, assume old-style list return
-                    }
-
-                    // Parse detections
-                    // Replace lines 431-521 with this improved parsing logic:
-
-                    // Parse detections
-                    var detections = new Collection<DetectionResult>();
-                    try
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Parsing result, type: {result.GetType().Name}");
-
-                        dynamic detectionsData = result;
-
-                        // Try to access .detections property (new format)
                         try
                         {
-                            if (result.HasAttr("detections"))
+                            string className = item.class_name?.ToString() ?? "";
+                            double confidence = (double)(item.confidence ?? 0.0);
+                            string box = item.box?.ToString() ?? "";
+                            string task = item.task?.ToString() ?? "";
+
+                            detections.Add(new DetectionResult
                             {
-                                detectionsData = result.detections;
-                                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Using result.detections");
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Using result directly as list");
-                            }
+                                ClassName = className,
+                                Confidence = confidence,
+                                Box = box,
+                                Task = task
+                            });
+
+                            count++;
                         }
-                        catch
+                        catch (Exception itemEx)
                         {
-                            // result is already a list, use it directly
-                            System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] result.detections failed, using result directly");
-                        }
-
-                        if (detectionsData != null)
-                        {
-                            int detCount = 0;
-                            try
-                            {
-                                // Try to get length
-                                detCount = (int)detectionsData.__len__();
-                                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Found {detCount} detections");
-                            }
-                            catch
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Could not get detection count");
-                            }
-
-                            foreach (dynamic det in detectionsData)
-                            {
-                                string? task = null;
-                                string? className = null;
-                                double confidence = 0.0;
-
-                                try { task = det["Task"]?.ToString(); } catch { try { task = det.GetAttr("Task")?.ToString(); } catch { } }
-                                try { className = det["class"]?.ToString(); } catch { try { className = det.GetAttr("class")?.ToString(); } catch { } }
-
-                                try { confidence = (double)det["confidence"]; }
-                                catch { try { double.TryParse(det["confidence"]?.ToString(), out confidence); } catch { } }
-
-                                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Processing detection: class={className}, task={task}, conf={confidence}");
-
-                                if (task == "detect")
-                                {
-                                    try
-                                    {
-                                        var box = det["box"];
-                                        if (box != null)
-                                        {
-                                            double b0 = Convert.ToDouble(box[0]);
-                                            double b1 = Convert.ToDouble(box[1]);
-                                            double b2 = Convert.ToDouble(box[2]);
-                                            double b3 = Convert.ToDouble(box[3]);
-
-                                            detections.Add(new DetectionResult
-                                            {
-                                                ClassName = className ?? "",
-                                                Confidence = confidence,
-                                                Box = $"{b0},{b1},{b2},{b3}",
-                                                Task = "detect"
-                                            });
-
-                                            System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ✅ Added detection: {className} at {b0},{b1},{b2},{b3}");
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Logger?.LogWarning($"Skipping malformed 'box' for class '{className}': {ex.Message}");
-                                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ❌ Box parse failed: {ex.Message}");
-                                    }
-                                }
-                                else if (task == "obb")
-                                {
-                                    try
-                                    {
-                                        var rotateBox = det["rotate_box"];
-                                        if (rotateBox != null)
-                                        {
-                                            double r0 = Convert.ToDouble(rotateBox[0]);
-                                            double r1 = Convert.ToDouble(rotateBox[1]);
-                                            double r2 = Convert.ToDouble(rotateBox[2]);
-                                            double r3 = Convert.ToDouble(rotateBox[3]);
-                                            double r4 = Convert.ToDouble(rotateBox[4]);
-
-                                            detections.Add(new DetectionResult
-                                            {
-                                                ClassName = className ?? "",
-                                                Confidence = confidence,
-                                                Box = $"{r0},{r1},{r2},{r3},{r4}",
-                                                Task = "obb"
-                                            });
-
-                                            System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ✅ Added OBB detection: {className}");
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Logger?.LogWarning($"Skipping malformed 'rotate_box' for class '{className}': {ex.Message}");
-                                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ❌ OBB parse failed: {ex.Message}");
-                                    }
-                                }
-                            }
-
-                            System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ✅ Successfully parsed {detections.Count} detections");
+                            Debug.WriteLine($"[INFERENCE-ENGINE] Failed to parse detection item: {itemEx.Message}");
                         }
                     }
-                    catch (Exception ex)
-                    {
-                        Logger?.LogError($"Failed to parse inference results: {ex.Message}");
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ❌ Parse error: {ex.Message}");
-                        System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Stack: {ex.StackTrace}");
 
-                        try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+                    Debug.WriteLine($"[INFERENCE-ENGINE] Found {count} detections");
+                } // Release GIL
 
-                        return new InferenceResponse
-                        {
-                            Success = false,
-                            Error = new PythonInferenceError
-                            {
-                                ErrorType = "ParseError",
-                                Message = $"Failed to parse detection results: {ex.Message}"
-                            }
-                        };
-                    }
+                Debug.WriteLine($"[INFERENCE-ENGINE] ✅ Released Python GIL");
+                Debug.WriteLine($"[INFERENCE-ENGINE] ✅ Successfully parsed {detections.Count} detections");
 
-                    // Cleanup temp file
-                    try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
+                // Cleanup temp file
+                try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
 
-                    System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ✅✅✅ Returning {detections.Count} detections");
+                Debug.WriteLine($"[INFERENCE-ENGINE] ✅✅✅ Returning {detections.Count} detections");
 
-                    return new InferenceResponse
-                    {
-                        Success = true,
-                        Detections = detections.ToArray()
-                    };
-
-                    // Cleanup temp file
-                    try { if (File.Exists(tempFile)) File.Delete(tempFile); } catch { }
-
-                    return new InferenceResponse 
-                    { 
-                        Success = true, 
-                        Detections = detections.ToArray() 
-                    };
-                }
+                return new InferenceResponse
+                {
+                    Success = true,
+                    Detections = detections.ToArray()
+                };
             }
             catch (Exception ex)
             {
-                // 🔥 ADD DEBUG OUTPUT
-                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] ❌ Outer exception caught");
-                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Type: {ex.GetType().Name}");
-                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Message: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"[INFERENCE-ENGINE] Stack:\n{ex.StackTrace}");
+                Debug.WriteLine($"[INFERENCE-ENGINE] ❌ Exception: {ex.GetType().Name}: {ex.Message}");
+                Debug.WriteLine($"[INFERENCE-ENGINE] Stack trace: {ex.StackTrace}");
+                Logger?.LogError($"DetectWithError failed: {ex}");
 
-                Logger?.LogError($"Detection error: {ex.Message}");
-                Logger?.LogError($"Full exception: {ex}");
+                // Cleanup temp file
+                try { if (tempFile != null && File.Exists(tempFile)) File.Delete(tempFile); } catch { }
 
                 return new InferenceResponse
                 {
                     Success = false,
                     Error = new PythonInferenceError
                     {
-                        ErrorType = "UnexpectedError",
+                        ErrorType = ex.GetType().Name,
                         Message = ex.Message,
                         Traceback = ex.StackTrace ?? ""
                     }
