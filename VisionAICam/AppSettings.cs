@@ -2,21 +2,14 @@
 using System.Collections.Generic;
 using System.Xml.Serialization;
 using ClearEngine.Devices.Camera;
+
 namespace VisionAICam
 {
-    // Serializable entry for XML-friendly class->id mapping
     public class ClassIdEntry
     {
         public string Name { get; set; } = "";
         public ushort Id { get; set; } = 0;
     }
-
-    // ⭐ Camera backend selector
-    //public enum CameraBackend
-    //{
-    //    OpenCv,
-    //    Hikvision
-    //}
 
     public class AppSettings
     {
@@ -36,11 +29,11 @@ namespace VisionAICam
         // -----------------------------
         // ⭐ Hikvision camera settings
         // -----------------------------
-        public int HikCameraIndex { get; set; } = 0;          // NEW
-        public double HikExposureTime { get; set; } = 25000;  // µs
-        public double HikGain { get; set; } = 10;             // dB
-        public double HikGamma { get; set; } = 1.5;           // gamma
-        public double HikBlackLevel { get; set; } = 2;        // black level
+        public int HikCameraIndex { get; set; } = 0;
+        public double HikExposureTime { get; set; } = 25000;
+        public double HikGain { get; set; } = 10;
+        public double HikGamma { get; set; } = 1.5;
+        public double HikBlackLevel { get; set; } = 2;
 
         // -----------------------------
         // Model
@@ -56,7 +49,9 @@ namespace VisionAICam
         // -----------------------------
         // Inference settings
         // -----------------------------
-        public string PythonDllPath { get; set; } = "";
+        // ✅ FIX: Set default Python DLL path to your actual location
+        public string PythonDllPath { get; set; } = @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python313.dll";
+
         public string InferenceRuntime { get; set; } = "pythonnet";
         public bool InferenceEnableCaching { get; set; } = true;
         public bool InferencePrewarm { get; set; } = false;
@@ -69,7 +64,6 @@ namespace VisionAICam
         public string MasterControllerIp { get; set; } = "192.168.1.6";
         public int MasterControllerPort { get; set; } = 502;
         public bool SwapFloatWords { get; set; } = false;
-
         public ushort RobotRegisterAddress { get; set; } = 10;
 
         // -----------------------------
@@ -130,7 +124,6 @@ namespace VisionAICam
             }
         }
 
-        // Convenience tuple-like accessors
         [XmlIgnore]
         public (byte R, byte G, byte B) RefRed
         {
@@ -164,5 +157,8 @@ namespace VisionAICam
         public double TolerancePercentR { get; set; } = 15.0;
         public double TolerancePercentG { get; set; } = 15.0;
         public double TolerancePercentB { get; set; } = 15.0;
+
+        // ✅ Changed from 'internal set' to 'set' so it can be saved to XML
+        public bool EnableAutoSnapshot { get; set; } = false;
     }
 }

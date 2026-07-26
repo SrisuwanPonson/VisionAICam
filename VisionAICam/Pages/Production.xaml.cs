@@ -1,5 +1,5 @@
-﻿using ClearEngine.Devices.Camera; // use camera class library
-using ClearEngine.Logging; // <- use the new logger library
+﻿using ClearEngine.Devices.Camera;
+using ClearEngine.Logging;
 using ClearEngine.Model.Inference;
 using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
@@ -20,7 +20,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using VisionAICam;
-using VisionAICam.Core; // <- use MasterController
+using VisionAICam.Core;
 using VisionAICam.Helpers;
 using VisionAICam.Properties;
 using VisionAICam.Services;
@@ -33,19 +33,16 @@ namespace VisionAICam.Pages
     {
         public DateTime Timestamp { get; set; } = DateTime.Now;
         public string ClassName { get; set; } = "";
-        public string ClassId { get; set; } = ""; // optional
+        public string ClassId { get; set; } = "";
         public double Confidence { get; set; }
-        public string Box { get; set; } = ""; // "x1,y1,x2,y2"
-        public string Task { get; set; } = ""; // "detect" or "obb"
+        public string Box { get; set; } = "";
+        public string Task { get; set; } = "";
     }
 
-    // Per-frame summary DTO
     public class FrameSummary
     {
         public string ClassName { get; set; } = "";
         public int Count { get; set; }
-
-        // Brush used to color the class name in the DataGrid (matches bounding box color)
         public Brush ColorBrush { get; set; } = Brushes.White;
     }
 
@@ -58,21 +55,22 @@ namespace VisionAICam.Pages
         private AppSettings? _appSettings;
         private System.Timers.Timer? _timer;
         private bool frameTrigger = false;
-        // declare initError once
-        string initError;
-        // Use the shared logger from ClearEngine.Logging
+        private string? initError;
+
         private readonly ILogger _logger = ClearEngine.Logging.Logger.Instance;
-        // Add this field inside the Production class (near the other private fields)
         private ClearEngine.Model.Inference.InferenceEngine? _inferenceEngine;
         public InferenceEngine? InferenceEngineInstance => _inferenceEngine;
-        private MjpegStreamReader _mjpeg;
+
+        private MjpegStreamReader? _mjpeg;
         private static readonly HttpClient http = new HttpClient();
-        // Per-frame summary collection bound to UI DataGrid (cleared and replaced each trigger frame)
+
         private readonly ObservableCollection<FrameSummary> _perFrameSummary = new();
         private readonly Queue<byte[]> _fifoFrames = new Queue<byte[]>(5);
-        private BitmapSource _latestFrame;
-        // Brush cache: colors per class name
-        // keep a few sensible defaults, others will be generated with high contrast
+
+        private CancellationTokenSource? _productionCancelTokenSource;
+        private CancellationToken _productionCancelToken => _productionCancelTokenSource?.Token ?? CancellationToken.None;
+        private string? _logDir;
+
         private readonly Dictionary<string, SolidColorBrush> _classBrushes = new(StringComparer.OrdinalIgnoreCase)
         {
             ["person"] = Brushes.Red as SolidColorBrush,
@@ -84,8 +82,6 @@ namespace VisionAICam.Pages
             ["dog"] = Brushes.Blue as SolidColorBrush
         };
 
-        // Map class name -> id. Only use user-configured AppSettings.ClassIdMap.
-        // If no mapping exists, return 0 (caller will skip sending).
         private static ushort MapClassToId(string? className)
         {
             if (string.IsNullOrWhiteSpace(className)) return 0;
@@ -99,12 +95,8 @@ namespace VisionAICam.Pages
                         return uid;
                 }
             }
-            catch
-            {
-                // swallow - if config can't be read we will not send
-            }
+            catch { }
 
-            // No mapping => do not send
             return 0;
         }
 
@@ -113,11 +105,11 @@ namespace VisionAICam.Pages
             InitializeComponent();
             InitializeTimer();
             InitializeFrameSummary();
+            _logDir = _logger.GetLogDirectory();
         }
 
         private void InitializeFrameSummary()
         {
-            // If a DataGrid named PerFrameSummaryGrid exists in XAML, bind it to our collection.
             try
             {
                 var dg = this.FindName("PerFrameSummaryGrid") as DataGrid;
@@ -126,18 +118,16 @@ namespace VisionAICam.Pages
                     dg.ItemsSource = _perFrameSummary;
                 }
             }
-            catch { /* non-fatal if UI element not present */ }
+            catch { }
         }
-
 
         private void InitializeTimer()
         {
-            // Use a safe default here. Actual sampling interval will be applied in StartProduction
             int intervalMs = 20;
             _timer = new System.Timers.Timer(intervalMs);
             _timer.Elapsed += OnTimerElapsed;
             _timer.AutoReset = true;
-            _timer.Enabled = false; // Start disabled, enable when needed
+            _timer.Enabled = false;
         }
 
         private void StartTimer()
@@ -145,7 +135,7 @@ namespace VisionAICam.Pages
             if (_timer != null && !_timer.Enabled)
                 _timer.Start();
 
-            Application.Current.Dispatcher.Invoke(() => { /* optional periodic UI work */ });
+            Application.Current.Dispatcher.Invoke(() => { });
         }
 
         private void StopTimer()
@@ -172,6 +162,7 @@ namespace VisionAICam.Pages
                 Debug.WriteLine($"Timer error: {ex.Message}");
             }
         }
+
         public static BitmapSource LoadBitmap(byte[] imageData)
         {
             using var ms = new MemoryStream(imageData);
@@ -195,225 +186,301 @@ namespace VisionAICam.Pages
 
             _appSettings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
 
+            if (_appSettings == null)
+            {
+                MessageBox.Show("Failed to load application settings.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _isRunning = false;
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                return;
+            }
+
             int opencvIndex = _appSettings.CameraIndex;
-            int hikIndex = _appSettings.HikCameraIndex;
             var backend = _appSettings.CameraBackend;
 
-            // Apply sampling interval
             if (_timer != null)
             {
-                int intervalMs = _appSettings?.SamplingInterval ?? 20;
+                int intervalMs = _appSettings.SamplingInterval;
                 if (intervalMs <= 0) intervalMs = 20;
                 _timer.Interval = intervalMs;
             }
 
             _perFrameSummary.Clear();
+            _productionCancelTokenSource = new CancellationTokenSource();
 
-            // ---------------------------------------------------------
-            // 🔥 1) HIKVISION BACKEND (STREAMING LOOP)
-            // ---------------------------------------------------------
+            // =================================================================
+            // HIKVISION BACKEND
+            // =================================================================
             if (backend == CameraBackend.Hikvision)
             {
+                Debug.WriteLine("[PRODUCTION] Starting Hikvision backend");
+                _logger?.LogInfo("Starting Hikvision backend");
+
                 try
                 {
-                    Debug.WriteLine("[START] Backend = HIKVISION");
+                    string serviceUrl = "http://localhost:5005";
+                    int cameraIndex = _appSettings.CameraIndex;
 
-                    if (!Prewarm())
+                    // 1. Ensure camera is started
+                    bool needsStart = false;
+                    try
                     {
-                        Debug.WriteLine("[INIT] Prewarm failed");
-                        _isRunning = false;
-                        LoadingOverlay.Visibility = Visibility.Collapsed;
-                        return;
+                        var testResponse = await http.GetAsync($"{serviceUrl}/snapshot",
+                            new CancellationTokenSource(500).Token);
+                        needsStart = !testResponse.IsSuccessStatusCode;
+                    }
+                    catch
+                    {
+                        needsStart = true;
                     }
 
-                    var engine = _inferenceEngine;
-                    var modelPath = engine.modelPath;
-                    var logDir = engine.logDir;
-
-                    // ---------------------------------------------------------
-                    // ROTATING FILE LIST
-                    // ---------------------------------------------------------
-                    string basePath = @"C:\ClearEngine\VisionAICam\PythonScripts\";
-                    string[] files = new string[]
+                    if (needsStart)
                     {
-            basePath + "test1.jpg",
-            basePath + "test2.jpg",
-            basePath + "test3.jpg",
-            basePath + "test4.jpg",
-            basePath + "test5.jpg"
-                    };
+                        Debug.WriteLine($"[HIK] Camera not started, starting camera index {cameraIndex}");
 
-                    int index = 0;
-                    _latestFrame = null;
+                        var startResponse = await http.GetAsync($"{serviceUrl}/start/{cameraIndex}");
+                        var startJson = await startResponse.Content.ReadAsStringAsync();
 
-                    // ---------------------------------------------------------
-                    // FILE READER LOOP
-                    // ---------------------------------------------------------
-                    _ = Task.Run(async () =>
-                    {
-                        while (_isRunning)
+                        Debug.WriteLine($"[HIK] Start response: {startJson}");
+
+                        if (!startJson.Contains("\"status\":\"started\""))
                         {
-                            string filePath = files[index];
+                            throw new Exception($"Failed to start Hikvision camera: {startJson}");
+                        }
 
-                            try
+                        try
+                        {
+                            await http.GetStringAsync($"{serviceUrl}/set/exposure/{_appSettings.HikExposureTime}");
+                            await http.GetStringAsync($"{serviceUrl}/set/gain/{_appSettings.HikGain}");
+                            await http.GetStringAsync($"{serviceUrl}/set/gamma/{_appSettings.HikGamma}");
+                            await http.GetStringAsync($"{serviceUrl}/set/blacklevel/{_appSettings.HikBlackLevel}");
+                            Debug.WriteLine("[HIK] Camera parameters applied");
+                        }
+                        catch (Exception paramEx)
+                        {
+                            Debug.WriteLine($"[HIK] Warning: Failed to set parameters: {paramEx.Message}");
+                        }
+
+                        await Task.Delay(500);
+                    }
+                    else
+                    {
+                        Debug.WriteLine("[HIK] Camera already started (preview may be active)");
+                    }
+
+                    _logger?.LogInfo("Hikvision camera ready for production");
+
+                    // 2. Main production loop
+                    int frameCount = 0;
+                    var fpsTimer = System.Diagnostics.Stopwatch.StartNew();
+
+                    while (!_productionCancelToken.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            var loopStart = System.Diagnostics.Stopwatch.StartNew();
+
+                            // Get frame from snapshot endpoint
+                            var frameResponse = await http.GetAsync($"{serviceUrl}/snapshot");
+                            if (!frameResponse.IsSuccessStatusCode)
                             {
-                                if (System.IO.File.Exists(filePath))
+                                Debug.WriteLine($"[HIK] Snapshot failed: {frameResponse.StatusCode}");
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            byte[] frameBytes = await frameResponse.Content.ReadAsByteArrayAsync();
+                            if (frameBytes == null || frameBytes.Length == 0)
+                            {
+                                Debug.WriteLine("[HIK] Empty frame received");
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            frameCount++;
+
+                            // Decode to BitmapSource for UI display
+                            BitmapSource? bitmapSource = null;
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                try
                                 {
-                                    byte[] bytes = null;
+                                    using var ms = new System.IO.MemoryStream(frameBytes);
+                                    var decoder = BitmapDecoder.Create(ms,
+                                        BitmapCreateOptions.PreservePixelFormat,
+                                        BitmapCacheOption.OnLoad);
+                                    bitmapSource = decoder.Frames[0];
+                                    bitmapSource.Freeze();
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[HIK] Frame decode error: {ex.Message}");
+                                }
+                            });
 
-                                    // SAFE READ (avoid Python write-lock)
-                                    for (int i = 0; i < 5; i++)
+                            if (bitmapSource == null)
+                            {
+                                await Task.Delay(100);
+                                continue;
+                            }
+
+                            // Display frame
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                ProductionImage.Source = bitmapSource;
+                            });
+
+                            // 3. Run inference if model is configured
+                            var modelPath = _appSettings.DefaultModelPath;
+                            if (!string.IsNullOrEmpty(modelPath) && _inferenceEngine != null)
+                            {
+                                ClearEngine.Model.Inference.InferenceResponse? inferenceResponse = null;
+                                try
+                                {
+                                    inferenceResponse = await Task.Run(() =>
+                                        _inferenceEngine.DetectWithError(frameBytes, modelPath, _logDir));
+
+                                    Debug.WriteLine($"[PREDICT] Success: {inferenceResponse?.Success}, Detections: {inferenceResponse?.Detections?.Length ?? 0}");
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[PREDICT] ❌ Exception: {ex.GetType().Name}: {ex.Message}");
+                                    _logger?.LogError($"Inference error: {ex}");
+                                    await Task.Delay(1000);
+                                    continue;
+                                }
+
+                                if (inferenceResponse == null || !inferenceResponse.Success)
+                                {
+                                    if (inferenceResponse?.Error != null)
                                     {
-                                        try
-                                        {
-                                            bytes = System.IO.File.ReadAllBytes(filePath);
-                                            break;
-                                        }
-                                        catch
-                                        {
-                                            await Task.Delay(5);
-                                        }
+                                        Debug.WriteLine($"[PREDICT] Python error: {inferenceResponse.Error.ErrorType} - {inferenceResponse.Error.Message}");
+                                        _logger?.LogError($"Python inference error: {inferenceResponse.Error.ErrorType} - {inferenceResponse.Error.Message}");
                                     }
 
-                                    if (bytes != null && bytes.Length > 100)
+                                    await Dispatcher.InvokeAsync(() =>
                                     {
-                                        using (var ms = new MemoryStream(bytes))
-                                        {
-                                            var bmp = new BitmapImage();
-                                            bmp.BeginInit();
-                                            bmp.CacheOption = BitmapCacheOption.OnLoad;
-                                            bmp.StreamSource = ms;
-                                            bmp.EndInit();
-                                            bmp.Freeze();
+                                        DrawBoundingBoxes(Array.Empty<DetectionResult>());
+                                        UpdateFrameSummary(Array.Empty<DetectionResult>());
+                                    });
+                                    await Task.Delay(1000);
+                                    continue;
+                                }
 
-                                            _latestFrame = bmp;
+                                var raw = inferenceResponse.Detections;
 
-                                            Dispatcher.Invoke(() =>
-                                            {
-                                                ProductionImage.Source = bmp;
-                                            });
-                                        }
-                                    }
+                                if (raw == null || raw.Length == 0)
+                                {
+                                    Debug.WriteLine("[PREDICT] No detections");
+                                    await Dispatcher.InvokeAsync(() =>
+                                    {
+                                        DrawBoundingBoxes(Array.Empty<DetectionResult>());
+                                        UpdateFrameSummary(Array.Empty<DetectionResult>());
+                                    });
                                 }
                                 else
                                 {
-                                    Debug.WriteLine("[FILE] Missing: " + filePath);
+                                    var mappedDetections = raw.Select(r => new VisionAICam.Pages.DetectionResult
+                                    {
+                                        ClassName = r.ClassName ?? string.Empty,
+                                        Confidence = r.Confidence,
+                                        Box = r.Box ?? string.Empty,
+                                        Task = r.Task ?? string.Empty,
+                                        Timestamp = DateTime.Now
+                                    }).ToArray();
+
+                                    Debug.WriteLine($"[DRAW] Drawing {mappedDetections.Length} detections");
+                                    await Dispatcher.InvokeAsync(() =>
+                                    {
+                                        try
+                                        {
+                                            DrawBoundingBoxes(mappedDetections);
+                                            UpdateFrameSummary(mappedDetections);
+
+                                            if (fpsTimer.Elapsed.TotalSeconds >= 1.0)
+                                            {
+                                                double fps = frameCount / fpsTimer.Elapsed.TotalSeconds;
+                                                StatusTextBlock.Text = $"Detections: {mappedDetections.Length} | FPS: {fps:F1}";
+                                                frameCount = 0;
+                                                fpsTimer.Restart();
+                                            }
+                                            else
+                                            {
+                                                StatusTextBlock.Text = $"Detections: {mappedDetections.Length}";
+                                            }
+                                        }
+                                        catch (Exception drawEx)
+                                        {
+                                            Debug.WriteLine($"[DRAW] Error: {drawEx.Message}");
+                                        }
+                                    });
+
+                                    // AUTOMATIC SNAPSHOT WHEN DETECTIONS FOUND
+                                    if (_appSettings.EnableAutoSnapshot && bitmapSource != null)
+                                    {
+                                        try
+                                        {
+                                            string topClass = mappedDetections.FirstOrDefault()?.ClassName ?? "Unknown";
+                                            await SaveDetectionSnapshot(bitmapSource, frameCount, topClass, mappedDetections.Length);
+                                        }
+                                        catch (Exception snapEx)
+                                        {
+                                            Debug.WriteLine($"[SNAPSHOT] Failed: {snapEx.Message}");
+                                        }
+                                    }
                                 }
                             }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine("[FILE-ERROR] " + ex.Message);
-                            }
 
-                            // Move to next file
-                            index = (index + 1) % files.Length;
-
-                            await Task.Delay(30); // ~33 FPS
+                            loopStart.Stop();
+                            int targetDelay = Math.Max(1, 33 - (int)loopStart.ElapsedMilliseconds);
+                            await Task.Delay(targetDelay);
                         }
-                    });
-
-                    // ---------------------------------------------------------
-                    // WAIT FOR FIRST FRAME
-                    // ---------------------------------------------------------
-                    while (_isRunning && _latestFrame == null)
-                    {
-                        Debug.WriteLine("[INIT] Waiting for first testX.jpg...");
-                        await Task.Delay(50);
+                        catch (Exception loopEx)
+                        {
+                            Debug.WriteLine($"[HIK-LOOP] Error: {loopEx.Message}");
+                            _logger?.LogError($"Hikvision loop error: {loopEx}");
+                            await Task.Delay(1000);
+                        }
                     }
 
-                    // ---------------------------------------------------------
-                    // YOLO LOOP (SAFE)
-                    // ---------------------------------------------------------
-                    _ = Task.Run(async () =>
-                    {
-                        while (_isRunning)
-                        {
-                            try
-                            {
-                                var src = _latestFrame;
-                                if (src == null)
-                                {
-                                    await Task.Delay(10);
-                                    continue;
-                                }
-
-                                using Mat mat = BitmapSourceToMatExtensions.ToMat(src);
-                                if (mat == null || mat.Empty())
-                                {
-                                    Debug.WriteLine("[PREDICT] Empty Mat");
-                                    await Task.Delay(10);
-                                    continue;
-                                }
-
-                                Debug.WriteLine($"[PREDICT] Mat Size = {mat.Width}x{mat.Height}, Channels = {mat.Channels()}");
-
-                                var raw = await Task.Run(() => engine.Detect(mat, modelPath, logDir));
-                                if (raw == null)
-                                    continue;
-
-                                var results = raw.Select(r => new DetectionResult
-                                {
-                                    ClassName = r.ClassName,
-                                    Confidence = r.Confidence,
-                                    Box = r.Box,
-                                    Task = r.Task
-                                }).ToList();
-
-                                await Dispatcher.InvokeAsync(() =>
-                                {
-                                    DrawBoundingBoxes(results);
-                                    UpdateFrameSummary(results);
-                                });
-
-                                if (results.Count > 0)
-                                    _ = SendFirstDetectionToRobotUsingServiceAsync(results[0].ClassName);
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine("[YOLO-ERROR] " + ex.Message);
-                            }
-
-                            await Task.Delay(10);
-                        }
-                    });
-
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    StatusTextBlock.Text = "Hikvision production started (ROTATING FILE MODE)";
-                    return;
+                    Debug.WriteLine("[HIK] Production loop ended");
+                    _logger?.LogInfo("Hikvision production stopped");
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Hikvision start failed: {ex.Message}");
-                    _isRunning = false;
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    return;
+                    Debug.WriteLine($"[PRODUCTION] Hikvision error: {ex.Message}");
+                    Debug.WriteLine($"[PRODUCTION] Stack: {ex.StackTrace}");
+                    _logger?.LogError($"Hikvision backend error: {ex}");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        StatusTextBlock.Text = $"Error: {ex.Message}";
+                        MessageBox.Show($"Failed to start Hikvision production:\n\n{ex.Message}\n\nMake sure:\n1. Flask service is running (python hik_server.py)\n2. Camera is selected in Camera Page",
+                            "Hikvision Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
                 }
+                finally
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        _isRunning = false;
+                        if (StatusTextBlock.Text.StartsWith("Error"))
+                        {
+                            // Keep error message
+                        }
+                        else
+                        {
+                            StatusTextBlock.Text = "Stopped";
+                        }
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                    });
+                }
+
+                return;
             }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            // ---------------------------------------------------------
-            // 🔥 2) OPENCV BACKEND (unchanged)
-            // ---------------------------------------------------------
+            // =================================================================
+            // OPENCV BACKEND
+            // =================================================================
             try
             {
                 Debug.WriteLine($"[START] Backend = OpenCV");
@@ -454,16 +521,12 @@ namespace VisionAICam.Pages
             }
         }
 
-
-
-
-
-
         public void StopProduction()
         {
             if (!_isRunning) return;
 
-            // Stop flags
+            _productionCancelTokenSource?.Cancel();
+
             StopTimer();
             _isRunning = false;
             _isPaused = false;
@@ -471,37 +534,12 @@ namespace VisionAICam.Pages
             StatusTextBlock.Text = "Production stopped";
             LoadingOverlay.Visibility = Visibility.Collapsed;
 
-            // Stop OpenCV thread
             _cameraThread?.Join();
             _cameraThread = null;
 
-            // Stop Hikvision camera
-            try
-            {
-                _ = http.GetStringAsync("http://localhost:5005/stop");
-                Debug.WriteLine("[HIK-STOP] Camera stopped.");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[HIK-STOP-ERROR] " + ex.Message);
-            }
-
-            // Stop Hikvision MJPEG stream
-            try
-            {
-                _ = http.GetStringAsync("http://localhost:5005/stream/stop");
-                Debug.WriteLine("[HIK-STREAM-STOP] Stream stopped.");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("[HIK-STREAM-STOP-ERROR] " + ex.Message);
-            }
-
-            // Stop MJPEG reader
             _mjpeg?.Stop();
             _mjpeg = null;
 
-            // Stop OpenCV camera
             if (_camera != null)
             {
                 _camera.Stop();
@@ -509,16 +547,13 @@ namespace VisionAICam.Pages
                 _camera = null;
             }
 
-            // Clear UI
             ProductionImage.Source = null;
             ClearBoundingBoxes();
             _perFrameSummary.Clear();
+
+            _productionCancelTokenSource?.Dispose();
+            _productionCancelTokenSource = null;
         }
-
-
-
-
-
 
         public void PauseProduction()
         {
@@ -542,82 +577,82 @@ namespace VisionAICam.Pages
         public bool IsPaused => _isPaused;
 
         private bool _cameraLoopRunning = false;
+
         public bool Prewarm()
         {
-            // Load settings
             var settings = _appSettings
                            ?? MasterController.Instance.GetService<AppSettings>()
                            ?? SettingsManager.Load();
 
-            // Resolve Python DLL path
-            string pythonDllPath = settings?.PythonDllPath;
-            if (string.IsNullOrWhiteSpace(pythonDllPath))
-            {
-                pythonDllPath = System.IO.Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "Script", "NewEnv", "Python313", "python313.dll"
-                );
-            }
+            // Python DLL path - will use default from AppSettings if not configured
+            string pythonDllPath = settings?.PythonDllPath ?? @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python313.dll";
 
-            // Validate Python DLL exists
+            Debug.WriteLine($"[PREWARM] Python DLL path: {pythonDllPath}");
+
             if (!System.IO.File.Exists(pythonDllPath))
             {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusTextBlock.Text = $"Python DLL not found: {pythonDllPath}";
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                });
+                string errorMsg = $"Python DLL not found:\n{pythonDllPath}\n\n";
+                errorMsg += "Expected location:\nC:\\ClearEngine\\VisionAICam\\PythonEnv\\Python313\\python313.dll\n\n";
+                errorMsg += "Please verify Python 3.13 is installed correctly.";
 
+                RaiseModelAlarm(errorMsg);
                 _cameraLoopRunning = false;
                 return false;
             }
 
-            // Initialize inference engine
+            Debug.WriteLine($"[PREWARM] Creating inference engine...");
+
             if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(
-                    pythonDllPath,
-                    _logger,
-                    out _inferenceEngine,
-                    out initError))
+                    pythonDllPath, _logger, out _inferenceEngine, out var tempInitError))
             {
-                Dispatcher.BeginInvoke(() =>
-                {
-                    StatusTextBlock.Text = $"Failed to initialize inference: {initError}";
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                });
-
+                initError = tempInitError;
+                RaiseModelAlarm($"Failed to initialize inference:\n\n{initError}");
                 _cameraLoopRunning = false;
                 return false;
             }
 
-            // Show Python DLL being used
-            Dispatcher.BeginInvoke(() =>
-            {
-                StatusTextBlock.Text = $"Using Python DLL: {Python.Runtime.Runtime.PythonDLL}";
-            });
+            Debug.WriteLine($"[PREWARM] Inference engine created");
 
-            // Configure inference engine paths
             var modelPath = _appSettings?.DefaultModelPath
                             ?? settings?.DefaultModelPath
-                            ?? "model.pt";
+                            ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(modelPath))
+            {
+                Debug.WriteLine($"[PREWARM] No model configured, inference will be skipped");
+                return true;
+            }
+
+            if (!System.IO.File.Exists(modelPath))
+            {
+                RaiseModelAlarm($"Model file not found:\n{modelPath}");
+                _cameraLoopRunning = false;
+                return false;
+            }
+
+            Debug.WriteLine($"[PREWARM] Model: {modelPath}");
 
             var logDir = _logger.GetLogDirectory();
+            if (_inferenceEngine != null)
+            {
+                _inferenceEngine.modelPath = modelPath;
+                _inferenceEngine.logDir = logDir;
+            }
 
-            _inferenceEngine.modelPath = modelPath;
-            _inferenceEngine.logDir = logDir;
-
-            // Prewarm engine
             try
             {
+                Debug.WriteLine("[PREWARM] Prewarming model...");
                 _inferenceEngine?.PrewarmFirstFrameAsync();
+                Debug.WriteLine("[PREWARM] Model prewarmed");
             }
             catch (Exception ex)
             {
-                try { _logger.LogError($"PrewarmFirstFrameAsync threw: {ex}"); } catch { }
+                Debug.WriteLine($"[PREWARM] Prewarm warning: {ex.Message}");
             }
 
+            Debug.WriteLine("[PREWARM] Ready");
             return true;
         }
-
         private void CameraLoop()
         {
             if (_cameraLoopRunning)
@@ -631,7 +666,6 @@ namespace VisionAICam.Pages
 
             _cameraLoopRunning = true;
 
-            // Initialize inference engine
             Prewarm();
 
             Dispatcher.BeginInvoke(() =>
@@ -658,21 +692,17 @@ namespace VisionAICam.Pages
                     {
                         frameTrigger = false;
 
-                        // BitmapSource from HikCamera
                         var bitmap = _camera.CaptureCurrentFrame();
                         if (bitmap != null)
                         {
-                            Mat cvMat = null;
+                            Mat? cvMat = null;
 
                             try
                             {
-                                // Convert BitmapSource → Mat (use our extension explicitly)
                                 cvMat = VisionAICam.Helpers.BitmapSourceToMatExtensions.ToMat(bitmap);
 
-                                // Run inference
                                 var remoteResults = InferenceEngineInstance?.Detect(cvMat, modelPath, logDir);
 
-                                // Map results
                                 var mapped = new Collection<DetectionResult>();
                                 if (remoteResults != null)
                                 {
@@ -688,11 +718,9 @@ namespace VisionAICam.Pages
                                     }
                                 }
 
-                                // Freeze bitmap for UI thread
                                 if (bitmap.CanFreeze)
                                     bitmap.Freeze();
 
-                                // Update UI
                                 Dispatcher.BeginInvoke(() =>
                                 {
                                     ProductionImage.Source = bitmap;
@@ -711,7 +739,6 @@ namespace VisionAICam.Pages
                                     }
                                 });
 
-                                // Push results to MasterController
                                 try
                                 {
                                     MasterController.Instance.AddDetectionResults(mapped);
@@ -721,7 +748,6 @@ namespace VisionAICam.Pages
                                     _logger.LogError($"Failed to add detection results: {ex}");
                                 }
 
-                                // Persist predictions
                                 try
                                 {
                                     var store = MasterController.Instance.GetService<VisionAICam.Services.PredictionStore>();
@@ -737,7 +763,6 @@ namespace VisionAICam.Pages
                             }
                             finally
                             {
-                                // Dispose only Mat
                                 cvMat?.Dispose();
                             }
                         }
@@ -770,27 +795,22 @@ namespace VisionAICam.Pages
             }
         }
 
-
-        // Improved color generation: produce bright / saturated colors for high contrast.
         private SolidColorBrush GetBrushForClass(string className)
         {
             if (string.IsNullOrWhiteSpace(className))
-                return Brushes.Red as SolidColorBrush;
+                return Brushes.Red as SolidColorBrush ?? new SolidColorBrush(Colors.Red);
 
             if (_classBrushes.TryGetValue(className, out var brush))
-                return brush;
+                return brush ?? new SolidColorBrush(Colors.Red);
 
-            // Deterministic hue from hash, ensure positive
             int hash = Math.Abs(className.GetHashCode());
-            double hue = hash % 360; // 0..359
+            double hue = hash % 360;
 
-            // Slight variation in saturation/value derived from hash to avoid too-similar tones
-            double satVariant = ((hash >> 8) & 0xFF) / 255.0; // 0..1
-            double valVariant = ((hash >> 16) & 0xFF) / 255.0; // 0..1
+            double satVariant = ((hash >> 8) & 0xFF) / 255.0;
+            double valVariant = ((hash >> 16) & 0xFF) / 255.0;
 
-            // Choose saturation and value in high range for vivid colors
-            double saturation = 0.65 + satVariant * 0.25; // 0.65 .. 0.90
-            double value = 0.75 + valVariant * 0.20;      // 0.75 .. 0.95
+            double saturation = 0.65 + satVariant * 0.25;
+            double value = 0.75 + valVariant * 0.20;
 
             var color = HsvToRgb(hue, saturation, value);
             var newBrush = new SolidColorBrush(color);
@@ -807,7 +827,6 @@ namespace VisionAICam.Pages
             return newBrush;
         }
 
-        // Helper: convert HSV to Color (H 0-360, S 0-1, V 0-1)
         private static Color HsvToRgb(double h, double s, double v)
         {
             h = h % 360;
@@ -833,7 +852,6 @@ namespace VisionAICam.Pages
 
         private void UpdateFrameSummary(IEnumerable<DetectionResult> mapped)
         {
-            // Ensure we run on UI thread since we mutate ObservableCollection
             if (!Dispatcher.CheckAccess())
             {
                 Dispatcher.BeginInvoke(() => UpdateFrameSummary(mapped));
@@ -862,130 +880,268 @@ namespace VisionAICam.Pages
 
         private void DrawBoundingBoxes(IEnumerable<DetectionResult> detections)
         {
-            BoundingBoxCanvas.Children.Clear();
-
-            foreach (var det in detections)
+            try
             {
-                var parts = det.Box.Split(',');
+                BoundingBoxCanvas.Children.Clear();
 
-                // choose color per class
-                var strokeBrush = GetBrushForClass(det.ClassName);
-                Brush labelBrush = strokeBrush;
-
-                if (parts.Length == 4 && det.Task == "detect" &&
-                    double.TryParse(parts[0], out double x1) &&
-                    double.TryParse(parts[1], out double y1) &&
-                    double.TryParse(parts[2], out double x2) &&
-                    double.TryParse(parts[3], out double y2))
+                if (detections == null)
                 {
-                    var rect = new Rectangle
-                    {
-                        Stroke = strokeBrush,
-                        StrokeThickness = 2,
-                        Width = Math.Abs(x2 - x1),
-                        Height = Math.Abs(y2 - y1),
-                        Fill = Brushes.Transparent
-                    };
-                    Canvas.SetLeft(rect, x1);
-                    Canvas.SetTop(rect, y1);
-                    BoundingBoxCanvas.Children.Add(rect);
-
-                    var label = new TextBlock
-                    {
-                        Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                        Foreground = labelBrush,
-                        Background = Brushes.Transparent,
-                        FontSize = 12,
-                        Padding = new Thickness(2, 0, 2, 0)
-                    };
-                    Canvas.SetLeft(label, x1 + 2);
-                    Canvas.SetTop(label, y1 - 18);
-                    BoundingBoxCanvas.Children.Add(label);
+                    Debug.WriteLine("[DRAW] detections is null");
+                    return;
                 }
-                else if (parts.Length == 5 && det.Task == "obb" &&
-                    double.TryParse(parts[0], out double cx) &&
-                    double.TryParse(parts[1], out double cy) &&
-                    double.TryParse(parts[2], out double w) &&
-                    double.TryParse(parts[3], out double h) &&
-                    double.TryParse(parts[4], out double angle))
+
+                var detList = detections.ToList();
+                Debug.WriteLine($"[DRAW] Drawing {detList.Count} detections");
+
+                if (detList.Count == 0)
                 {
-                    var rect = new Rectangle
-                    {
-                        Stroke = strokeBrush,
-                        StrokeThickness = 2,
-                        Width = w,
-                        Height = h,
-                        Fill = Brushes.Transparent,
-                        RenderTransformOrigin = new System.Windows.Point(0.5, 0.5),
-                        RenderTransform = new RotateTransform(angle)
-                    };
-                    Canvas.SetLeft(rect, cx - w / 2);
-                    Canvas.SetTop(rect, cy - h / 2);
-                    BoundingBoxCanvas.Children.Add(rect);
-
-                    var label = new TextBlock
-                    {
-                        Text = $"{det.ClassName} ({det.Confidence * 100:0.##}%)",
-                        Foreground = labelBrush,
-                        Background = Brushes.Transparent,
-                        FontSize = 12,
-                        Padding = new Thickness(2, 0, 2, 0)
-                    };
-                    Canvas.SetLeft(label, cx - w / 2 + 2);
-                    Canvas.SetTop(label, cy - h / 2 - 18);
-                    BoundingBoxCanvas.Children.Add(label);
+                    Debug.WriteLine("[DRAW] No detections to draw");
+                    return;
                 }
+
+                double imgWidth = ProductionImage.ActualWidth;
+                double imgHeight = ProductionImage.ActualHeight;
+
+                Debug.WriteLine($"[DRAW] Image size: {imgWidth}x{imgHeight}");
+                Debug.WriteLine($"[DRAW] Canvas size: {BoundingBoxCanvas.ActualWidth}x{BoundingBoxCanvas.ActualHeight}");
+
+                foreach (var det in detList)
+                {
+                    Debug.WriteLine($"[DRAW] Class: {det.ClassName}, Conf: {det.Confidence:F2}, Box: {det.Box}, Task: {det.Task}");
+
+                    var parts = det.Box.Split(',');
+                    var strokeBrush = GetBrushForClass(det.ClassName);
+                    Brush labelBrush = strokeBrush;
+
+                    if (parts.Length == 4 && det.Task == "detect")
+                    {
+                        if (double.TryParse(parts[0], out double x1) &&
+                            double.TryParse(parts[1], out double y1) &&
+                            double.TryParse(parts[2], out double x2) &&
+                            double.TryParse(parts[3], out double y2))
+                        {
+                            double width = Math.Abs(x2 - x1);
+                            double height = Math.Abs(y2 - y1);
+
+                            Debug.WriteLine($"[DRAW] Box position: ({x1}, {y1}) size: {width}x{height}");
+
+                            if (x1 < 0 || y1 < 0 || width <= 0 || height <= 0)
+                            {
+                                Debug.WriteLine($"[DRAW] Invalid box dimensions, skipping");
+                                continue;
+                            }
+
+                            var rect = new Rectangle
+                            {
+                                Stroke = strokeBrush,
+                                StrokeThickness = 3,
+                                Width = width,
+                                Height = height,
+                                Fill = Brushes.Transparent
+                            };
+                            Canvas.SetLeft(rect, x1);
+                            Canvas.SetTop(rect, y1);
+                            BoundingBoxCanvas.Children.Add(rect);
+
+                            Debug.WriteLine($"[DRAW] Rectangle added at ({x1}, {y1})");
+
+                            var labelText = $"{det.ClassName} {det.Confidence * 100:0.#}%";
+                            var label = new TextBlock
+                            {
+                                Text = labelText,
+                                Foreground = Brushes.White,
+                                Background = new SolidColorBrush(Color.FromArgb(180, 0, 0, 0)),
+                                FontSize = 14,
+                                FontWeight = FontWeights.Bold,
+                                Padding = new Thickness(4, 2, 4, 2)
+                            };
+                            Canvas.SetLeft(label, x1 + 2);
+                            Canvas.SetTop(label, Math.Max(0, y1 - 22));
+                            BoundingBoxCanvas.Children.Add(label);
+
+                            Debug.WriteLine($"[DRAW] Label added: {labelText}");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[DRAW] Failed to parse box coordinates: {det.Box}");
+                        }
+                    }
+                    else if (parts.Length == 5 && det.Task == "obb")
+                    {
+                        if (double.TryParse(parts[0], out double cx) &&
+                            double.TryParse(parts[1], out double cy) &&
+                            double.TryParse(parts[2], out double w) &&
+                            double.TryParse(parts[3], out double h) &&
+                            double.TryParse(parts[4], out double angle))
+                        {
+                            Debug.WriteLine($"[DRAW] OBB center: ({cx}, {cy}) size: {w}x{h} angle: {angle}°");
+
+                            var rect = new Rectangle
+                            {
+                                Stroke = strokeBrush,
+                                StrokeThickness = 3,
+                                Width = w,
+                                Height = h,
+                                Fill = Brushes.Transparent,
+                                RenderTransform = new RotateTransform(angle, w / 2, h / 2)
+                            };
+                            Canvas.SetLeft(rect, cx - w / 2);
+                            Canvas.SetTop(rect, cy - h / 2);
+                            BoundingBoxCanvas.Children.Add(rect);
+
+                            var labelText = $"{det.ClassName} {det.Confidence * 100:0.#}%";
+                            var label = new TextBlock
+                            {
+                                Text = labelText,
+                                Foreground = Brushes.White,
+                                Background = new SolidColorBrush(Color.FromArgb(180, 0, 0, 0)),
+                                FontSize = 14,
+                                FontWeight = FontWeights.Bold,
+                                Padding = new Thickness(4, 2, 4, 2)
+                            };
+                            Canvas.SetLeft(label, cx - w / 2 + 2);
+                            Canvas.SetTop(label, Math.Max(0, cy - h / 2 - 22));
+                            BoundingBoxCanvas.Children.Add(label);
+
+                            Debug.WriteLine($"[DRAW] OBB rectangle and label added");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[DRAW] Failed to parse OBB coordinates: {det.Box}");
+                        }
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[DRAW] Unknown detection format: parts={parts.Length}, task={det.Task}");
+                    }
+                }
+
+                Debug.WriteLine($"[DRAW] Total canvas children: {BoundingBoxCanvas.Children.Count}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DRAW-ERROR] {ex.Message}");
+                Debug.WriteLine($"[DRAW-ERROR] Stack: {ex.StackTrace}");
+                _logger?.LogError($"DrawBoundingBoxes error: {ex}");
             }
         }
 
         private void ClearBoundingBoxes()
         {
-            BoundingBoxCanvas.Children.Clear();
+            try
+            {
+                BoundingBoxCanvas.Children.Clear();
+                Debug.WriteLine("[DRAW] Bounding boxes cleared");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DRAW-CLEAR-ERROR] {ex.Message}");
+            }
         }
 
         private void SnapshotButton_Click(object sender, RoutedEventArgs e)
         {
-            // bitmap = BitmapSource จาก HikCamera
-            var bitmap = _camera?.CaptureCurrentFrame();
-            if (bitmap != null)
+            try
+            {
+                BitmapSource? bitmap = ProductionImage.Source as BitmapSource;
+
+                if (bitmap == null)
+                {
+                    MessageBox.Show("No image to capture. Please start production first.",
+                        "Snapshot", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (!bitmap.IsFrozen && bitmap.CanFreeze)
+                {
+                    bitmap.Freeze();
+                }
+
+                string basePath = _appSettings?.DefaultImagePath
+                                  ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
+                string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
+                string savePath = System.IO.Path.Combine(basePath, folderName);
+
+                if (!Directory.Exists(savePath))
+                    Directory.CreateDirectory(savePath);
+
+                string backendName = _appSettings?.CameraBackend.ToString() ?? "Unknown";
+                string fileName = $"Snapshot_{backendName}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                string filePath = System.IO.Path.Combine(savePath, fileName);
+
+                bitmap.SaveImage(filePath);
+
+                Debug.WriteLine($"[SNAPSHOT] Saved to {filePath}");
+                _logger?.LogInfo($"Snapshot saved: {filePath}");
+
+                MessageBox.Show($"Snapshot saved successfully!\n\nPath: {filePath}",
+                    "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SNAPSHOT-ERROR] {ex.Message}");
+                _logger?.LogError($"Snapshot failed: {ex}");
+
+                MessageBox.Show($"Failed to save snapshot:\n\n{ex.Message}",
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>
+        /// Saves a snapshot with detection information
+        /// </summary>
+        private async Task SaveDetectionSnapshot(BitmapSource bitmap, int frameNumber, string detectedClass, int detectionCount)
+        {
+            await Task.Run(() =>
             {
                 try
                 {
                     string basePath = _appSettings?.DefaultImagePath
                                       ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
 
-                    string folderName = $"captureImage_{DateTime.Now:yyyyMMdd}";
+                    string folderName = System.IO.Path.Combine(
+                        $"Production_{DateTime.Now:yyyyMMdd}",
+                        detectedClass
+                    );
                     string savePath = System.IO.Path.Combine(basePath, folderName);
 
                     if (!Directory.Exists(savePath))
                         Directory.CreateDirectory(savePath);
 
-                    string ClassName = "";
-                    string Category = "";
-                    string fileName = $"{ClassName}_{Category}_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                    string fileName = $"{detectedClass}_{detectionCount}obj_{DateTime.Now:HHmmss_fff}.jpg";
                     string filePath = System.IO.Path.Combine(savePath, fileName);
 
-                    // ใช้ extension SaveImage() ที่เราเขียนไว้ใน BitmapSourceExtensions.cs
-                    bitmap.SaveImage(filePath);
+                    if (!bitmap.IsFrozen && bitmap.CanFreeze)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (bitmap.CanFreeze)
+                                bitmap.Freeze();
+                        });
+                    }
 
-                    MessageBox.Show($"Snapshot saved to {filePath}.",
-                        "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+                    using (var fileStream = new FileStream(filePath, FileMode.Create))
+                    {
+                        JpegBitmapEncoder encoder = new JpegBitmapEncoder
+                        {
+                            QualityLevel = 90
+                        };
+                        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                        encoder.Save(fileStream);
+                    }
+
+                    Debug.WriteLine($"[SNAPSHOT] Saved detection: {filePath}");
+                    _logger?.LogInfo($"Snapshot saved: {detectedClass} ({detectionCount} objects)");
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Failed to save snapshot: {ex.Message}",
-                        "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    Debug.WriteLine($"[SNAPSHOT-ERROR] {ex.Message}");
+                    _logger?.LogError($"Detection snapshot failed: {ex}");
                 }
-            }
-            else
-            {
-                MessageBox.Show("Camera is not running.",
-                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            });
         }
 
-
-        // Add this helper method inside Production (non-blocking, swallows errors)
         private async Task SendFirstDetectionToRobotUsingServiceAsync(string className)
         {
             try
@@ -993,27 +1149,42 @@ namespace VisionAICam.Pages
                 var robot = MasterController.Instance.GetService<RobotService>() ?? MasterController.Instance.RobotService;
                 if (robot == null || !robot.IsConnected) return;
 
-                byte slaveId = 1; // adjust if needed
+                byte slaveId = 1;
 
-                // Read register address and mapping from settings (fallbacks included)
                 ushort registerAddress = 10;
                 try
                 {
                     var settings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
                     if (settings != null) registerAddress = settings.RobotRegisterAddress;
                 }
-                catch { /* swallow */ }
+                catch { }
 
                 ushort value = MapClassToId(className);
-                if (value == 0) return; // unknown class, skip
+                if (value == 0) return;
 
-                // write without blocking camera loop (await here because RobotService is async; caller uses Task.Run/_)
                 await robot.WriteSingleRegisterAsync(slaveId, registerAddress, value).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 try { _logger.LogError($"SendFirstDetectionToRobotUsingServiceAsync failed: {ex}"); } catch { }
-                // swallow - do not crash camera loop
+            }
+        }
+
+        private void RaiseModelAlarm(string message, Exception? ex = null)
+        {
+            try
+            {
+                var full = ex == null ? message : $"{message}{Environment.NewLine}{ex.Message}";
+                _logger.LogError(ex == null ? message : $"{message} | {ex}");
+                Dispatcher.BeginInvoke(() =>
+                {
+                    StatusTextBlock.Text = message;
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    MessageBox.Show(full, "Model Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                });
+            }
+            catch
+            {
             }
         }
     }
