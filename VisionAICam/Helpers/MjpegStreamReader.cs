@@ -74,7 +74,7 @@ namespace VisionAICam.Helpers
                                 // ✅ Convert BGR to RGB by swapping R and B channels
                                 var rgbImage = SwapRedBlueChannels(img);
 
-                                onFrame?.Invoke(rgbImage);
+                                onFrame?.Invoke(img);
                             }
                             catch (Exception imgEx)
                             {

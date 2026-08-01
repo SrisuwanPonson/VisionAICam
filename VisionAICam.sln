@@ -13,8 +13,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.Logging", "Clea
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClearEngine.SessionManagement", "ClearEngine.SessionManagement\ClearEngine.SessionManagement.csproj", "{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionAICam_Linux", "VisionAICam_Linux\VisionAICam_Linux.csproj", "{25B153DD-01F1-4F38-AFF6-639F13F485B0}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MVCameraSDK", "MvCameraControlNet\MVCameraSDK\MVCameraSDK.csproj", "{33C1469F-1F68-44D5-B829-D11D1A51462A}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BasicDemo", "MvCameraControlNet\BasicDemo\BasicDemo.csproj", "{D063BDD8-9149-4D51-B2CF-B2C5A098F5F9}"
@@ -69,14 +67,6 @@ Global
 		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|x64.ActiveCfg = Release|Any CPU
 		{5DBFE40B-421E-4B3F-8B2E-39A3405DF6FA}.Release|x64.Build.0 = Release|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Debug|x64.Build.0 = Debug|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|Any CPU.Build.0 = Release|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|x64.ActiveCfg = Release|Any CPU
-		{25B153DD-01F1-4F38-AFF6-639F13F485B0}.Release|x64.Build.0 = Release|Any CPU
 		{33C1469F-1F68-44D5-B829-D11D1A51462A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{33C1469F-1F68-44D5-B829-D11D1A51462A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{33C1469F-1F68-44D5-B829-D11D1A51462A}.Debug|x64.ActiveCfg = Debug|x64

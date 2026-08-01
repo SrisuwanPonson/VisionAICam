@@ -727,38 +727,301 @@ namespace VisionAICam.Pages
 
         public void StopProduction()
         {
-            Debug.WriteLine($"[STOP] ⚠️ StopProduction() called! Stack: {new System.Diagnostics.StackTrace()}");
-    
-            if (!_isRunning) return;
+            Debug.WriteLine("==================================================");
+            Debug.WriteLine($"[STOP] ⚠️ StopProduction() called!");
+            Debug.WriteLine($"[STOP] Current Status - IsRunning: {_isRunning}, IsPaused: {_isPaused}");
+            Debug.WriteLine("==================================================");
 
-            _productionCancelTokenSource?.Cancel();
-
-            StopTimer();
-            _isRunning = false;
-            _isPaused = false;
-
-            StatusTextBlock.Text = "Production stopped";
-            LoadingOverlay.Visibility = Visibility.Collapsed;
-
-            _cameraThread?.Join();
-            _cameraThread = null;
-
-            _mjpeg?.Stop();
-            _mjpeg = null;
-
-            if (_camera != null)
+            if (!_isRunning)
             {
-                _camera.Stop();
-                _camera.Dispose();
-                _camera = null;
+                Debug.WriteLine("[STOP] ℹ️ Production is not running. Nothing to stop.");
+                return;
             }
 
-            ProductionImage.Source = null;
-            ClearBoundingBoxes();
-            _perFrameSummary.Clear();
+            try
+            {
+                Debug.WriteLine("[STOP] 🛑 Initiating production stop sequence...");
 
-            _productionCancelTokenSource?.Dispose();
-            _productionCancelTokenSource = null;
+                // 1. ส่งสัญญาณ cancel
+                if (_productionCancelTokenSource != null && !_productionCancelTokenSource.IsCancellationRequested)
+                {
+                    Debug.WriteLine("[STOP] 📢 Sending cancellation signal...");
+                    _productionCancelTokenSource.Cancel();
+                }
+
+                // 2. Update state flags ทันที
+                _isRunning = false;
+                _isPaused = false;
+                Debug.WriteLine("[STOP] ✅ State flags updated");
+
+                // ⭐ 3. CLEAR IMAGE ก่อนอื่นหมด (สำคัญมาก!)
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        Debug.WriteLine("[STOP] 🖼️ Clearing ProductionImage...");
+
+                        // วิธีที่ 1: Set Source เป็น null
+                        if (ProductionImage != null)
+                        {
+                            ProductionImage.Source = null;
+                            Debug.WriteLine("[STOP] ✅ ProductionImage.Source = null");
+                        }
+
+                        // วิธีที่ 2: Force update layout
+                        ProductionImage?.UpdateLayout();
+                        Debug.WriteLine("[STOP] ✅ ProductionImage layout updated");
+
+                        // วิธีที่ 3: Clear bounding boxes
+                        ClearBoundingBoxes();
+                        Debug.WriteLine("[STOP] ✅ Bounding boxes cleared");
+
+                        // วิธีที่ 4: Update UI ทันที
+                        StatusTextBlock.Text = "Production stopping...";
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+
+                        // Force render
+                        ProductionImage?.InvalidateVisual();
+                        Debug.WriteLine("[STOP] ✅ UI cleared and invalidated");
+                    }, System.Windows.Threading.DispatcherPriority.Send); // ⭐ ใช้ Send เพื่อบังคับทันที
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[STOP] ❌ Error clearing image: {ex.Message}");
+                }
+
+                // 4. Stop timer
+                Debug.WriteLine("[STOP] ⏱️ Stopping timer...");
+                try
+                {
+                    StopTimer();
+                    Debug.WriteLine("[STOP] ✅ Timer stopped");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[STOP] ⚠️ Error stopping timer: {ex.Message}");
+                }
+
+                // 5. Stop MJPEG reader
+                if (_mjpegReader != null)
+                {
+                    Debug.WriteLine("[STOP] 📹 Stopping MJPEG stream reader...");
+                    try
+                    {
+                        _mjpegReader.Stop();
+                        Debug.WriteLine("[STOP] ✅ MJPEG reader stopped");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ❌ Error stopping MJPEG reader: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _mjpegReader = null;
+                    }
+                }
+
+                // 6. Stop Hikvision camera
+                if (_appSettings?.CameraBackend == CameraBackend.Hikvision)
+                {
+                    Debug.WriteLine("[STOP] 📷 Stopping Hikvision camera...");
+                    try
+                    {
+                        using var httpClient = new HttpClient();
+                        httpClient.Timeout = TimeSpan.FromSeconds(3);
+                        var response = httpClient.GetAsync("http://localhost:5005/stop").Result;
+                        Debug.WriteLine($"[STOP] ✅ Hikvision stop response: {response.StatusCode}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ⚠️ Error stopping Hikvision: {ex.Message}");
+                    }
+                }
+
+                // 7. Stop camera thread
+                if (_cameraThread != null)
+                {
+                    Debug.WriteLine("[STOP] 🧵 Waiting for camera thread...");
+                    try
+                    {
+                        if (!_cameraThread.Join(TimeSpan.FromSeconds(5)))
+                        {
+                            Debug.WriteLine("[STOP] ⚠️ Thread timeout, aborting...");
+#pragma warning disable SYSLIB0006
+                            _cameraThread.Abort();
+#pragma warning restore SYSLIB0006
+                        }
+                        Debug.WriteLine("[STOP] ✅ Camera thread stopped");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ❌ Error with camera thread: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _cameraThread = null;
+                    }
+                }
+
+                // 8. Stop legacy MJPEG
+                if (_mjpeg != null)
+                {
+                    Debug.WriteLine("[STOP] 📹 Stopping legacy MJPEG...");
+                    try
+                    {
+                        _mjpeg.Stop();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ❌ Error stopping legacy MJPEG: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _mjpeg = null;
+                    }
+                }
+
+                // 9. Dispose OpenCV camera
+                if (_camera != null)
+                {
+                    Debug.WriteLine("[STOP] 📷 Disposing OpenCV camera...");
+                    try
+                    {
+                        _camera.Stop();
+                        _camera.Dispose();
+                        Debug.WriteLine("[STOP] ✅ OpenCV camera disposed");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ❌ Error disposing camera: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _camera = null;
+                    }
+                }
+
+                // ⭐ 10. DOUBLE CHECK - Clear image อีกครั้งหลังจาก stop ทุกอย่าง
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        Debug.WriteLine("[STOP] 🖼️ Double-checking image clear...");
+
+                        if (ProductionImage != null)
+                        {
+                            // Clear source
+                            ProductionImage.Source = null;
+
+                            // Force width/height to trigger redraw
+                            var tempWidth = ProductionImage.ActualWidth;
+                            var tempHeight = ProductionImage.ActualHeight;
+                            ProductionImage.Width = tempWidth;
+                            ProductionImage.Height = tempHeight;
+
+                            // Reset to auto
+                            ProductionImage.Width = double.NaN;
+                            ProductionImage.Height = double.NaN;
+
+                            // Force update
+                            ProductionImage.UpdateLayout();
+                            ProductionImage.InvalidateVisual();
+                        }
+
+                        // Clear overlay canvas (ถ้ามี)
+                        var overlayCanvas = this.FindName("BoundingBoxCanvas") as Canvas;
+                        if (overlayCanvas != null)
+                        {
+                            overlayCanvas.Children.Clear();
+                            overlayCanvas.UpdateLayout();
+                        }
+
+                        StatusTextBlock.Text = "Production stopped";
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+
+                        Debug.WriteLine("[STOP] ✅ Double-check image clear completed");
+                    }, System.Windows.Threading.DispatcherPriority.Send);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[STOP] ❌ Error in double-check clear: {ex.Message}");
+                }
+
+                // 11. Clear frame summary
+                if (_perFrameSummary != null)
+                {
+                    try
+                    {
+                        int count = _perFrameSummary.Count;
+                        _perFrameSummary.Clear();
+                        Debug.WriteLine($"[STOP] 📊 Cleared {count} frame summaries");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ❌ Error clearing summary: {ex.Message}");
+                    }
+                }
+
+                // 12. Dispose cancellation token
+                if (_productionCancelTokenSource != null)
+                {
+                    try
+                    {
+                        _productionCancelTokenSource.Dispose();
+                        Debug.WriteLine("[STOP] ✅ Token disposed");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[STOP] ❌ Error disposing token: {ex.Message}");
+                    }
+                    finally
+                    {
+                        _productionCancelTokenSource = null;
+                    }
+                }
+
+                // 13. Force GC
+                try
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                    Debug.WriteLine("[STOP] 🧹 GC completed");
+                }
+                catch { }
+
+                Debug.WriteLine("==================================================");
+                Debug.WriteLine("[STOP] ✅✅✅ Production stopped successfully!");
+                Debug.WriteLine("[STOP] ImageBox should be clear now!");
+                Debug.WriteLine("==================================================");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("==================================================");
+                Debug.WriteLine($"[STOP] ❌❌❌ CRITICAL ERROR!");
+                Debug.WriteLine($"[STOP] Error: {ex.Message}");
+                Debug.WriteLine($"[STOP] Stack: {ex.StackTrace}");
+                Debug.WriteLine("==================================================");
+
+                _isRunning = false;
+                _isPaused = false;
+
+                // Force clear image แม้จะ error
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (ProductionImage != null)
+                        {
+                            ProductionImage.Source = null;
+                            ProductionImage.UpdateLayout();
+                        }
+                        StatusTextBlock.Text = $"Error: {ex.Message}";
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                    });
+                }
+                catch { }
+            }
         }
 
         public void PauseProduction()

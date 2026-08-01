@@ -16,10 +16,21 @@ namespace VisionAICam
     public partial class MainWindow : Window
     {
         private Process? _hikServerProcess;
-
+        private static readonly string AppVersion = "1.0.0";
+        private static readonly string AppRevision = "2026-08-01";
         public MainWindow()
         {
             InitializeComponent();
+            // ⭐ เพิ่ม: แสดง Version ที่ UI (ถ้ามี VersionTextBlock ใน XAML)
+            try
+            {
+                if (this.FindName("VersionTextBlock") is TextBlock versionText)
+                {
+                    versionText.Text = $"v{AppVersion} | Rev: {AppRevision}";
+                }
+                this.Title = $"VisionAICam v{AppVersion}";
+            }
+            catch { }
 
             StartPythonServer();   // ⭐ Start Python server automatically
 
@@ -45,7 +56,35 @@ namespace VisionAICam
             this.Closing -= MainWindow_Closing;
             this.Closing += MainWindow_Closing;
         }
+        // ⭐ เพิ่ม: อ่าน Version จาก Assembly
+        private static string GetAppVersion()
+        {
+            try
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                var version = assembly.GetName().Version;
+                return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "1.0.0";
+            }
+            catch
+            {
+                return "1.0.0";
+            }
+        }
 
+        // ⭐ เพิ่ม: อ่าน Revision
+        private static string GetAppRevision()
+        {
+            try
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                var version = assembly.GetName().Version;
+                return version != null ? $"{version.Build:D4}" : "0000";
+            }
+            catch
+            {
+                return "0000";
+            }
+        }
         private void StartPythonServer()
         {
             try
@@ -314,6 +353,7 @@ namespace VisionAICam
         {
             try
             {
+                // 1. Stop Production first
                 try
                 {
                     var prod = MasterController.Instance.Production;
@@ -322,8 +362,10 @@ namespace VisionAICam
                 }
                 catch { }
 
-                StopPythonServer();   // ⭐ Kill Python server on window close
+                // 2. Stop Python Server
+                StopPythonServer();
 
+                // 3. Cleanup Current Page
                 try
                 {
                     var currentContent = MainContent?.Content;
@@ -343,7 +385,9 @@ namespace VisionAICam
 
                         if (!(currentContent is IDisposable))
                         {
-                            var disposeMethod = currentContent.GetType().GetMethod("Dispose", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                            var disposeMethod = currentContent.GetType().GetMethod("Dispose",
+                                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                                null, Type.EmptyTypes, null);
                             if (disposeMethod != null)
                             {
                                 try { disposeMethod.Invoke(currentContent, null); } catch { }
@@ -353,6 +397,7 @@ namespace VisionAICam
                 }
                 catch { }
 
+                // 4. Clear MainContent
                 try
                 {
                     if (MainContent != null)
@@ -360,69 +405,51 @@ namespace VisionAICam
                 }
                 catch { }
 
+                // 5. Shutdown Inference Engine (best effort - don't wait)
                 try
                 {
-                    TryRunWithTimeout(() =>
+                    var engineType = typeof(ClearEngine.Model.Inference.InferenceEngine);
+                    var instanceProp = engineType.GetProperty("Instance",
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    object? engineInstance = instanceProp != null ? instanceProp.GetValue(null) : null;
+
+                    if (engineInstance is ClearEngine.Model.Inference.InferenceEngine engine)
                     {
-                        try
-                        {
-                            var engineType = typeof(ClearEngine.Model.Inference.InferenceEngine);
-                            var instanceProp = engineType.GetProperty("Instance", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                            object? engineInstance = instanceProp != null ? instanceProp.GetValue(null) : null;
-
-                            if (engineInstance is ClearEngine.Model.Inference.InferenceEngine engine)
-                            {
-                                engine.Dispose();
-                            }
-
-                            if (instanceProp != null && instanceProp.CanWrite)
-                            {
-                                try { instanceProp.SetValue(null, null); } catch { }
-                            }
-                            else
-                            {
-                                var field = engineType.GetField("_instance", BindingFlags.Static | BindingFlags.NonPublic)
-                                            ?? engineType.GetField("s_instance", BindingFlags.Static | BindingFlags.NonPublic)
-                                            ?? engineType.GetField("instance", BindingFlags.Static | BindingFlags.NonPublic);
-                                if (field != null)
-                                {
-                                    try { field.SetValue(null, null); } catch { }
-                                }
-                            }
-                        }
-                        catch { }
-                        return Task.CompletedTask;
-                    }, timeoutMs: 1000);
-                }
-                catch { }
-
-                try
-                {
-                    TryRunWithTimeout(() =>
-                    {
-                        try
-                        {
-                            if (PythonEngine.IsInitialized)
-                            {
-                                PythonEngine.Shutdown();
-                            }
-                        }
-                        catch { }
-                        return Task.CompletedTask;
-                    }, timeoutMs: 1000);
-                }
-                catch { }
-
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await LongRunningCleanupAsync().ConfigureAwait(false);
+                        try { engine.Dispose(); } catch { }
                     }
-                    catch { }
-                });
+
+                    if (instanceProp != null && instanceProp.CanWrite)
+                    {
+                        try { instanceProp.SetValue(null, null); } catch { }
+                    }
+                }
+                catch { }
+
+                // 6. Shutdown Python Engine (best effort - don't wait)
+                try
+                {
+                    if (PythonEngine.IsInitialized)
+                    {
+                        try { PythonEngine.Shutdown(); } catch { }
+                    }
+                }
+                catch { }
+
+                // 7. Run garbage collection
+                try
+                {
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                }
+                catch { }
+
+                // ⭐ 8. ไม่ทำอะไรเพิ่ม - ปล่อยให้ WPF shutdown ตามปกติ
+                // Python processes จะถูก kill โดย OS เมื่อ parent process ปิด
             }
-            catch { }
+            catch
+            {
+                // Swallow all exceptions during closing
+            }
         }
 
         private async Task LongRunningCleanupAsync()
