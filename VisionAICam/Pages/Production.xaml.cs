@@ -358,7 +358,10 @@ namespace VisionAICam.Pages
                             return;
                         }
 
-                        var logDir = _logger.GetLogDirectory();
+                        var logDir = _logger?.GetLogDirectory() ?? System.IO.Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                            "VisionAICam", "Logs");
+
                         if (_inferenceEngine != null)
                         {
                             _inferenceEngine.modelPath = modelPath;
@@ -583,7 +586,7 @@ namespace VisionAICam.Pages
                                     }
 
                                     // Auto-snapshot if enabled
-                                    if (_appSettings.EnableAutoSnapshot && frameToProcess != null)
+                                    if (_appSettings?.EnableAutoSnapshot == true && frameToProcess != null)
                                     {
                                         try
                                         {
@@ -1345,6 +1348,29 @@ namespace VisionAICam.Pages
 
             foreach (var s in counts)
                 _perFrameSummary.Add(s);
+
+            // Update MainWindow's DataGrid and statistics
+            var mainWindow = Application.Current.MainWindow as MainWindow;
+            if (mainWindow != null)
+            {
+                var grid = mainWindow.FindName("PerFrameSummaryGrid") as System.Windows.Controls.DataGrid;
+                if (grid != null)
+                {
+                    grid.ItemsSource = null;
+                    grid.ItemsSource = _perFrameSummary;
+                }
+
+                // Update statistics in MainWindow
+                int totalDetections = counts.Sum(c => c.Count);
+                if (totalDetections > 0)
+                {
+                    mainWindow.IncrementTotalCount(totalDetections);
+                    mainWindow.IncrementSessionCount(totalDetections);
+                    mainWindow.IncrementFrameCount(1);
+                }
+                
+                mainWindow.UpdateStatistics();
+            }
         }
 
         private void DrawBoundingBoxes(IEnumerable<DetectionResult> detections)

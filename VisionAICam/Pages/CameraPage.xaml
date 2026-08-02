@@ -4,11 +4,19 @@
       Title="CameraPage">
 
     <Page.Resources>
+        <!-- ✅ Dark theme palette matching Production -->
         <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#263238" Offset="0"/>
             <GradientStop Color="#37474F" Offset="0.5"/>
             <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
+
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
 
         <Style x:Key="RoundedButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="#FF1976D2"/>
@@ -67,14 +75,17 @@
                         <!-- preview + right column -->
                     </Grid.RowDefinitions>
 
-                    <!-- Collapsible camera/control area -->
+                    <!-- ✅ Collapsible camera/control area with dark theme -->
                     <Expander x:Name="ControlExpander"
                               Grid.Row="0"
                               IsExpanded="True"
                               Expanded="ControlExpander_Expanded"
                               Collapsed="ControlExpander_Collapsed"
-                              BorderThickness="0"
-                              Background="Transparent" Margin="0,0,0,8">
+                              BorderThickness="1"
+                              BorderBrush="{StaticResource PanelBorderBrush}"
+                              Background="{StaticResource PanelBackground}"
+                              Margin="0,0,0,8"
+                              Padding="8">
                         <Expander.Header>
                             <DockPanel LastChildFill="False">
                                 <Button x:Name="CollapseButton"
@@ -84,371 +95,547 @@
                                         Margin="0,0,8,0"
                                         Click="CollapseButton_Click"
                                         DockPanel.Dock="Left"/>
-                                <TextBlock Text="Controls" VerticalAlignment="Center"/>
+                                <TextBlock Text="⚙️ Camera Controls" 
+                                           VerticalAlignment="Center"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           FontWeight="Bold"
+                                           FontSize="14"/>
                             </DockPanel>
                         </Expander.Header>
 
                         <StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,12">
-                                <!-- ⭐ NEW: Backend Selector -->
                                 <ComboBox x:Name="BackendComboBox"
                                           Style="{StaticResource RoundedComboBoxStyle}"
                                           Width="150"
                                           Margin="0,0,12,0"
                                           ToolTip="Select backend (OpenCV / Hikvision)"/>
-                                <!-- ⭐ EXISTING Camera Selector (unchanged) -->
                                 <ComboBox x:Name="CameraComboBox"
                                           Style="{StaticResource RoundedComboBoxStyle}"
                                           ToolTip="Select camera device"
                                           SelectionChanged="CameraComboBox_SelectionChanged"/>
+                                <!-- ✅ Select button with icon -->
                                 <Button x:Name="SelectCameraButton"
-                                       Content="Select"
                                        Style="{StaticResource RoundedButtonStyle}"
                                        ToolTip="Start camera"
                                        Width="120"
-                                       Click="SelectCameraButton_Click_1"/>
+                                       Click="SelectCameraButton_Click_1">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="▶️ " FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Select" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <!-- ✅ Stop button with icon -->
                                 <Button x:Name="StopCameraButton"
-                                       Content="Stop"
                                        Style="{StaticResource RoundedButtonStyle}"
                                        Background="#FFD32F2F"
                                        BorderBrush="#FFC62828"
                                        ToolTip="Stop camera"
                                        Width="120"
-                                       Click="StopCameraButton_Click"/>
+                                       Click="StopCameraButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="⏹️ " FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Stop" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </StackPanel>
 
-                            <!-- ========================= -->
-                            <!--   CAMERA SLIDERS (OVERLAY) -->
-                            <!-- ========================= -->
+                            <!-- CAMERA SLIDERS -->
                             <Grid Margin="0,0,0,12">
 
-                                <!-- ⭐ OpenCV Sliders -->
+                                <!-- OpenCV Sliders -->
                                 <StackPanel x:Name="OpenCVSliderPanel"
-                Orientation="Horizontal"
-                HorizontalAlignment="Left"
-                Visibility="Visible">
+                                            Orientation="Horizontal"
+                                            HorizontalAlignment="Left"
+                                            Visibility="Visible">
 
                                     <StackPanel Margin="0,0,24,0">
-                                        <TextBlock Text="Brightness" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="☀️ "/>
+                                            <Run Text="Brightness"/>
+                                        </TextBlock>
                                         <Slider x:Name="BrightnessSlider"
-                    Minimum="0" Maximum="255" Width="140"
-                    ValueChanged="BrightnessSlider_ValueChanged"/>
+                                                Minimum="0" Maximum="255" Width="140"
+                                                ValueChanged="BrightnessSlider_ValueChanged"/>
                                     </StackPanel>
 
                                     <StackPanel Margin="0,0,24,0">
-                                        <TextBlock Text="Contrast" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="🎚️ "/>
+                                            <Run Text="Contrast"/>
+                                        </TextBlock>
                                         <Slider x:Name="ContrastSlider"
-                    Minimum="0" Maximum="255" Width="140"
-                    ValueChanged="ContrastSlider_ValueChanged"/>
+                                                Minimum="0" Maximum="255" Width="140"
+                                                ValueChanged="ContrastSlider_ValueChanged"/>
                                     </StackPanel>
 
                                     <StackPanel>
-                                        <TextBlock Text="Exposure" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="📷 "/>
+                                            <Run Text="Exposure"/>
+                                        </TextBlock>
                                         <Slider x:Name="ExposureSlider"
-                    Minimum="-10" Maximum="10" Width="140"
-                    ValueChanged="ExposureSlider_ValueChanged"/>
+                                                Minimum="-10" Maximum="10" Width="140"
+                                                ValueChanged="ExposureSlider_ValueChanged"/>
                                     </StackPanel>
 
                                 </StackPanel>
 
-                                <!-- ⭐ Hikvision Sliders -->
+                                <!-- Hikvision Sliders -->
                                 <StackPanel x:Name="HikSliderPanel"
-                Orientation="Horizontal"
-                HorizontalAlignment="Left"
-                Visibility="Collapsed">
+                                            Orientation="Horizontal"
+                                            HorizontalAlignment="Left"
+                                            Visibility="Collapsed">
 
                                     <StackPanel Margin="0,0,24,0">
-                                        <TextBlock Text="Exposure (µs)" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="📷 "/>
+                                            <Run Text="Exposure (µs)"/>
+                                        </TextBlock>
                                         <Slider x:Name="HikExposureSlider"
-                    Minimum="100" Maximum="60000" Width="140"
-                    ValueChanged="HikExposureSlider_ValueChanged"/>
+                                                Minimum="100" Maximum="60000" Width="140"
+                                                ValueChanged="HikExposureSlider_ValueChanged"/>
                                     </StackPanel>
 
                                     <StackPanel Margin="0,0,24,0">
-                                        <TextBlock Text="Gain" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="📶 "/>
+                                            <Run Text="Gain"/>
+                                        </TextBlock>
                                         <Slider x:Name="HikGainSlider"
-                    Minimum="0" Maximum="20" Width="140"
-                    ValueChanged="HikGainSlider_ValueChanged"/>
+                                                Minimum="0" Maximum="20" Width="140"
+                                                ValueChanged="HikGainSlider_ValueChanged"/>
                                     </StackPanel>
 
                                     <StackPanel Margin="0,0,24,0">
-                                        <TextBlock Text="Gamma" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="🌓 "/>
+                                            <Run Text="Gamma"/>
+                                        </TextBlock>
                                         <Slider x:Name="HikGammaSlider"
-                    Minimum="0.1" Maximum="3.0" Width="140"
-                    ValueChanged="HikGammaSlider_ValueChanged"/>
+                                                Minimum="0.1" Maximum="3.0" Width="140"
+                                                ValueChanged="HikGammaSlider_ValueChanged"/>
                                     </StackPanel>
 
                                     <StackPanel>
-                                        <TextBlock Text="Black Level" FontWeight="Bold"/>
+                                        <TextBlock FontWeight="Bold" Foreground="{StaticResource ForegroundBrush}">
+                                            <Run Text="⚫ "/>
+                                            <Run Text="Black Level"/>
+                                        </TextBlock>
                                         <Slider x:Name="HikBlackSlider"
-                    Minimum="0" Maximum="20" Width="140"
-                    ValueChanged="HikBlackSlider_ValueChanged"/>
+                                                Minimum="0" Maximum="20" Width="140"
+                                                ValueChanged="HikBlackSlider_ValueChanged"/>
                                     </StackPanel>
 
                                 </StackPanel>
 
                             </Grid>
 
-
-                            <!-- New Save button for camera sliders (explicit save required) -->
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12" HorizontalAlignment="Left">
+                            <!-- ✅ Save Settings Button with icon -->
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,0" HorizontalAlignment="Left">
                                 <Button x:Name="SaveCameraButton"
-                                        Content="Save Settings"
                                         Style="{StaticResource RoundedButtonStyle}"
-                                        Width="140"
+                                        Width="160"
                                         IsEnabled="False"
-                                        Click="SaveCameraSettingsButton_Click"/>
-                                <TextBlock x:Name="SaveStatusSmall" Text="" Foreground="Green" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                        Click="SaveCameraSettingsButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="💾 " FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Save Settings" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock x:Name="SaveStatusSmall" Text="" Foreground="#4CAF50" VerticalAlignment="Center" Margin="8,0,0,0" FontWeight="SemiBold"/>
                             </StackPanel>
                         </StackPanel>
                     </Expander>
 
-                    <!-- Main preview + right Image Preparation (moved here). -->
+                    <!-- Main preview + right Image Preparation -->
                     <Grid Grid.Row="1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Left: Live preview with overlays -->
+                        <!-- Left: Live preview -->
                         <Border Grid.Column="0"
-                                BorderBrush="#90CAF9"
-                                BorderThickness="1"
+                                BorderBrush="{StaticResource PanelBorderBrush}"
+                                BorderThickness="2"
                                 CornerRadius="8"
-                                Background="#FFFFFF"
+                                Background="#000000"
                                 HorizontalAlignment="Stretch"
                                 VerticalAlignment="Stretch"
                                 Margin="0,0,12,0">
-                            <Grid>
-                                <Image x:Name="CameraImage" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-                                <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False" Background="Transparent"/>
-                            </Grid>
+                            <Viewbox Stretch="Uniform">
+                                <Grid Width="640" Height="480">
+                                    <Image x:Name="CameraImage" 
+                                           Width="640" Height="480"
+                                           Stretch="Uniform" 
+                                           HorizontalAlignment="Stretch" 
+                                           VerticalAlignment="Stretch"/>
+                                    <Canvas x:Name="OverlayCanvas" 
+                                            Width="640" Height="480"
+                                            IsHitTestVisible="False" 
+                                            Background="Transparent"/>
+                                </Grid>
+                            </Viewbox>
                         </Border>
 
-                        <!-- Right: Image Preparation group (moved here). -->
+                        <!-- Right: Image Preparation -->
                         <Border Grid.Column="1"
-                                BorderBrush="#90CAF9"
-                                BorderThickness="1"
+                                BorderBrush="{StaticResource PanelBorderBrush}"
+                                BorderThickness="2"
                                 CornerRadius="6"
-                                Background="#FFF8FAFF"
+                                Background="{StaticResource PanelBackground}"
                                 Padding="8">
                             <StackPanel VerticalAlignment="Top" Margin="4">
                                 <DockPanel LastChildFill="False" Margin="0,0,0,6">
-                                    <Button x:Name="ImgPrepToggleButton" Content="▾" Width="28" Height="24" DockPanel.Dock="Right" Margin="0,0,0,0" Click="ImgPrepToggleButton_Click"/>
+                                    <TextBlock Text="🖼️ Image Preparation" 
+                                               FontWeight="Bold"
+                                               FontSize="14"
+                                               Foreground="{StaticResource AccentBrush}"
+                                               VerticalAlignment="Center"
+                                               DockPanel.Dock="Left"/>
+                                    <Button x:Name="ImgPrepToggleButton" 
+                                            Content="▾" 
+                                            Width="28" 
+                                            Height="24" 
+                                            DockPanel.Dock="Right" 
+                                            Margin="0,0,0,0" 
+                                            Click="ImgPrepToggleButton_Click"/>
                                 </DockPanel>
 
-                                <GroupBox
-                                    x:Name="ImagePrepGroupBox"
-                                    Header="Image Preparation"
-                                    Margin="0"
-                                    HorizontalAlignment="Stretch">
+                                <GroupBox x:Name="ImagePrepGroupBox"
+                                          Header=""
+                                          Margin="0"
+                                          BorderThickness="0"
+                                          Background="Transparent"
+                                          HorizontalAlignment="Stretch">
 
-                                    <Grid Margin="12"
+                                    <Grid Margin="0"
                                           Height="Auto"
                                           HorizontalAlignment="Stretch">
 
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto"/>
-                                            <!-- Row 0: Object Class label -->
                                             <RowDefinition Height="Auto"/>
-                                            <!-- Row 1: Object Class ComboBox -->
                                             <RowDefinition Height="Auto"/>
-                                            <!-- Row 2: Category label -->
                                             <RowDefinition Height="Auto"/>
-                                            <!-- Row 3: Category ComboBox -->
                                             <RowDefinition Height="Auto"/>
-                                            <!-- Row 4: Snapshot -->
                                             <RowDefinition Height="Auto"/>
-                                            <!-- Row 5: Save Status Label -->
                                         </Grid.RowDefinitions>
 
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
-                                        <!-- Row 0 -->
+                                        <!-- ✅ Object Class with icon -->
                                         <TextBlock Grid.Row="0" Grid.Column="0"
-                   Text="Object Class:" VerticalAlignment="Center"/>
+                                                   Grid.ColumnSpan="2"
+                                                   VerticalAlignment="Center"
+                                                   Foreground="{StaticResource ForegroundBrush}"
+                                                   FontWeight="SemiBold">
+                                            <Run Text="🏷️ "/>
+                                            <Run Text="Object Class:"/>
+                                        </TextBlock>
 
-                                        <!-- Row 1 -->
                                         <ComboBox x:Name="ClassComboBox"
-                  Grid.Row="1" Grid.Column="0"
-                  Grid.ColumnSpan="2"
-                  Margin="0,4,0,4"
-                  HorizontalAlignment="Stretch"
-                  Style="{StaticResource RoundedComboBoxStyle}"/>
+                                                  Grid.Row="1" Grid.Column="0"
+                                                  Grid.ColumnSpan="2"
+                                                  Margin="0,4,0,4"
+                                                  HorizontalAlignment="Stretch"
+                                                  Style="{StaticResource RoundedComboBoxStyle}"/>
 
-                                        <!-- Row 2 -->
+                                        <!-- ✅ Category with icon -->
                                         <TextBlock Grid.Row="2" Grid.Column="0"
-                   Text="Category:" VerticalAlignment="Center" Margin="0,8,0,0"/>
+                                                   Grid.ColumnSpan="2"
+                                                   VerticalAlignment="Center" 
+                                                   Margin="0,8,0,0"
+                                                   Foreground="{StaticResource ForegroundBrush}"
+                                                   FontWeight="SemiBold">
+                                            <Run Text="📂 "/>
+                                            <Run Text="Category:"/>
+                                        </TextBlock>
 
-                                        <!-- Row 3 -->
                                         <ComboBox x:Name="CategoryComboBox"
-                  Grid.Row="3" Grid.Column="0"
-                  Grid.ColumnSpan="2"
-                  Margin="0,4,0,4"
-                  HorizontalAlignment="Stretch"
-                  Style="{StaticResource RoundedComboBoxStyle}"/>
+                                                  Grid.Row="3" Grid.Column="0"
+                                                  Grid.ColumnSpan="2"
+                                                  Margin="0,4,0,4"
+                                                  HorizontalAlignment="Stretch"
+                                                  Style="{StaticResource RoundedComboBoxStyle}"/>
 
-                                        <!-- Row 4 -->
+                                        <!-- ✅ Snapshot button with icon -->
                                         <Button x:Name="SnapshotButton"
-                Grid.Row="4" Grid.Column="0"
-                Content="Snapshot"
-                Style="{StaticResource RoundedButtonStyle}"
-                Background="#FF388E3C"
-                BorderBrush="#FF2E7D32"
-                Width="80"
-                HorizontalAlignment="Left"
-                Margin="0,5,0,5"
-                Click="SnapshotButton_Click"/>
+                                                Grid.Row="4" Grid.Column="0"
+                                                Style="{StaticResource RoundedButtonStyle}"
+                                                Background="#FF388E3C"
+                                                BorderBrush="#FF2E7D32"
+                                                Grid.ColumnSpan="2"
+                                                HorizontalAlignment="Stretch"
+                                                Margin="0,5,0,5"
+                                                Click="SnapshotButton_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="📸 " FontSize="14" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Snapshot" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
 
-                                        <!-- Row 5: Save Status Label -->
                                         <TextBlock x:Name="lblSaveStatus"
-                   Grid.Row="5" Grid.Column="0"
-                   Grid.ColumnSpan="2"
-                   Text=""
-                   Foreground="Green"
-                   FontWeight="SemiBold"
-                   Margin="0,4,0,0"/>
+                                                   Grid.Row="5" Grid.Column="0"
+                                                   Grid.ColumnSpan="2"
+                                                   Text=""
+                                                   Foreground="#4CAF50"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,4,0,0"
+                                                   TextWrapping="Wrap"/>
                                     </Grid>
                                 </GroupBox>
 
-                                <!-- keep calibration status visible on General tab -->
-                                <Label x:Name="CalibStatus" Content="Ready" Margin="0,12,0,0"/>
+                                <!-- ✅ Calibration status with icon -->
+                                <Border Background="{StaticResource CardBackground}"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="8"
+                                        Margin="0,12,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📊 Status: " 
+                                                   Foreground="{StaticResource SecondaryForeBrush}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <Label x:Name="CalibStatus" 
+                                               Content="Ready" 
+                                               Foreground="{StaticResource AccentBrush}"
+                                               FontWeight="Bold"
+                                               Padding="0"
+                                               VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
                     </Grid>
                 </Grid>
             </TabItem>
 
-            <!-- Calibrate tab: cloned preview + reference color editors -->
-            <TabItem Header="Calibrate">
+            <!-- ✅ Calibrate tab with icons -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🎨 " FontSize="16" VerticalAlignment="Center"/>
+                        <TextBlock Text="Calibrate" FontSize="14" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
                 <Grid Margin="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <!-- header buttons -->
                         <RowDefinition Height="*"/>
-                        <!-- rest -->
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Header buttons -->
+                    <!-- ✅ Header buttons with icons -->
                     <StackPanel Orientation="Horizontal" Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,8" HorizontalAlignment="Left">
-                        <Button x:Name="AutoCalibrateButton" Content="Start Calibration" Style="{StaticResource RoundedButtonStyle}" Width="160" Click="AutoCalibrateButton_Click"/>
-                        <Button x:Name="ApplyCalibButton" Content="Apply" Style="{StaticResource RoundedButtonStyle}" Width="120"/>
-                        <Button x:Name="ResetCalibButton" Content="Reset" Style="{StaticResource RoundedButtonStyle}" Width="120" Background="#FFE0E0E0" Foreground="#FF000000"/>
+                        <Button x:Name="AutoCalibrateButton" 
+                                Style="{StaticResource RoundedButtonStyle}" 
+                                Width="180" 
+                                Click="AutoCalibrateButton_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="🔧 " FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Start Calibration" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ApplyCalibButton" 
+                                Style="{StaticResource RoundedButtonStyle}" 
+                                Width="120">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="✅ " FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Apply" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ResetCalibButton" 
+                                Style="{StaticResource RoundedButtonStyle}" 
+                                Width="120" 
+                                Background="#FFE0E0E0" 
+                                Foreground="#FF000000">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="🔄 " FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="Reset" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
-                    <!-- Left: Cloned preview area (image + overlay) -->
+                    <!-- Left: Cloned preview -->
                     <Border Grid.Row="1" Grid.Column="0"
-                            BorderBrush="#90CAF9"
-                            BorderThickness="1"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="2"
                             CornerRadius="8"
-                            Background="#FFFFFF"
+                            Background="#000000"
                             HorizontalAlignment="Stretch"
                             VerticalAlignment="Stretch"
                             Margin="0,0,12,0">
-                        <Grid>
-                            <Image x:Name="CalibImage" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
-                            <Canvas x:Name="CalibOverlayCanvas" IsHitTestVisible="False" Background="Transparent"/>
-                        </Grid>
+                        <Viewbox Stretch="Uniform">
+                            <Grid Width="640" Height="480">
+                                <Image x:Name="CalibImage" 
+                                       Width="640" Height="480"
+                                       Stretch="Uniform" 
+                                       HorizontalAlignment="Stretch" 
+                                       VerticalAlignment="Stretch"/>
+                                <Canvas x:Name="CalibOverlayCanvas" 
+                                        Width="640" Height="480"
+                                        IsHitTestVisible="False" 
+                                        Background="Transparent"/>
+                            </Grid>
+                        </Viewbox>
                     </Border>
 
-                    <!-- Right: reference color boxes and edit controls -->
+                    <!-- Right: Reference colors -->
                     <Border Grid.Row="1" Grid.Column="1"
-                            BorderBrush="#90CAF9"
-                            BorderThickness="1"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="2"
                             CornerRadius="6"
-                            Background="#FFF8FAFF"
+                            Background="{StaticResource PanelBackground}"
                             Padding="8">
-                        <StackPanel VerticalAlignment="Top" Margin="4">
-                            <TextBlock Text="Calibration references" FontWeight="Bold" Margin="0,0,0,8"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel VerticalAlignment="Top" Margin="4">
+                                <TextBlock Text="🎨 Calibration References" 
+                                           FontWeight="Bold" 
+                                           FontSize="14"
+                                           Foreground="{StaticResource AccentBrush}"
+                                           Margin="0,0,0,12"/>
 
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
-                                <Border x:Name="RectRed" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF795337"/>
-                                <TextBox x:Name="TxtRefRed" Width="120" IsReadOnly="True" Margin="0,0,8,0"/>
-                                <Button x:Name="BtnEditRed" Content="Edit" Width="60" Click="EditSaveRef_Click"/>
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
-                                <Border x:Name="RectGreen" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF4D5D55"/>
-                                <TextBox x:Name="TxtRefGreen" Width="120" IsReadOnly="True" Margin="0,0,8,0"/>
-                                <Button x:Name="BtnEditGreen" Content="Edit" Width="60" Click="EditSaveRef_Click"/>
-                            </StackPanel>
-
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
-                                <Border x:Name="RectBlue" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF2B4267"/>
-                                <TextBox x:Name="TxtRefBlue" Width="120" IsReadOnly="True" Margin="0,0,8,0"/>
-                                <Button x:Name="BtnEditBlue" Content="Edit" Width="60" Click="EditSaveRef_Click"/>
-                            </StackPanel>
-
-                            <Label x:Name="CalibTabStatus" Content="Ready" Margin="0,12,0,0"/>
-
-                            <!-- Inline decision panel for measured values -->
-                            <Border x:Name="CalibDecisionPanel"
-                                    Visibility="Collapsed"
-                                    Background="#FFF7F7FF"
-                                    BorderBrush="#FF9AA8DA"
-                                    BorderThickness="1"
-                                    CornerRadius="6"
-                                    Padding="8"
-                                    Margin="0,8,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Measured values captured. Update stored references or run auto-tune?" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button x:Name="CalibDecisionSaveButton" Content="Save" Width="84" Click="CalibDecision_SaveRefs_Click" Margin="0,0,8,0"/>
-                                        <Button x:Name="CalibDecisionAutoTuneButton" Content="Tune" Width="72" Click="CalibDecision_AutoTune_Click" Margin="0,0,8,0"/>
-                                        <Button x:Name="CalibDecisionCancelButton" Content="Cancel" Width="80" Click="CalibDecision_Cancel_Click"/>
-                                    </StackPanel>
+                                <!-- ✅ Color references with icons -->
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
+                                    <TextBlock Text="🔴 " FontSize="14" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                    <Border x:Name="RectRed" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF795337"/>
+                                    <TextBox x:Name="TxtRefRed" Width="100" IsReadOnly="True" Margin="0,0,8,0"/>
+                                    <Button x:Name="BtnEditRed" Content="✏️ Edit" Width="70" Click="EditSaveRef_Click"/>
                                 </StackPanel>
-                            </Border>
 
-                            <!-- Inline calibration-complete prompt (moved to Calibrate tab) -->
-                            <Border x:Name="CalibCompletePanel"
-                                    Visibility="Collapsed"
-                                    Background="#FFFDF3E0"
-                                    BorderBrush="#FFCC8A1A"
-                                    BorderThickness="1"
-                                    CornerRadius="6"
-                                    Padding="8"
-                                    Margin="0,8,0,0">
-                                <StackPanel>
-                                    <TextBlock Text="Station calibration complete." FontWeight="Bold" Margin="0,0,0,6"/>
-                                    <TextBlock Text="Save current Brightness / Contrast / Exposure to application settings?" TextWrapping="Wrap" Margin="0,0,0,8"/>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button x:Name="CalibSaveButton" Content="Save Settings" Style="{StaticResource RoundedButtonStyle}" Width="120" Click="CalibSaveButton_Click" Margin="0,0,8,0"/>
-                                        <Button x:Name="CalibDontSaveButton" Content="Don't Save" Style="{StaticResource RoundedButtonStyle}" Width="120" Click="CalibDontSaveButton_Click"/>
-                                    </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
+                                    <TextBlock Text="🟢 " FontSize="14" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                    <Border x:Name="RectGreen" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF4D5D55"/>
+                                    <TextBox x:Name="TxtRefGreen" Width="100" IsReadOnly="True" Margin="0,0,8,0"/>
+                                    <Button x:Name="BtnEditGreen" Content="✏️ Edit" Width="70" Click="EditSaveRef_Click"/>
                                 </StackPanel>
-                            </Border>
 
-                            <!-- Inline sample-prep panel (paste near CalibDecisionPanel inside the same StackPanel) -->
-                            <Border x:Name="SamplePreparePanel"
-                                    Visibility="Collapsed"
-                                    Background="#FFFFFFFF"
-                                    BorderBrush="#FFB0BEC5"
-                                    BorderThickness="1"
-                                    CornerRadius="6"
-                                    Padding="12"
-                                    Margin="0,8,0,0">
-                                <StackPanel>
-                                    <TextBlock x:Name="SamplePrepareTitle" Text="Adjust preview boxes" FontWeight="Bold" FontSize="16" Margin="0,0,0,8"/>
-                                    <TextBlock x:Name="SamplePrepareText" TextWrapping="Wrap" Margin="0,0,0,12">
-                                        Please adjust the three boxes so each is centered inside its target color area.
-                                        Click OK when ready, or Cancel to abort.
-                                    </TextBlock>
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button x:Name="SamplePrepareOk" Content="OK" Width="88" Margin="0,0,8,0" IsDefault="True" Click="SamplePrepareOk_Click"/>
-                                        <Button x:Name="SamplePrepareCancel" Content="Cancel" Width="88" IsCancel="True" Click="SamplePrepareCancel_Click"/>
-                                    </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,4" VerticalAlignment="Center">
+                                    <TextBlock Text="🔵 " FontSize="14" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                    <Border x:Name="RectBlue" Width="22" Height="22" CornerRadius="3" BorderBrush="Gray" BorderThickness="1" Margin="0,0,8,0" Background="#FF2B4267"/>
+                                    <TextBox x:Name="TxtRefBlue" Width="100" IsReadOnly="True" Margin="0,0,8,0"/>
+                                    <Button x:Name="BtnEditBlue" Content="✏️ Edit" Width="70" Click="EditSaveRef_Click"/>
                                 </StackPanel>
-                            </Border>
-                        </StackPanel>
+
+                                <Border Background="{StaticResource CardBackground}"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="8"
+                                        Margin="0,12,0,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📊 Status: " 
+                                                   Foreground="{StaticResource SecondaryForeBrush}"
+                                                   FontWeight="SemiBold"
+                                                   VerticalAlignment="Center"/>
+                                        <Label x:Name="CalibTabStatus" 
+                                               Content="Ready" 
+                                               Foreground="{StaticResource AccentBrush}"
+                                               FontWeight="Bold"
+                                               Padding="0"
+                                               VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Decision panel -->
+                                <Border x:Name="CalibDecisionPanel"
+                                        Visibility="Collapsed"
+                                        Background="{StaticResource CardBackground}"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="8"
+                                        Margin="0,8,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Measured values captured. Update stored references or run auto-tune?" 
+                                                   TextWrapping="Wrap" 
+                                                   Foreground="{StaticResource ForegroundBrush}"
+                                                   Margin="0,0,0,6"/>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button x:Name="CalibDecisionSaveButton" Content="💾 Save" Width="90" Click="CalibDecision_SaveRefs_Click" Margin="0,0,8,0"/>
+                                            <Button x:Name="CalibDecisionAutoTuneButton" Content="🎛️ Tune" Width="80" Click="CalibDecision_AutoTune_Click" Margin="0,0,8,0"/>
+                                            <Button x:Name="CalibDecisionCancelButton" Content="❌ Cancel" Width="90" Click="CalibDecision_Cancel_Click"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Complete panel -->
+                                <Border x:Name="CalibCompletePanel"
+                                        Visibility="Collapsed"
+                                        Background="#FFFDF3E0"
+                                        BorderBrush="#FFCC8A1A"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="8"
+                                        Margin="0,8,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="✅ Station calibration complete." FontWeight="Bold" Margin="0,0,0,6"/>
+                                        <TextBlock Text="Save current Brightness / Contrast / Exposure to application settings?" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button x:Name="CalibSaveButton" 
+                                                    Style="{StaticResource RoundedButtonStyle}" 
+                                                    Width="140" 
+                                                    Click="CalibSaveButton_Click" 
+                                                    Margin="0,0,8,0">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="💾 " FontSize="14" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Save Settings" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="CalibDontSaveButton" 
+                                                    Style="{StaticResource RoundedButtonStyle}" 
+                                                    Width="120" 
+                                                    Click="CalibDontSaveButton_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="❌ " FontSize="14" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="Don't Save" VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Sample prepare panel -->
+                                <Border x:Name="SamplePreparePanel"
+                                        Visibility="Collapsed"
+                                        Background="{StaticResource CardBackground}"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="12"
+                                        Margin="0,8,0,0">
+                                    <StackPanel>
+                                        <TextBlock x:Name="SamplePrepareTitle" 
+                                                   Text="Adjust preview boxes" 
+                                                   FontWeight="Bold" 
+                                                   FontSize="16" 
+                                                   Foreground="{StaticResource AccentBrush}"
+                                                   Margin="0,0,0,8"/>
+                                        <TextBlock x:Name="SamplePrepareText" 
+                                                   TextWrapping="Wrap" 
+                                                   Foreground="{StaticResource ForegroundBrush}"
+                                                   Margin="0,0,0,12">
+                                            Please adjust the three boxes so each is centered inside its target color area.
+                                            Click OK when ready, or Cancel to abort.
+                                        </TextBlock>
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button x:Name="SamplePrepareOk" Content="OK" Width="88" Margin="0,0,8,0" IsDefault="True" Click="SamplePrepareOk_Click"/>
+                                            <Button x:Name="SamplePrepareCancel" Content="Cancel" Width="88" IsCancel="True" Click="SamplePrepareCancel_Click"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Border>
                 </Grid>
             </TabItem>

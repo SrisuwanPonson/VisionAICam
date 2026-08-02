@@ -4,159 +4,186 @@
       Title="Production">
 
     <Page.Resources>
-        <!-- Light theme palette -->
-        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#FFFFFFFF" Offset="0"/>
-            <GradientStop Color="#FFF3F6F9" Offset="1"/>
+        <!-- ✅ Dark theme palette -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
 
-        <SolidColorBrush x:Key="ForegroundBrush" Color="#222222"/>
-        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#5A6570"/>
-        <SolidColorBrush x:Key="PanelBackground" Color="#FAFAFA"/>
-        <SolidColorBrush x:Key="CardBackground" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="PanelBorderBrush" Color="#D0D7DE"/>
-        <SolidColorBrush x:Key="OverlayBackground" Color="#80FFFFFF"/> <!-- semi-transparent light -->
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="OverlayBackground" Color="#80000000"/>
+
         <DropShadowEffect x:Key="PanelShadow"
                           Color="Black"
                           Direction="270"
                           ShadowDepth="4"
-                          Opacity="0.06"
-                          BlurRadius="6"/>
+                          Opacity="0.3"
+                          BlurRadius="8"/>
+
+        <!-- ✅ Modern Button Style -->
+        <Style x:Key="ModernButton" TargetType="Button">
+            <Setter Property="Background" Value="#1976D2"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#0D47A1"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                               BorderBrush="{TemplateBinding BorderBrush}"
+                               BorderThickness="{TemplateBinding BorderThickness}"
+                               CornerRadius="4"
+                               Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" 
+                                            VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#0D47A1"/>
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="#0A3A82"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#546E7A"/>
+                    <Setter Property="Foreground" Value="#90A4AE"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Page.Resources>
 
     <Page.Background>
         <StaticResource ResourceKey="PageBackgroundBrush"/>
     </Page.Background>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <Grid Margin="16">
-            <GroupBox Header="Camera Feed"
-                      FontSize="18"
-                      FontWeight="Bold"
-                      Padding="12"
-                      Background="{StaticResource PanelBackground}"
-                      Foreground="{StaticResource ForegroundBrush}"
-                      BorderBrush="{StaticResource PanelBorderBrush}"
-                      BorderThickness="1"
-                      Effect="{StaticResource PanelShadow}"
-                      VerticalAlignment="Top">
-                <StackPanel>
-                    <!-- Fixed-size image and canvas -->
-                    <Border Width="640" Height="480"
-                            Background="{StaticResource CardBackground}"
-                            BorderBrush="{StaticResource PanelBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="10"
-                            Padding="4">
-                        <Grid>
+    <!-- ✅ Changed: Remove ScrollViewer and use Grid to fill available space -->
+    <Grid Margin="10">
+        <GroupBox FontSize="18"
+                  FontWeight="Bold"
+                  Padding="8"
+                  Background="{StaticResource PanelBackground}"
+                  Foreground="{StaticResource AccentBrush}"
+                  BorderBrush="{StaticResource PanelBorderBrush}"
+                  BorderThickness="2"
+                  Effect="{StaticResource PanelShadow}"
+                  VerticalAlignment="Stretch"
+                  HorizontalAlignment="Stretch">
+            <GroupBox.Header>
+                <TextBlock FontSize="20" FontWeight="Bold" Foreground="{StaticResource AccentBrush}">
+                    <Run Text="📹"/>
+                    <Run Text="Camera Feed"/>
+                </TextBlock>
+            </GroupBox.Header>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- Camera Feed - Scales up automatically -->
+                <Border Grid.Row="0"
+                        Background="#000000"
+                        BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Margin="0,0,0,8">
+                    <Viewbox Stretch="Uniform">
+                        <Grid Width="640" Height="480">
                             <Image x:Name="ProductionImage"
                                    Width="640" Height="480"
-                                   Stretch="None"
-                                   HorizontalAlignment="Left"
-                                   VerticalAlignment="Top"/>
+                                   Stretch="Uniform"/>
                             <Canvas x:Name="BoundingBoxCanvas"
                                     Width="640" Height="480"
-                                    IsHitTestVisible="False"
                                     Background="Transparent"/>
+
                             <Grid x:Name="LoadingOverlay"
                                   Background="{StaticResource OverlayBackground}"
                                   Visibility="Collapsed"
                                   Width="640" Height="480">
-                                <Border Background="#CCFFFFFF"
-                                        Padding="24"
-                                        CornerRadius="8"
+                                <Border Background="#CC37474F"
+                                        Padding="32"
+                                        CornerRadius="12"
+                                        BorderBrush="{StaticResource PanelBorderBrush}"
+                                        BorderThickness="2"
                                         HorizontalAlignment="Center"
                                         VerticalAlignment="Center">
                                     <StackPanel>
-                                        <TextBlock Text="Loading model and running first inference..."
-                                                   Foreground="{StaticResource ForegroundBrush}"
-                                                   FontSize="16"
-                                                   FontWeight="SemiBold"
-                                                   Margin="0,0,0,12"
-                                                   TextAlignment="Center"/>
+                                        <TextBlock Foreground="{StaticResource AccentBrush}"
+                                                   FontSize="18"
+                                                   FontWeight="Bold"
+                                                   Margin="0,0,0,16"
+                                                   TextAlignment="Center">
+                                            <Run Text="⚙️"/>
+                                            <Run Text="Loading Model..."/>
+                                        </TextBlock>
+                                        <TextBlock Text="Running first inference, please wait..."
+                                                   Foreground="{StaticResource SecondaryForeBrush}"
+                                                   FontSize="14"
+                                                   Margin="0,0,0,16"
+                                                       TextAlignment="Center"/>
                                         <ProgressBar IsIndeterminate="True"
-                                                     Width="180"
-                                                     Height="14"/>
+                                                     Width="240"
+                                                     Height="8"
+                                                     Foreground="#1976D2"/>
                                     </StackPanel>
                                 </Border>
                             </Grid>
                         </Grid>
-                    </Border>
+                    </Viewbox>
+                </Border>
 
-                    <!-- Status Bar -->
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <TextBlock x:Name="StatusTextBlock"
-                                   Text="Ready"
-                                   FontSize="13"
-                                   Foreground="{StaticResource SecondaryForeBrush}"
-                                   Margin="0,0,24,0"/>
-                        <TextBlock x:Name="FpsTextBlock"
-                                   Text="FPS: 0"
-                                   FontSize="13"
-                                   Foreground="{StaticResource SecondaryForeBrush}"
-                                   Margin="0,0,24,0"/>
-                        <TextBlock x:Name="InferenceTimeTextBlock"
-                                   Text="Inference: 0 ms"
-                                   FontSize="13"
-                                   Foreground="{StaticResource SecondaryForeBrush}"/>
+                <!-- Status Bar -->
+                <Border Grid.Row="1"
+                        Background="#263238"
+                        BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="12">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,24,0">
+                            <TextBlock Text="🎯" FontSize="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock x:Name="StatusTextBlock" 
+                                       Text="Ready" 
+                                       Foreground="#4CAF50"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,24,0">
+                            <TextBlock Text="⚡" FontSize="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="FPS: " Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="FpsTextBlock" 
+                                       Text="0" 
+                                       Foreground="{StaticResource AccentBrush}"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⏱️" FontSize="16" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                            <TextBlock Text="Inference: " Foreground="{StaticResource SecondaryForeBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="InferenceTimeTextBlock" 
+                                       Text="0 ms" 
+                                       Foreground="#FF9800"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
-            </GroupBox>
-
-            <!-- Per-frame summary: light-aware styling -->
-            <DataGrid x:Name="PerFrameSummaryGrid"
-                      AutoGenerateColumns="False"
-                      HeadersVisibility="Column"
-                      IsReadOnly="True"
-                      Width="164"
-                      HorizontalAlignment="Right"
-                      VerticalAlignment="Top"
-                      Margin="0,43,485,0"
-                      Background="Transparent"
-                      RowBackground="Transparent"
-                      AlternatingRowBackground="Transparent"
-                      GridLinesVisibility="None"
-                      BorderThickness="0">
-                <DataGrid.Resources>
-                    <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Background" Value="Transparent"/>
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="Padding" Value="6,4"/>
-                        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
-                    </Style>
-
-                    <Style TargetType="DataGridCell">
-                        <Setter Property="Background" Value="Transparent"/>
-                        <Setter Property="BorderThickness" Value="0"/>
-                        <Setter Property="Padding" Value="6,2"/>
-                    </Style>
-
-                    <Style TargetType="DataGridRow">
-                        <Setter Property="Background" Value="Transparent"/>
-                    </Style>
-                </DataGrid.Resources>
-
-                <DataGrid.Columns>
-                    <DataGridTemplateColumn Header="Class" Width="*">
-                        <DataGridTemplateColumn.CellTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding ClassName}"
-                                           Foreground="{Binding ColorBrush}"
-                                           FontWeight="SemiBold"/>
-                            </DataTemplate>
-                        </DataGridTemplateColumn.CellTemplate>
-                    </DataGridTemplateColumn>
-
-                    <DataGridTextColumn Header="Count" Binding="{Binding Count}" Width="72">
-                        <DataGridTextColumn.ElementStyle>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
-                                <Setter Property="FontWeight" Value="Normal"/>
-                            </Style>
-                        </DataGridTextColumn.ElementStyle>
-                    </DataGridTextColumn>
-                </DataGrid.Columns>
-            </DataGrid>
-        </Grid>
-    </ScrollViewer>
+                </Border>
+            </Grid>
+        </GroupBox>
+    </Grid>
 </Page>

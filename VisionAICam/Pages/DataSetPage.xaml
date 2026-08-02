@@ -12,27 +12,35 @@
       Background="Transparent">
 
     <Page.Resources>
+        <!-- ✅ Dark theme palette matching CameraPage -->
         <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#263238" Offset="0"/>
             <GradientStop Color="#37474F" Offset="0.5"/>
             <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
+
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
     </Page.Resources>
 
     <DockPanel LastChildFill="True" Background="{StaticResource PageBackgroundBrush}">
-        <!-- Menu Bar -->
-        <Menu DockPanel.Dock="Top" Background="#FFF5F5F5" Foreground="#222">
+        <!-- ✅ Menu Bar with dark theme -->
+        <Menu DockPanel.Dock="Top" Background="{StaticResource PanelBackground}" Foreground="{StaticResource ForegroundBrush}">
             <Menu.Resources>
                 <Style TargetType="MenuItem">
                     <Setter Property="FontSize" Value="16"/>
                     <Setter Property="Padding" Value="10,5"/>
-                    <Setter Property="Background" Value="#FFF5F5F5"/>
-                    <Setter Property="Foreground" Value="#222"/>
+                    <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+                    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
                     <Setter Property="Margin" Value="2"/>
                 </Style>
             </Menu.Resources>
             
-            <MenuItem Header="File">
+            <MenuItem Header="📁 File">
                 <MenuItem Header="New Project" Click="CreateProject_Click"/>
                 <MenuItem Header="Open Project" Click="OpenProject_Click"/>
                 <Separator/>
@@ -58,26 +66,26 @@
                 <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
             </MenuItem>
-            <MenuItem Header="Edit">
+            <MenuItem Header="✏️ Edit">
                 <MenuItem Header="Undo" InputGestureText="Ctrl+Z" Click="Undo_Click"/>
                 <MenuItem Header="Redo" InputGestureText="Ctrl+Y" Click="Redo_Click"/>
                 <Separator/>
                 <MenuItem Header="Remove Selected" Click="RemoveSelected_Click"/>
             </MenuItem>
-            <MenuItem Header="View">
+            <MenuItem Header="👁️ View">
                 <MenuItem Header="Zoom In" InputGestureText="Ctrl++" Click="ZoomIn_Click"/>
                 <MenuItem Header="Zoom Out" InputGestureText="Ctrl+-" Click="ZoomOut_Click"/>
                 <MenuItem Header="Full Screen" InputGestureText="F11" Click="FullScreenToggleButton_Click"/>
                 <MenuItem Header="Processing Panel" x:Name="ToggleProcessingPanelMenu" IsCheckable="True" Click="ToggleProcessingPanelMenu_Click" InputGestureText="Ctrl+P"/>
             </MenuItem>
-            <MenuItem Header="Help">
+            <MenuItem Header="❓ Help">
                 <MenuItem Header="View Help" Click="ViewHelp_Click"/>
                 <MenuItem Header="About" Click="About_Click"/>
             </MenuItem>
         </Menu>
 
-        <!-- Status Bar at the very bottom -->
-        <StatusBar DockPanel.Dock="Bottom" FontSize="13" Background="#FFF5F5F5" Foreground="#222">
+        <!-- ✅ Status Bar with dark theme -->
+        <StatusBar DockPanel.Dock="Bottom" FontSize="13" Background="{StaticResource CardBackground}" Foreground="{StaticResource SecondaryForeBrush}">
             <StatusBarItem>
                 <TextBlock x:Name="StatusTextBlock" Text="Ready" />
             </StatusBarItem>
@@ -85,54 +93,118 @@
 
         <!-- Main Content with scrollbars -->
         <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-            <Grid x:Name="MainLayoutGrid" Margin="30" Background="#FFF">
-                <!-- Main Content Panel (now visible by default) -->
+            <Grid x:Name="MainLayoutGrid" Margin="30" Background="Transparent">
+                <!-- Main Content Panel -->
                 <Grid x:Name="MainContentPanel" Visibility="Visible">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <!-- Title and Navigation (vertical layout) -->
+                    <!-- ✅ Title and Navigation with dark theme -->
                     <StackPanel x:Name="TitlePanel" Grid.Row="0" Orientation="Vertical" VerticalAlignment="Top" Margin="0,0,0,8">
-                        <TextBlock Text="Data Preparation"
-                                   FontSize="28"
+                        <TextBlock FontSize="28"
                                    FontWeight="Bold"
-                                   Foreground="#222"
-                                   Margin="0,0,0,6"/>
-                        <GroupBox Header="Image Navigation" Margin="0,0,0,4" Foreground="#222" Background="#FFF5F5F5" BorderBrush="#FFD54F">
-                            <StackPanel Orientation="Horizontal" Margin="10,0,0,0" Background="#FFF5F5F5">
-                                <Button Content="Load Folder" MinWidth="100" Click="LoadFolder_Click" Margin="0,0,10,0"/>
-                                <Button Content="Previous" MinWidth="80" Click="PrevImage_Click" Margin="0,0,10,0"/>
-                                <Button Content="Next" MinWidth="80" Click="NextImage_Click"/>
-                                <TextBlock x:Name="ImageProgressText" Text="No images loaded" FontSize="16" Foreground="#222" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                                   Foreground="{StaticResource AccentBrush}"
+                                   Margin="0,0,0,6">
+                            <Run Text="📊 "/>
+                            <Run Text="Data Preparation"/>
+                        </TextBlock>
+
+                        <!-- ✅ Image Navigation with dark theme -->
+                        <GroupBox Margin="0,0,0,4" 
+                                  Foreground="{StaticResource AccentBrush}" 
+                                  Background="{StaticResource PanelBackground}" 
+                                  BorderBrush="{StaticResource PanelBorderBrush}"
+                                  BorderThickness="2">
+                            <GroupBox.Header>
+                                <TextBlock FontWeight="Bold">
+                                    <Run Text="🖼️ "/>
+                                    <Run Text="Image Navigation"/>
+                                </TextBlock>
+                            </GroupBox.Header>
+                            <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="{StaticResource PanelBackground}">
+                                <Button MinWidth="100" Click="LoadFolder_Click" Margin="0,0,10,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📂 " VerticalAlignment="Center"/>
+                                        <TextBlock Text="Load Folder" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button MinWidth="80" Click="PrevImage_Click" Margin="0,0,10,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="◀ " VerticalAlignment="Center"/>
+                                        <TextBlock Text="Previous" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button MinWidth="80" Click="NextImage_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="▶ " VerticalAlignment="Center"/>
+                                        <TextBlock Text="Next" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <TextBlock x:Name="ImageProgressText" 
+                                           Text="No images loaded" 
+                                           FontSize="16" 
+                                           Foreground="{StaticResource ForegroundBrush}" 
+                                           VerticalAlignment="Center" 
+                                           Margin="20,0,0,0"/>
                             </StackPanel>
                         </GroupBox>
-                        <!-- Controls Row: Class Management (left), Drawing Mode (right) -->
+
+                        <!-- ✅ Controls Row with dark theme -->
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <GroupBox Header="Class Management"
-                                      Margin="0,0,4,0"
-                                      Foreground="#222"
-                                      Background="#FFF5F5F5"
-                                      BorderBrush="#1976D2"
+                            <!-- Class Management -->
+                            <GroupBox Margin="0,0,4,0"
+                                      Foreground="{StaticResource AccentBrush}"
+                                      Background="{StaticResource PanelBackground}"
+                                      BorderBrush="{StaticResource PanelBorderBrush}"
+                                      BorderThickness="2"
                                       HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Margin="5,0,0,0" Background="#FFF5F5F5">
-                                    <TextBlock Text="Label:" VerticalAlignment="Center" Foreground="#222" Margin="0,0,5,0"/>
+                                <GroupBox.Header>
+                                    <TextBlock FontWeight="Bold">
+                                        <Run Text="🏷️ "/>
+                                        <Run Text="Class Management"/>
+                                    </TextBlock>
+                                </GroupBox.Header>
+                                <StackPanel Orientation="Horizontal" Margin="5,4,5,4" Background="{StaticResource PanelBackground}">
+                                    <TextBlock Text="Label:" 
+                                               VerticalAlignment="Center" 
+                                               Foreground="{StaticResource ForegroundBrush}" 
+                                               Margin="0,0,5,0"/>
                                     <ComboBox x:Name="LabelComboBox" MinWidth="100" Margin="0,0,5,0"/>
-                                    <TextBox x:Name="NewClassTextBox" MinWidth="80" Margin="0,0,5,0" VerticalAlignment="Center" ToolTip="Add new class"/>
-                                    <Button Content="Add Class" MinWidth="70" Click="AddClassButton_Click"/>
+                                    <TextBox x:Name="NewClassTextBox" 
+                                             MinWidth="80" 
+                                             Margin="0,0,5,0" 
+                                             VerticalAlignment="Center" 
+                                             ToolTip="Add new class"/>
+                                    <Button MinWidth="70" Click="AddClassButton_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="➕ " VerticalAlignment="Center"/>
+                                            <TextBlock Text="Add Class" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
                                 </StackPanel>
                             </GroupBox>
 
-                            <GroupBox Header="Drawing Mode"
-                                      Margin="0,0,0,0"
-                                      Foreground="#222"
-                                      Background="#FFF5F5F5"
-                                      BorderBrush="#1976D2"
+                            <!-- Drawing Mode -->
+                            <GroupBox Margin="0,0,4,0"
+                                      Foreground="{StaticResource AccentBrush}"
+                                      Background="{StaticResource PanelBackground}"
+                                      BorderBrush="{StaticResource PanelBorderBrush}"
+                                      BorderThickness="2"
                                       VerticalAlignment="Top"
                                       HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Margin="10,0,0,0" Background="#FFF5F5F5">
-                                    <TextBlock Text="Drawing Mode:" VerticalAlignment="Center" Foreground="#222" Margin="0,0,8,0"/>
+                                <GroupBox.Header>
+                                    <TextBlock FontWeight="Bold">
+                                        <Run Text="✏️ "/>
+                                        <Run Text="Drawing Mode"/>
+                                    </TextBlock>
+                                </GroupBox.Header>
+                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="{StaticResource PanelBackground}">
+                                    <TextBlock Text="Mode:" 
+                                               VerticalAlignment="Center" 
+                                               Foreground="{StaticResource ForegroundBrush}" 
+                                               Margin="0,0,8,0"/>
                                     <ComboBox x:Name="DrawingModeComboBox" MinWidth="120" SelectionChanged="DrawingModeComboBox_SelectionChanged">
                                         <ComboBoxItem Content="Free Pen"/>
                                         <ComboBoxItem Content="Rectangle" IsSelected="True"/>
@@ -141,37 +213,40 @@
                                 </StackPanel>
                             </GroupBox>
 
-                            <!-- Auto-label button moved outside the Drawing Mode groupbox -->
+                            <!-- ✅ Auto Actions with dark theme and icons -->
                             <GroupBox x:Name="AutoLabelGroupBox"
-                                      Header="Auto Label"
                                       Visibility="Visible"
                                       Margin="10,0,0,0"
-                                      Foreground="#222"
-                                      Background="#FFF5F5F5"
-                                      BorderBrush="#1976D2"
+                                      Foreground="{StaticResource AccentBrush}"
+                                      Background="{StaticResource PanelBackground}"
+                                      BorderBrush="{StaticResource PanelBorderBrush}"
+                                      BorderThickness="2"
                                       VerticalAlignment="Top"
                                       HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="#FFF5F5F5">
-                                    <ComboBox x:Name="AutoLabelComboBox"
-                                              MinWidth="150"
-                                              Margin="0,0,8,0"
-                                              SelectionChanged="AutoLabelComboBox_SelectionChanged">
-                                        <ComboBoxItem Content="Save Project"/>
-                                        <ComboBoxItem Content="ExportYolo8n-obb"/>
-                                        <ComboBoxItem Content="Load DataSet(obb)"/>
-                                        <ComboBoxItem Content="Train model"/>
-                                        <ComboBoxItem Content="Auto label" IsSelected="True"/>
-                                    </ComboBox>
+                                <GroupBox.Header>
+                                    <TextBlock FontWeight="Bold">
+                                        <Run Text="🤖 "/>
+                                        <Run Text="Auto Actions"/>
+                                    </TextBlock>
+                                </GroupBox.Header>
+                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="{StaticResource PanelBackground}">
+
+                                    <!-- Execute Button with Icon -->
                                     <Button x:Name="AutoLabelExecuteButton"
-                                            Content="Execute"
-                                            MinWidth="80"
-                                            Click="AutoLabelExecuteButton_Click"/>
-                                    <!-- New indicator: appears when all classes have reached the required minimum -->
+        MinWidth="100"
+        IsEnabled="True"
+        Click="AutoLabelExecuteButton_Click">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="▶ " FontSize="16" Margin="0,0,6,0"/>
+                                            <TextBlock Text="Execute" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+
                                     <TextBlock x:Name="AutoLabelReadyTextBlock"
                                                Text=""
                                                VerticalAlignment="Center"
                                                Margin="12,0,0,0"
-                                               Foreground="#FF388E3C"
+                                               Foreground="#4CAF50"
                                                FontWeight="Bold"
                                                Visibility="Collapsed"/>
                                 </StackPanel>
@@ -179,15 +254,27 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <!-- Main Content -->
-                    <Border x:Name="ImageAreaContainer" Grid.Row="1" BorderBrush="#90CAF9" BorderThickness="2" CornerRadius="8" Padding="0" Background="#FFF">
+                    <!-- ✅ Main Content with dark theme borders -->
+                    <Border x:Name="ImageAreaContainer" 
+                            Grid.Row="1" 
+                            BorderBrush="{StaticResource PanelBorderBrush}" 
+                            BorderThickness="2" 
+                            CornerRadius="8" 
+                            Padding="0" 
+                            Background="{StaticResource CardBackground}">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="400" x:Name="RightColumn" />
                             </Grid.ColumnDefinitions>
+                            
                             <!-- Image Viewer with Overlay -->
-                            <Border Margin="0" BorderBrush="#B0BEC5" BorderThickness="1.5" CornerRadius="8" Background="#FFF" Grid.Column="0">
+                            <Border Margin="0" 
+                                    BorderBrush="{StaticResource SecondaryForeBrush}" 
+                                    BorderThickness="1.5" 
+                                    CornerRadius="8" 
+                                    Background="#000000" 
+                                    Grid.Column="0">
                                 <Grid>
                                     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                                         <Grid x:Name="ZoomContainer"

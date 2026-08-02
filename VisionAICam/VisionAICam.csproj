@@ -83,9 +83,16 @@
 	  <Folder Include="Themes\" />
 	</ItemGroup>
 
-  <PropertyGroup>
-    <ServerGarbageCollection>true</ServerGarbageCollection>
-    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
-  </PropertyGroup>
+		<PropertyGroup>
+			<OutputType>WinExe</OutputType>
+			<TargetFramework>net8.0-windows</TargetFramework>
+			<Nullable>enable</Nullable>
+			<ImplicitUsings>enable</ImplicitUsings>
+			<UseWPF>true</UseWPF>
+			<EnableWindowsTargeting>true</EnableWindowsTargeting>
+			<ServerGarbageCollection>true</ServerGarbageCollection>
+			<ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+			<BaseOutputPath>bin\</BaseOutputPath>
+		</PropertyGroup>
 
 </Project>

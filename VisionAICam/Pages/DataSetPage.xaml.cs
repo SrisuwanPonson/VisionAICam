@@ -175,7 +175,7 @@ namespace VisionAICam.Pages
 
                     // ensure stats reflect the loaded project
                     UpdateClassStats();
-                    CheckAutoLabelEnable();
+                    //CheckAutoLabelEnable();
                     ShowMainContentPanel();
                     if (_currentImageIndex >= 0 && _currentImageIndex < _imagePaths.Count)
                         await LoadImageAtIndex(_currentImageIndex);
@@ -1147,6 +1147,9 @@ namespace VisionAICam.Pages
         }
 
         // Modify top of BoundingBoxCanvas_MouseMove to handle middle panning first
+        // Modify top of BoundingBoxCanvas_MouseMove to handle middle panning first
+        // Replace the ENTIRE BoundingBoxCanvas_MouseMove method (lines 1148-1265) with this:
+        // Replace the ENTIRE BoundingBoxCanvas_MouseMove method (lines 1148-1265) with this:
         private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
         {
             // If we are middle-panning, handle it and skip other pointer logic
@@ -1162,28 +1165,133 @@ namespace VisionAICam.Pages
 
             // Use unscaled logical position so drawing calculations ignore zoom
             SWPoint pt = GetMousePointUnscaled();
+            SWPoint clampedPt = ClampPointToImage(pt);
 
-            // ... rest of existing method unchanged ...
+            // ===== DRAWING MODE HANDLING =====
+            if (_isDrawing && _currentDrawingShapeInfo != null)
+            {
+                if (_currentDrawingMode == DrawingMode.Rectangle)
+                {
+                    // Rectangle: continuously update size while dragging
+                    UpdateRectangle(clampedPt);
+                    e.Handled = true;
+                    return;
+                }
+                else if (_currentDrawingMode == DrawingMode.Polygon)
+                {
+                    // Polygon: update the preview line (last point follows mouse)
+                    updatePolygon(clampedPt);
+                    e.Handled = true;
+                    return;
+                }
+                else if (_currentDrawingMode == DrawingMode.FreePen && e.LeftButton == MouseButtonState.Pressed)
+                {
+                    // FreePen: add points continuously while dragging
+                    if (_currentDrawingShapeInfo.Shape is Polyline poly)
+                    {
+                        poly.Points.Add(clampedPt);
+                        _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
+                    }
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // ===== HANDLE RESHAPE/RESIZE =====
+            if (_activeHandle != null && _reshapeShapeInfo != null)
+            {
+                if (_reshapeShapeInfo.Shape is Polyline polyShape && _activeHandle.Tag is PolygonVertexHit vertexHit)
+                {
+                    // Polygon/FreePen vertex dragging
+                    if (vertexHit.VertexIndex >= 0 && vertexHit.VertexIndex < polyShape.Points.Count)
+                    {
+                        polyShape.Points[vertexHit.VertexIndex] = clampedPt;
+                        Canvas.SetLeft(_activeHandle, clampedPt.X - _activeHandle.Width / 2);
+                        Canvas.SetTop(_activeHandle, clampedPt.Y - _activeHandle.Height / 2);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+                else if (_currentHit != HitType.None && _reshapeShapeInfo.Shape is Rectangle)
+                {
+                    // Rectangle corner/edge dragging
+                    ResizeRectangle(_reshapeShapeInfo, _currentHit, pt);
+                    RefreshHandles(_reshapeShapeInfo);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // ===== HANDLE SHAPE DRAGGING =====
+            // Delayed drag start (clicked on shape but not moving yet)
+            if (_pendingShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
+            {
+                Vector delta = new Vector(pt.X - _mouseDownPoint.X, pt.Y - _mouseDownPoint.Y);
+                double distance = Math.Sqrt(delta.X * delta.X + delta.Y * delta.Y);
+
+                if (distance > 3.0)
+                {
+                    _isDraggingShape = true;
+                    _activeShapeInfo = _pendingShapeInfo;
+                    _dragStartPoint = _mouseDownPoint;
+                    _pendingShapeInfo = null;
+                    SetStatus($"Dragging {_activeShapeInfo.Metadata.Label}.");
+                }
+                e.Handled = true;
+                return;
+            }
+
+            // Active shape dragging
+            if (_isDraggingShape && _activeShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
+            {
+                Vector delta = new Vector(pt.X - _dragStartPoint.X, pt.Y - _dragStartPoint.Y);
+                MoveShapeAndLabel(_activeShapeInfo, delta);
+                _dragStartPoint = pt;
+                e.Handled = true;
+                return;
+            }
+
+            // Mouse button released during drag - finalize
+            if (_isDraggingShape && e.LeftButton == MouseButtonState.Released)
+            {
+                _isDraggingShape = false;
+                if (_activeShapeInfo != null)
+                {
+                    UpdateAnnotationRecordFromShape(_activeShapeInfo);
+                    RefreshAnnotations();
+                    SetStatus("Shape moved.");
+                    _activeShapeInfo = null;
+                }
+                BoundingBoxCanvas.ReleaseMouseCapture();
+                e.Handled = true;
+            }
         }
 
+        // REPLACE the BoundingBoxCanvas_MouseLeftButtonUp method (lines 1269-1332) with this:
+        // REPLACE BoundingBoxCanvas_MouseLeftButtonUp (lines 1269-1341) with this DEBUG version:
         private void BoundingBoxCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             // Use the unscaled/logical mouse point so finalization matches what the user sees when zoomed.
             SWPoint pt = GetMousePointUnscaled();
             SWPoint clampedPt = ClampPointToImage(pt);
 
+            // ⭐ DEBUG: Log state
+            Debug.WriteLine($"[MouseUp] _isDrawing={_isDrawing}, Mode={_currentDrawingMode}, HasShape={_currentDrawingShapeInfo != null}");
+
             // reset pending state since mouse button released
             _mouseLeftDown = false;
             if (_pendingShapeInfo != null)
             {
-                // user pressed but didn't move enough to start drag; just clear
+                Debug.WriteLine("[MouseUp] Clearing pending shape");
                 _pendingShapeInfo = null;
                 BoundingBoxCanvas.ReleaseMouseCapture();
+                return; // ⭐ IMPORTANT: return here so we don't continue
             }
 
             // Handle polygon vertex dragging
             if (_activeHandle != null && _reshapeShapeInfo != null)
             {
+                Debug.WriteLine("[MouseUp] Handling reshape");
                 BoundingBoxCanvas.ReleaseMouseCapture();
                 if (IsShapeFullyInImage(_reshapeShapeInfo))
                 {
@@ -1206,7 +1314,45 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            // ... rest of method unchanged ...
+            // Handle shape dragging completion
+            if (_isDraggingShape && _activeShapeInfo != null)
+            {
+                Debug.WriteLine("[MouseUp] Finishing drag");
+                UpdateAnnotationRecordFromShape(_activeShapeInfo);
+                RefreshAnnotations();
+                _isDraggingShape = false;
+                _activeShapeInfo = null;
+                BoundingBoxCanvas.ReleaseMouseCapture();
+                SetStatus("Shape moved.");
+                return;
+            }
+
+            // Handle drawing finalization
+            if (_isDrawing && _currentDrawingShapeInfo != null)
+            {
+                Debug.WriteLine($"[MouseUp] Finalizing drawing, mode={_currentDrawingMode}");
+
+                if (_currentDrawingMode == DrawingMode.Rectangle)
+                {
+                    Debug.WriteLine("[MouseUp] Finalizing Rectangle");
+                    FinalizeRectangle(clampedPt);
+                    _isDrawing = false;
+                    BoundingBoxCanvas.ReleaseMouseCapture();
+                }
+                else if (_currentDrawingMode == DrawingMode.FreePen)
+                {
+                    Debug.WriteLine("[MouseUp] Finalizing FreePen");
+                    FinalizeFreePen(clampedPt);
+                    _isDrawing = false;
+                    BoundingBoxCanvas.ReleaseMouseCapture();
+                    SetStatus("Free-pen stroke completed.");
+                }
+                // Polygon is still finalized via right-click or spacebar
+            }
+            else
+            {
+                Debug.WriteLine($"[MouseUp] NOT finalizing: _isDrawing={_isDrawing}, _currentDrawingShapeInfo={_currentDrawingShapeInfo != null}");
+            }
         }
         #endregion
 
@@ -1339,15 +1485,16 @@ namespace VisionAICam.Pages
                     SetStatus("Rectangle must be fully inside the image.");
                 }
                 _currentDrawingShapeInfo = null;
-                CheckAutoLabelEnable();
+                //CheckAutoLabelEnable();
             }
         }
 
+        // REPLACE StartPolygon method (around line 1465):
         private void StartPolygon(SWPoint start, string label)
         {
             if (_currentDrawingShapeInfo == null)
             {
-                // Use class-based color for polygon and label
+                // FIRST CLICK: Create the polyline shape
                 Color color = GetColorForClass(label);
                 var brush = new SolidColorBrush(color);
 
@@ -1392,15 +1539,24 @@ namespace VisionAICam.Pages
 
                 BoundingBoxCanvas.Children.Add(polyline);
                 BoundingBoxCanvas.Children.Add(labelBlock);
-                _currentPolygonPoints = new List<SWPoint>();
 
-                // ensure keyboard focus so Space works immediately
+                // ⭐ INITIALIZE with first point TWICE (fixed point + preview point)
+                _currentPolygonPoints = new List<SWPoint> { start, start };
+
                 BoundingBoxCanvas.Focus();
             }
+            else
+            {
+                // ⭐ SUBSEQUENT CLICKS: Current last point is already at click position from MouseMove
+                // Just add another duplicate for the next preview
+                if (_currentPolygonPoints.Count > 0)
+                {
+                    var lastPoint = _currentPolygonPoints[_currentPolygonPoints.Count - 1];
+                    _currentPolygonPoints.Add(lastPoint);
+                }
+            }
 
-            if (!_currentPolygonPoints.Contains(start))
-                _currentPolygonPoints.Add(start);
-
+            // Update the polyline visual
             if (_currentDrawingShapeInfo.Shape is Polyline currentPolyline)
             {
                 currentPolyline.Points = new PointCollection(_currentPolygonPoints);
@@ -1443,6 +1599,9 @@ namespace VisionAICam.Pages
         }
 
         // Helper used by right-click finalize path
+        // REPLACE the FinalizeFreePen method with this version that adds smooth closure:
+        // REPLACE the FinalizeFreePen method with this intelligent curve-following closure:
+        // UPDATE the FinalizeFreePen method to add simplification:
         private void FinalizeFreePen(SWPoint clampedPt)
         {
             if (_currentDrawingShapeInfo != null && _currentDrawingShapeInfo.Shape is Polyline poly)
@@ -1452,30 +1611,277 @@ namespace VisionAICam.Pages
                     poly.Points[poly.Points.Count - 1] = clampedPt;
                 else
                     poly.Points.Add(clampedPt);
-                // Sync authoritative record with the visual points
-                _currentDrawingShapeInfo.Record.Points = poly.Points.ToList();
-                if (_currentDrawingShapeInfo.Record.Points.Count > 1)
+
+                // ⭐ STEP 1: Simplify the drawn path first (remove redundant points)
+                var simplifiedPath = SimplifyPath(poly.Points.ToList(), 2.0); // tolerance = 2 pixels
+
+                // ⭐ STEP 2: Intelligent curve-following auto-close
+                if (simplifiedPath.Count > 5)
+                {
+                    var firstPoint = simplifiedPath[0];
+                    var lastPoint = simplifiedPath[simplifiedPath.Count - 1];
+
+                    double gapDistance = Math.Sqrt(
+                        Math.Pow(lastPoint.X - firstPoint.X, 2) +
+                        Math.Pow(lastPoint.Y - firstPoint.Y, 2)
+                    );
+
+                    if (gapDistance > 5.0)
+                    {
+                        // Generate closing curve
+                        var closingPoints = GenerateCurveFollowingClosure(
+                            simplifiedPath,
+                            gapDistance
+                        );
+
+                        // ⭐ STEP 3: Simplify the closing curve too
+                        var simplifiedClosing = SimplifyPath(closingPoints, 2.0);
+
+                        // Add simplified closing points
+                        foreach (var pt in simplifiedClosing)
+                        {
+                            simplifiedPath.Add(pt);
+                        }
+
+                        // Close the loop
+                        simplifiedPath.Add(firstPoint);
+                    }
+                    else
+                    {
+                        simplifiedPath.Add(firstPoint);
+                    }
+                }
+                else if (simplifiedPath.Count > 1)
+                {
+                    simplifiedPath.Add(simplifiedPath[0]);
+                }
+
+                // ⭐ STEP 4: Update the polyline with simplified points
+                poly.Points = new PointCollection(simplifiedPath);
+                _currentDrawingShapeInfo.Record.Points = simplifiedPath;
+
+                if (_currentDrawingShapeInfo.Record.Points.Count > 2)
                 {
                     Annotations.Add(_currentDrawingShapeInfo.Record);
                     SaveStateForUndo();
                     RefreshAnnotations();
-                    SetStatus($"Free-pen annotation added with label '{_currentDrawingShapeInfo.Metadata.Label}'.");
+                    SetStatus($"Free-pen: {_currentDrawingShapeInfo.Record.Points.Count} points (optimized & closed).");
                 }
                 else
                 {
-                    // Discard too-short stroke
                     BoundingBoxCanvas.Children.Remove(poly);
                     if (_currentDrawingShapeInfo?.LabelBlock != null)
                         BoundingBoxCanvas.Children.Remove(_currentDrawingShapeInfo.LabelBlock);
                     _shapeInfos.Remove(_currentDrawingShapeInfo);
                     SetStatus("Free-pen stroke too short.");
                 }
-                // Reset drawing state
+
                 _currentDrawingShapeInfo = null;
-                _currentPolygonPoints.Clear(); // safe to clear shared buffer
+                _currentPolygonPoints.Clear();
                 _isDrawing = false;
-                CheckAutoLabelEnable();
+                //CheckAutoLabelEnable();
             }
+        }
+
+        // ⭐ NEW: Ramer-Douglas-Peucker algorithm to simplify/trim paths
+        private List<SWPoint> SimplifyPath(List<SWPoint> points, double tolerance)
+        {
+            if (points == null || points.Count < 3)
+                return points;
+
+            // Find the point with maximum distance from line segment
+            int index = 0;
+            double maxDistance = 0;
+            var start = points[0];
+            var end = points[points.Count - 1];
+
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                double distance = PerpendicularDistance(points[i], start, end);
+                if (distance > maxDistance)
+                {
+                    maxDistance = distance;
+                    index = i;
+                }
+            }
+
+            // If max distance > tolerance, recursively simplify
+            if (maxDistance > tolerance)
+            {
+                // Recursive call on both segments
+                var leftSegment = SimplifyPath(points.Take(index + 1).ToList(), tolerance);
+                var rightSegment = SimplifyPath(points.Skip(index).ToList(), tolerance);
+
+                // Combine results (remove duplicate middle point)
+                var result = leftSegment.Take(leftSegment.Count - 1).ToList();
+                result.AddRange(rightSegment);
+                return result;
+            }
+            else
+            {
+                // All points between start and end can be removed
+                return new List<SWPoint> { start, end };
+            }
+        }
+
+        // Calculate perpendicular distance from point to line segment
+        private double PerpendicularDistance(SWPoint point, SWPoint lineStart, SWPoint lineEnd)
+        {
+            double dx = lineEnd.X - lineStart.X;
+            double dy = lineEnd.Y - lineStart.Y;
+
+            // Normalize
+            double mag = Math.Sqrt(dx * dx + dy * dy);
+            if (mag > 0.0)
+            {
+                dx /= mag;
+                dy /= mag;
+            }
+
+            double pvx = point.X - lineStart.X;
+            double pvy = point.Y - lineStart.Y;
+
+            // Get dot product (project point onto line)
+            double pvdot = dx * pvx + dy * pvy;
+
+            // Scale by line segment length
+            double ax = pvdot * dx;
+            double ay = pvdot * dy;
+
+            // Perpendicular distance
+            double perpx = pvx - ax;
+            double perpy = pvy - ay;
+
+            return Math.Sqrt(perpx * perpx + perpy * perpy);
+        }
+
+        // ⭐ NEW: Helper method to generate curve-following closure
+        private List<SWPoint> GenerateCurveFollowingClosure(List<SWPoint> points, double gapDistance)
+        {
+            var result = new List<SWPoint>();
+
+            int numPoints = points.Count;
+            var firstPoint = points[0];
+            var lastPoint = points[numPoints - 1];
+
+            // Analyze curvature at the end (last 4-6 points)
+            int endSampleSize = Math.Min(6, numPoints / 3);
+            var endSegment = points.Skip(numPoints - endSampleSize).Take(endSampleSize).ToList();
+
+            // Analyze curvature at the start (first 4-6 points)
+            var startSegment = points.Take(endSampleSize).ToList();
+
+            // Calculate tangent vectors and curvature
+            var endTangent = CalculateTangent(endSegment, false); // tangent at end, pointing forward
+            var startTangent = CalculateTangent(startSegment, true); // tangent at start, pointing inward
+
+            // Calculate the center of curvature based on overall shape
+            var center = CalculateCurveCenter(points);
+
+            // Determine if shape curves clockwise or counter-clockwise
+            bool isClockwise = IsClockwise(points);
+
+            // Number of intermediate points based on gap size
+            int numIntermediatePoints = Math.Max(5, (int)(gapDistance / 15.0));
+
+            // Generate smooth arc from end to start following the overall curvature
+            for (int i = 1; i < numIntermediatePoints; i++)
+            {
+                double t = (double)i / numIntermediatePoints;
+
+                // Bezier curve with control points derived from tangents
+                // Control point 1: extend from lastPoint along endTangent
+                var cp1 = new SWPoint(
+                    lastPoint.X + endTangent.X * gapDistance * 0.4,
+                    lastPoint.Y + endTangent.Y * gapDistance * 0.4
+                );
+
+                // Control point 2: extend from firstPoint along startTangent
+                var cp2 = new SWPoint(
+                    firstPoint.X - startTangent.X * gapDistance * 0.4,
+                    firstPoint.Y - startTangent.Y * gapDistance * 0.4
+                );
+
+                // Cubic Bezier: P(t) = (1-t)³P0 + 3(1-t)²t·CP1 + 3(1-t)t²·CP2 + t³·P1
+                double t2 = t * t;
+                double t3 = t2 * t;
+                double mt = 1 - t;
+                double mt2 = mt * mt;
+                double mt3 = mt2 * mt;
+
+                double x = mt3 * lastPoint.X +
+                           3 * mt2 * t * cp1.X +
+                           3 * mt * t2 * cp2.X +
+                           t3 * firstPoint.X;
+
+                double y = mt3 * lastPoint.Y +
+                           3 * mt2 * t * cp1.Y +
+                           3 * mt * t2 * cp2.Y +
+                           t3 * firstPoint.Y;
+
+                result.Add(new SWPoint(x, y));
+            }
+
+            return result;
+        }
+
+        // Calculate tangent vector for a segment
+        private SWPoint CalculateTangent(List<SWPoint> segment, bool reverse)
+        {
+            if (segment.Count < 2) return new SWPoint(0, 0);
+
+            // Use weighted average of directions
+            double dx = 0, dy = 0;
+            for (int i = 0; i < segment.Count - 1; i++)
+            {
+                dx += segment[i + 1].X - segment[i].X;
+                dy += segment[i + 1].Y - segment[i].Y;
+            }
+
+            // Normalize
+            double length = Math.Sqrt(dx * dx + dy * dy);
+            if (length > 0)
+            {
+                dx /= length;
+                dy /= length;
+            }
+
+            if (reverse)
+            {
+                dx = -dx;
+                dy = -dy;
+            }
+
+            return new SWPoint(dx, dy);
+        }
+
+        // Calculate approximate center of the curve
+        private SWPoint CalculateCurveCenter(List<SWPoint> points)
+        {
+            if (points.Count == 0) return new SWPoint(0, 0);
+
+            double sumX = 0, sumY = 0;
+            foreach (var pt in points)
+            {
+                sumX += pt.X;
+                sumY += pt.Y;
+            }
+
+            return new SWPoint(sumX / points.Count, sumY / points.Count);
+        }
+
+        // Determine if curve is clockwise or counter-clockwise
+        private bool IsClockwise(List<SWPoint> points)
+        {
+            if (points.Count < 3) return true;
+
+            double sum = 0;
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                sum += (points[i + 1].X - points[i].X) * (points[i + 1].Y + points[i].Y);
+            }
+
+            return sum > 0;
         }
         private void FinalizePolygon()
         {
@@ -1508,7 +1914,7 @@ namespace VisionAICam.Pages
                 _currentDrawingShapeInfo = null;
                 _currentPolygonPoints.Clear();
                 _isDrawing = false;
-                CheckAutoLabelEnable();
+                //CheckAutoLabelEnable();
             }
         }
 
@@ -1769,26 +2175,60 @@ namespace VisionAICam.Pages
         }
 
         #region Project management
+        // ===== 1. UPDATE SaveProject_Click to ensure all data is saved =====
         private void SaveProject_Click(object sender, RoutedEventArgs e)
         {
-            if (_currentProject == null) return;
+            if (_currentProject == null)
+            {
+                SetStatus("No project to save.");
+                return;
+            }
+
+            // ⭐ Ensure project has latest data
             _currentProject.ImagePaths = _imagePaths;
             _currentProject.Annotations = Annotations;
-            _currentProject.ClassLabels = LabelComboBox.Items.Cast<object>().Select(i => i.ToString() ?? "").ToList();
+            _currentProject.ClassLabels = LabelComboBox.Items.Cast<object>()
+                .Select(i => i.ToString() ?? "")
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .ToList();
             _currentProject.SelectedImageIndex = _currentImageIndex;
 
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
-                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*"
+                Filter = "Annotation Project (*.json)|*.json|All Files (*.*)|*.*",
+                DefaultExt = ".json",
+                FileName = string.IsNullOrWhiteSpace(_currentProject.ProjectName)
+                    ? "Untitled_Project"
+                    : _currentProject.ProjectName
             };
+
             if (dialog.ShowDialog() == true)
             {
-                var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(dialog.FileName, json);
-                SetStatus("Project saved.");
+                try
+                {
+                    var json = System.Text.Json.JsonSerializer.Serialize(_currentProject,
+                        new System.Text.Json.JsonSerializerOptions
+                        {
+                            WriteIndented = true,
+                            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
+                        });
+                    File.WriteAllText(dialog.FileName, json);
+
+                    // ⭐ Update status with statistics
+                    int totalAnnotations = Annotations?.Count ?? 0;
+                    int totalClasses = _currentProject.ClassLabels?.Count ?? 0;
+                    SetStatus($"Project saved: {totalClasses} classes, {totalAnnotations} annotations.");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to save project: {ex.Message}", "Save Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    SetStatus($"Save failed: {ex.Message}");
+                }
             }
         }
 
+        // ===== 2. UPDATE OpenProject_Click to ensure statistics are refreshed =====
         private void OpenProject_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new Microsoft.Win32.OpenFileDialog
@@ -1829,15 +2269,6 @@ namespace VisionAICam.Pages
                 var newImages = allImages.Where(img => !knownImages.Contains(img)).ToList();
                 var mergedPaths = savedPaths.Concat(newImages).ToList();
 
-                //// Add empty annotations using object initializer
-                //savedAnnotations.AddRange(
-                //    newImages.Select(img => new AnnotationRecord
-                //    {
-                //        ImagePath = img,
-                //        Labels = new List<string>()
-                //    })
-                //);
-
                 // Update project
                 _currentProject.ImagePaths = mergedPaths;
                 _currentProject.Annotations = savedAnnotations;
@@ -1852,28 +2283,43 @@ namespace VisionAICam.Pages
                 Annotations = savedAnnotations;
                 _currentImageIndex = _currentProject.SelectedImageIndex;
 
+                // ⭐ Restore class labels to ComboBox
                 LabelComboBox.Items.Clear();
                 foreach (var label in savedLabels)
                     LabelComboBox.Items.Add(label);
 
+                // Update global session
                 ProjectSession.CurrentProject = _currentProject;
                 ProjectSession.Annotations = Annotations;
                 ProjectSession.ImagePaths = _imagePaths;
                 ProjectSession.CurrentImageIndex = _currentImageIndex;
                 ProjectSession.CurrentImagePath = _imagePaths.Count > 0 ? _imagePaths[_currentImageIndex] : null;
 
-                _ = LoadImageAtIndex(_currentImageIndex);
-                SetStatus($"Project opened. {savedLabels.Count} classes, {savedAnnotations.Count} images.");
+                // ⭐ Load image and refresh UI (this will call UpdateClassStats internally)
+                if (_imagePaths.Count > 0)
+                {
+                    _ = LoadImageAtIndex(_currentImageIndex);
+                }
+                else
+                {
+                    // No images - just update statistics directly
+                    UpdateClassStats();
+                }
+
+                SetStatus($"Project opened: {savedLabels.Count} classes, {savedAnnotations.Count} annotations.");
                 ShowMainContentPanel();
-                CheckAutoLabelEnable();
+                //CheckAutoLabelEnable();
             }
             catch (Exception ex)
             {
+                MessageBox.Show($"Error opening project: {ex.Message}", "Load Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
                 SetStatus($"Error opening project: {ex.Message}");
             }
         }
 
 
+        // Update the CreateProject_Click method (around line 1997)
         private void CreateProject_Click(object sender, RoutedEventArgs e)
         {
             _imagePaths = new List<string>();
@@ -1899,6 +2345,9 @@ namespace VisionAICam.Pages
             ProjectSession.ImagePaths = _imagePaths;
             ProjectSession.CurrentImageIndex = _currentImageIndex;
             ProjectSession.CurrentImagePath = _currentImagePath;
+
+            // ⭐ NEW: Reset class statistics to zero
+            UpdateClassStats();
 
             SetStatus("New project created. Please load images and add classes.");
             ShowMainContentPanel();
@@ -2064,7 +2513,8 @@ namespace VisionAICam.Pages
 
             // update class statistics panel
             UpdateClassStats();
-            CheckAutoLabelReady();
+            //eckAutoLabelReady();
+
         }
 
         // Utility: Generate a deterministic color for each class name
@@ -4037,7 +4487,7 @@ namespace VisionAICam.Pages
                             {
                                 SetStatus("Auto-labeling finished — no annotations were added (existing model).");
                             }
-                            CheckAutoLabelEnable();
+                            //CheckAutoLabelEnable();
                         });
                     }
                     catch (Exception ex)
@@ -4143,7 +4593,7 @@ namespace VisionAICam.Pages
                         {
                             SetStatus("Auto-label pipeline finished — no annotations were added.");
                         }
-                        CheckAutoLabelEnable();
+                        //CheckAutoLabelEnable();
                     });
                 }
                 catch (Exception ex)
@@ -4216,104 +4666,341 @@ namespace VisionAICam.Pages
         // Update Execute handler to handle the revised ComboBox options.
         //csharp VisionAICam\Pages\DataSetPage.xaml.cs
         // Replace the existing AutoLabelExecuteButton_Click implementation with this
-        private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
-        {
-            //todo if first time do prepareAutolabel and prewarm
-            PrepareAutoLabel();
-            Prewarm();
-            //todo if not first time do inference loop
-            
-        }
+      
 
+        // Update the AutoLabelComboBox_SelectionChanged method:
         private void AutoLabelComboBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
-            try
-            {
-                // Re-evaluate whether Execute should be enabled for the newly selected action.
-                CheckAutoLabelEnable();
-
-                // Optionally update status so user sees the selected action
-                var selected = (AutoLabelComboBox?.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
-                if (!string.IsNullOrEmpty(selected))
-                    SetStatus($"Auto Label action: {selected}");
-            }
-            catch
-            {
-                // Non-critical UI handler — swallow exceptions to avoid breaking the page.
-            }
+          
         }
-        //p Make enabling logic respect the newly added options.
-        private void CheckAutoLabelEnable()
+
+        // Update CheckAutoLabelEnable to handle the "Auto label" option:
+        
+
+        // Update AutoLabelExecuteButton_Click to call the contour detection:
+        private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
+        {
+            await RunContourAutoLabelAsync();
+        }
+
+        // Add the contour-based auto-labeling method:
+        private async Task RunContourAutoLabelAsync()
         {
             try
             {
-                Dispatcher.Invoke(() =>
+                if (LabelingImage?.Source == null)
                 {
-                    if (AutoLabelExecuteButton == null || AutoLabelComboBox == null)
-                        return;
+                    SetStatus("No image loaded.");
+                    return;
+                }
 
-                    var selected = (AutoLabelComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
+                string selectedLabel = LabelComboBox?.SelectedItem?.ToString() ?? "object";
 
-                    switch (selected)
+                SetStatus("Running contour detection with similarity filtering...");
+
+                var currentBitmap = LabelingImage.Source as BitmapSource;
+
+                var detectedPolygons = await Task.Run(() =>
+                {
+                    try
                     {
-                        case "Save Project":
-                            AutoLabelExecuteButton.IsEnabled = _currentProject != null;
-                            break;
+                        using var mat = BitmapSourceToMat(currentBitmap);
+                        if (mat == null || mat.Empty())
+                            return new List<List<SWPoint>>();
 
-                        case "ExportYolo8n-obb":
-                            AutoLabelExecuteButton.IsEnabled = _currentProject != null && _currentProject.ImagePaths != null && _currentProject.ImagePaths.Count > 0;
-                            break;
+                        using var gray = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.CvtColor(mat, gray, OpenCvSharp.ColorConversionCodes.BGR2GRAY);
 
-                        case "Load DataSet(obb)":
-                            // Always allow loading/verification
-                            AutoLabelExecuteButton.IsEnabled = true;
-                            break;
+                        using var blurred = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(5, 5), 0);
 
-                        case "Train model":
-                            // Enable Train model when a project with images exists (no per-class minimum required).
-                            AutoLabelExecuteButton.IsEnabled = _currentProject != null && _currentProject.ImagePaths != null && _currentProject.ImagePaths.Count > 0;
-                            break;
+                        using var edges = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.Canny(blurred, edges, 50, 150);
 
-                        case "Auto label":
-                            // Follow the TODO: enable Execute when the auto-label readiness condition is met.
-                            // Use the same readiness test as CheckAutoLabelReady (threshold = 5).
-                            if (_currentProject == null || _currentProject.ClassLabels == null || _currentProject.ClassLabels.Count == 0)
-                            {
-                                AutoLabelExecuteButton.IsEnabled = false;
-                                // still update the UI indicator
-                                CheckAutoLabelReady();
-                                break;
-                            }
+                        using var kernel = OpenCvSharp.Cv2.GetStructuringElement(
+                            OpenCvSharp.MorphShapes.Rect,
+                            new OpenCvSharp.Size(3, 3));
+                        using var dilated = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.Dilate(edges, dilated, kernel, iterations: 2);
+                        using var closed = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.Erode(dilated, closed, kernel, iterations: 1);
 
-                            // Update the readiness indicator text/block
-                            CheckAutoLabelReady();
+                        OpenCvSharp.Cv2.FindContours(
+                            closed,
+                            out OpenCvSharp.Point[][] contours,
+                            out OpenCvSharp.HierarchyIndex[] hierarchy,
+                            OpenCvSharp.RetrievalModes.External,
+                            OpenCvSharp.ContourApproximationModes.ApproxSimple);
 
-                            const int requiredCount = 5; // must match CheckAutoLabelReady's readyThreshold
-                            var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                            foreach (var lbl in _currentProject.ClassLabels)
-                                counts[lbl] = 0;
+                        // Extract features for each contour
+                        var contourData = new List<(List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram)>();
 
-                            foreach (var ann in Annotations)
-                            {
-                                if (string.IsNullOrWhiteSpace(ann.Label)) continue;
-                                if (counts.ContainsKey(ann.Label)) counts[ann.Label]++;
-                            }
+                        foreach (var contour in contours)
+                        {
+                            double area = OpenCvSharp.Cv2.ContourArea(contour);
+                            if (area < 100.0)
+                                continue;
 
-                            bool allReached = _currentProject.ClassLabels.All(lbl => counts.TryGetValue(lbl, out var c) && c >= requiredCount);
-                            AutoLabelExecuteButton.IsEnabled = allReached;
-                            break;
+                            // Get rotated rectangle
+                            var rotatedRect = OpenCvSharp.Cv2.MinAreaRect(contour);
+                            var points = OpenCvSharp.Cv2.BoxPoints(rotatedRect);
 
-                        default:
-                            AutoLabelExecuteButton.IsEnabled = false;
-                            break;
+                            var polygon = new List<SWPoint>
+                    {
+                        new SWPoint(points[0].X, points[0].Y),
+                        new SWPoint(points[1].X, points[1].Y),
+                        new SWPoint(points[2].X, points[2].Y),
+                        new SWPoint(points[3].X, points[3].Y)
+                    };
+
+                            // Calculate shape features
+                            double perimeter = OpenCvSharp.Cv2.ArcLength(contour, true);
+                            double circularity = 4 * Math.PI * area / (perimeter * perimeter); // 0-1, 1=perfect circle
+
+                            // Extract color histogram inside contour
+                            using var mask = new OpenCvSharp.Mat(gray.Size(), OpenCvSharp.MatType.CV_8UC1, OpenCvSharp.Scalar.All(0));
+                            OpenCvSharp.Cv2.DrawContours(mask, new[] { contour }, 0, OpenCvSharp.Scalar.White, -1);
+
+                            var histogram = CalculateHistogram(gray, mask);
+
+                            contourData.Add((polygon, area, perimeter, circularity, histogram));
+                        }
+
+                        if (contourData.Count == 0)
+                            return new List<List<SWPoint>>();
+
+                        // Group similar contours
+                        var groups = GroupSimilarContours(contourData);
+
+                        // Return only the largest group (most similar objects)
+                        var largestGroup = groups.OrderByDescending(g => g.Count).First();
+                        return largestGroup.Select(item => item.polygon).ToList();
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"Contour detection error: {ex.Message}");
+                        return new List<List<SWPoint>>();
                     }
                 });
+
+                if (detectedPolygons.Count == 0)
+                {
+                    SetStatus("No similar contours detected.");
+                    return;
+                }
+
+                int addedCount = 0;
+                foreach (var polygon in detectedPolygons)
+                {
+                    var clampedPoints = polygon.Select(p => new SWPoint(
+                        Math.Max(0, Math.Min(_currentImageWidth, p.X)),
+                        Math.Max(0, Math.Min(_currentImageHeight, p.Y))
+                    )).ToList();
+
+                    var bounds = GetBounds(clampedPoints);
+                    if (bounds.width < 5 || bounds.height < 5)
+                        continue;
+
+                    Annotations.Add(new AnnotationRecord
+                    {
+                        ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
+                        Label = selectedLabel,
+                        AnnotationType = AnnotationType.Polygon,
+                        Points = clampedPoints
+                    });
+                    addedCount++;
+                }
+
+                SaveStateForUndo();
+                RefreshAnnotations();
+                UpdateClassStats();
+
+                SetStatus($"{addedCount} similar objects labeled as '{selectedLabel}'.");
             }
-            catch
+            catch (Exception ex)
             {
-                // non-critical
+                SetStatus($"Failed: {ex.Message}");
             }
         }
+
+        // Calculate normalized histogram
+        private double[] CalculateHistogram(OpenCvSharp.Mat grayImage, OpenCvSharp.Mat mask)
+        {
+            using var hist = new OpenCvSharp.Mat();
+            int[] histSize = { 16 }; // 16 bins
+            OpenCvSharp.Rangef[] ranges = { new OpenCvSharp.Rangef(0, 256) };
+
+            OpenCvSharp.Cv2.CalcHist(
+                new[] { grayImage },
+                new[] { 0 },
+                mask,
+                hist,
+                1,
+                histSize,
+                ranges);
+
+            // Normalize
+            OpenCvSharp.Cv2.Normalize(hist, hist, 0, 1, OpenCvSharp.NormTypes.MinMax);
+
+            var histogram = new double[16];
+            for (int i = 0; i < 16; i++)
+            {
+                histogram[i] = hist.At<float>(i);
+            }
+
+            return histogram;
+        }
+
+        // Group contours by similarity
+        private List<List<(List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram)>>
+            GroupSimilarContours(
+                List<(List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram)> contours)
+        {
+            if (contours.Count == 0)
+                return new List<List<(List<SWPoint>, double, double, double, double[])>>();
+
+            var groups = new List<List<(List<SWPoint>, double, double, double, double[])>>();
+            var used = new bool[contours.Count];
+
+            for (int i = 0; i < contours.Count; i++)
+            {
+                if (used[i]) continue;
+
+                var group = new List<(List<SWPoint>, double, double, double, double[])> { contours[i] };
+                used[i] = true;
+
+                for (int j = i + 1; j < contours.Count; j++)
+                {
+                    if (used[j]) continue;
+
+                    if (AreSimilar(contours[i], contours[j]))
+                    {
+                        group.Add(contours[j]);
+                        used[j] = true;
+                    }
+                }
+
+                groups.Add(group);
+            }
+
+            return groups;
+        }
+
+        // Check if two contours are similar
+        private bool AreSimilar(
+            (List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram) a,
+            (List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram) b)
+        {
+            // Shape similarity: area and circularity must be similar
+            double areaRatio = Math.Min(a.area, b.area) / Math.Max(a.area, b.area);
+            double circularityDiff = Math.Abs(a.circularity - b.circularity);
+
+            if (areaRatio < 0.7 || circularityDiff > 0.3) // 70% area match, max 0.3 circularity difference
+                return false;
+
+            // Appearance similarity: histogram correlation
+            double correlation = CalculateHistogramCorrelation(a.colorHistogram, b.colorHistogram);
+
+            return correlation > 0.7; // 70% histogram similarity
+        }
+
+        // Calculate correlation between two histograms
+        private double CalculateHistogramCorrelation(double[] hist1, double[] hist2)
+        {
+            if (hist1.Length != hist2.Length)
+                return 0;
+
+            double mean1 = hist1.Average();
+            double mean2 = hist2.Average();
+
+            double numerator = 0;
+            double denom1 = 0;
+            double denom2 = 0;
+
+            for (int i = 0; i < hist1.Length; i++)
+            {
+                double diff1 = hist1[i] - mean1;
+                double diff2 = hist2[i] - mean2;
+
+                numerator += diff1 * diff2;
+                denom1 += diff1 * diff1;
+                denom2 += diff2 * diff2;
+            }
+
+            if (denom1 == 0 || denom2 == 0)
+                return 0;
+
+            return numerator / Math.Sqrt(denom1 * denom2);
+        }
+
+        // Helper method to get bounds of polygon
+        private (double width, double height) GetBounds(List<SWPoint> points)
+        {
+            if (points.Count == 0) return (0, 0);
+
+            double minX = points.Min(p => p.X);
+            double maxX = points.Max(p => p.X);
+            double minY = points.Min(p => p.Y);
+            double maxY = points.Max(p => p.Y);
+
+            return (maxX - minX, maxY - minY);
+        }
+
+        // Helper method to get bounds of polygon
+        //private (double width, double height) GetBounds(List<SWPoint> points)
+        //{
+        //    if (points.Count == 0) return (0, 0);
+
+        //    double minX = points.Min(p => p.X);
+        //    double maxX = points.Max(p => p.X);
+        //    double minY = points.Min(p => p.Y);
+        //    double maxY = points.Max(p => p.Y);
+
+        //    return (maxX - minX, maxY - minY);
+        //}
+
+        // Helper method to convert BitmapSource to OpenCV Mat
+        private OpenCvSharp.Mat BitmapSourceToMat(BitmapSource source)
+        {
+            try
+            {
+                // Convert to Bgr24 format for OpenCV
+                var converted = new FormatConvertedBitmap(source, System.Windows.Media.PixelFormats.Bgr24, null, 0);
+
+                int width = converted.PixelWidth;
+                int height = converted.PixelHeight;
+                int stride = width * 3; // 3 bytes per pixel for BGR24
+
+                byte[] pixelData = new byte[height * stride];
+                converted.CopyPixels(pixelData, stride, 0);
+
+                // Create OpenCV Mat from byte array
+                var mat = new OpenCvSharp.Mat(height, width, OpenCvSharp.MatType.CV_8UC3);
+                System.Runtime.InteropServices.Marshal.Copy(pixelData, 0, mat.Data, pixelData.Length);
+
+                return mat;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"BitmapSourceToMat error: {ex.Message}");
+                return null;
+            }
+        }
+
+        // Placeholder for missing methods:
+        private void LoadDataSetOBB_Click(object sender, RoutedEventArgs e)
+        {
+            SetStatus("Load DataSet feature - select a folder with OBB dataset");
+            // TODO: Implement
+        }
+
+        private void TrainModel_Click(object sender, RoutedEventArgs e)
+        {
+            SetStatus("Train model feature - will launch training");
+            // TODO: Implement
+        }
+        //p Make enabling logic respect the newly added options.
+       
 
 
         // Mini export handler: creates a train-ready folder (no split) for YOLOv8 OBB.

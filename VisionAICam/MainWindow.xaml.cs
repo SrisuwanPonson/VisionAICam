@@ -1,5 +1,4 @@
-﻿using System.Linq;
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using VisionAICam.Pages;
 using System.ComponentModel;
@@ -10,6 +9,7 @@ using VisionAICam.Core;
 using System.Windows.Navigation;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Linq;
 
 namespace VisionAICam
 {
@@ -18,6 +18,10 @@ namespace VisionAICam
         private Process? _hikServerProcess;
         private static readonly string AppVersion = "1.0.0";
         private static readonly string AppRevision = "2026-08-01";
+        private int _totalDetectionCount = 0;
+        private int _sessionDetectionCount = 0;
+        private int _frameCount = 0;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -52,10 +56,87 @@ namespace VisionAICam
             }
 
             UpdateSidePanelVisibility();
+            UpdateStatistics(); // Initialize statistics display
 
             this.Closing -= MainWindow_Closing;
             this.Closing += MainWindow_Closing;
         }
+
+        // ⭐ Missing method: Update statistics display
+        public void UpdateStatistics()
+        {
+            try
+            {
+                if (TotalCountTextBlock != null)
+                    TotalCountTextBlock.Text = _totalDetectionCount.ToString();
+
+                if (SessionCountTextBlock != null)
+                    SessionCountTextBlock.Text = _sessionDetectionCount.ToString();
+
+                if (FrameCountTextBlock != null)
+                    FrameCountTextBlock.Text = _frameCount.ToString();
+            }
+            catch { }
+        }
+
+        // ⭐ Missing event handler: Reset statistics button
+        private void ResetStatsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var result = MessageBox.Show(
+                    "Are you sure you want to reset all statistics?\n\nThis will reset:\n• Total count\n• Session count\n• Frame count",
+                    "Reset Statistics",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    _totalDetectionCount = 0;
+                    _sessionDetectionCount = 0;
+                    _frameCount = 0;
+                    UpdateStatistics();
+
+                    // Clear the per-frame summary grid if it exists
+                    if (PerFrameSummaryGrid != null)
+                    {
+                        PerFrameSummaryGrid.ItemsSource = null;
+                    }
+
+                    MessageBox.Show("Statistics reset successfully.", "Reset Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to reset statistics: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        // ⭐ Public methods for other pages to update statistics
+        public void IncrementTotalCount(int count = 1)
+        {
+            _totalDetectionCount += count;
+            UpdateStatistics();
+        }
+
+        public void IncrementSessionCount(int count = 1)
+        {
+            _sessionDetectionCount += count;
+            UpdateStatistics();
+        }
+
+        public void IncrementFrameCount(int count = 1)
+        {
+            _frameCount += count;
+            UpdateStatistics();
+        }
+
+        public void ResetSessionCount()
+        {
+            _sessionDetectionCount = 0;
+            UpdateStatistics();
+        }
+
         // ⭐ เพิ่ม: อ่าน Version จาก Assembly
         private static string GetAppVersion()
         {
@@ -605,8 +686,8 @@ namespace VisionAICam
 
                 double target = Math.Floor((available - totalMargins) / buttons.Length);
 
-                double min = 56;
-                double max = 180;
+                double min = 70;  // ✅ Changed from 56 to 70
+                double max = 200; // ✅ Changed from 180 to 200
                 double width = Math.Max(min, Math.Min(max, target));
 
                 foreach (var btn in buttons)
@@ -619,4 +700,3 @@ namespace VisionAICam
         }
     }
 }
-

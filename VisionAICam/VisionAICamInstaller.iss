@@ -1,11 +1,11 @@
 [Setup]
 AppName=VisionAICam
-AppVersion=26.05.24
+AppVersion=26.08.01.01
 DefaultDirName=C:\ClearEngine\VisionAICam
 DisableDirPage=yes
 DefaultGroupName=VisionAICam
 OutputDir=D:\Srisuwan\InstallerOutput
-OutputBaseFilename=VisionAICam_Setup_Version {AppVersion}
+OutputBaseFilename=VisionAICam_Setup_Version 26.08.01.01
 Compression=lzma
 SolidCompression=yes
 
@@ -14,10 +14,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "pyenv"; Description: "Install Python Environment"
 Name: "pyscripts"; Description: "Install Python Scripts"
 Name: "setupfiles"; Description: "Install Setup Tools"
+Name: "Models";Description: "Load models"
 
 [Files]
 ; Runtime (ติดตั้งเสมอ)
-Source: "C:\ClearEngine\VisionAICam\Debug\*"; DestDir: "{app}\Runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\ClearEngine\VisionAICam\Runtime\*"; DestDir: "{app}\Runtime"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; PythonEnv (เลือกได้)
 Source: "C:\Program Files\Python313\*"; DestDir: "{app}\PythonEnv\Python313"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: pyenv
@@ -27,6 +28,10 @@ Source: "C:\ClearEngine\VisionAICam\PythonScripts\*"; DestDir: "{app}\PythonScri
 
 ; Setup Tools (เลือกได้)
 Source: "C:\ClearEngine\VisionAICam\Setup\*"; DestDir: "{app}\Setup"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: setupfiles
+
+; Models
+Source: "C:\ClearEngine\VisionAICam\Models\*"; DestDir: "{app}\Setup"; Flags: ignoreversion recursesubdirs createallsubdirs; Tasks: Models
+
 
 [Icons]
 Name: "{group}\VisionAICam"; Filename: "{app}\Runtime\VisionAICam.exe"; WorkingDir: "{app}\Runtime"
