@@ -99,7 +99,8 @@ namespace VisionAICam.Pages
         // Small processing mode state for the floating menu
         private enum ImageProcessMode { None, Grayscale, Edges, Contours, ContourRects }
         private ImageProcessMode _selectedProcessingMode = ImageProcessMode.None;
-
+        // First, add a field to track preview overlays (around line 70 with other fields):
+        private readonly List<Shape> _sizeFilterPreviewShapes = new List<Shape>();
         // Holds the last processed preview (assigned when applying processing).
         private BitmapSource? _lastProcessedImage;
         private bool _isDraggingProcessingMenu = false;
@@ -138,12 +139,18 @@ namespace VisionAICam.Pages
         private Point _middlePanStartScreen;
         private Point _middlePanStartPan;
         private TranslateTransform? _panTransform;
-
+        // Add these fields to store original colors for restoration (around line 70 with other private fields)
+        private readonly Dictionary<ShapeInfo, Brush> _originalShapeColors = new Dictionary<ShapeInfo, Brush>();
+        // Add these private fields near the top of the DataSetPage class (around line 70 with other fields):
+        private double _autoLabelMinWidth = 10.0;   // Minimum object width
+        private double _autoLabelMaxWidth = 1000.0; // Maximum object width
+        private double _autoLabelMinHeight = 10.0;  // Minimum object height
+        private double _autoLabelMaxHeight = 1000.0; // Maximum object height
         public DataSetPage()
         {
             InitializeComponent();
             this.Focusable = true;
-
+            LoadFilterSettings();
             // Ensure processing panel is hidden by default and menu unchecked.
             if (FloatingProcessingMenu != null)
                 FloatingProcessingMenu.Visibility = Visibility.Collapsed;
@@ -234,7 +241,323 @@ namespace VisionAICam.Pages
                     if (BoundingBoxCanvas.IsMouseCaptured) BoundingBoxCanvas.ReleaseMouseCapture();
                 }
             };
+            if (AnnotationListView != null)
+            {
+                AnnotationListView.SelectionChanged += AnnotationListView_SelectionChanged;
+            }
 
+        }
+        // ⭐ NEW: Add this method to handle table row selection
+        // ⭐ NEW: Add this method to handle table row selection with temporary color change
+        // ⭐ NEW: Add this method to handle table row selection with temporary color change
+        private void LoadFilterSettings()
+        {
+            try
+            {
+                var settings = SettingsManager.Load();
+                if (settings != null)
+                {
+                    _autoLabelMinWidth = settings.AutoLabelMinWidth;
+                    _autoLabelMaxWidth = settings.AutoLabelMaxWidth;
+                    _autoLabelMinHeight = settings.AutoLabelMinHeight;
+                    _autoLabelMaxHeight = settings.AutoLabelMaxHeight;
+
+                    // Update slider values on UI thread
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (MinWidthSlider != null) MinWidthSlider.Value = _autoLabelMinWidth;
+                        if (MaxWidthSlider != null) MaxWidthSlider.Value = _autoLabelMaxWidth;
+                        if (MinHeightSlider != null) MinHeightSlider.Value = _autoLabelMinHeight;
+                        if (MaxHeightSlider != null) MaxHeightSlider.Value = _autoLabelMaxHeight;
+                    }));
+
+                    Debug.WriteLine($"Loaded filter settings: W({_autoLabelMinWidth}-{_autoLabelMaxWidth}) H({_autoLabelMinHeight}-{_autoLabelMaxHeight})");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to load filter settings: {ex.Message}");
+            }
+        }
+
+        // ⭐ NEW METHOD: Save filter settings to AppSettings
+        private void SaveFilterSettings()
+        {
+            try
+            {
+                var settings = SettingsManager.Load() ?? new AppSettings();
+
+                settings.AutoLabelMinWidth = _autoLabelMinWidth;
+                settings.AutoLabelMaxWidth = _autoLabelMaxWidth;
+                settings.AutoLabelMinHeight = _autoLabelMinHeight;
+                settings.AutoLabelMaxHeight = _autoLabelMaxHeight;
+
+                SettingsManager.Save(settings);
+
+                Debug.WriteLine($"Saved filter settings: W({_autoLabelMinWidth}-{_autoLabelMaxWidth}) H({_autoLabelMinHeight}-{_autoLabelMaxHeight})");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Failed to save filter settings: {ex.Message}");
+            }
+        }
+        // Add reset button handler:
+        private void ResetFilterButton_Click(object sender, RoutedEventArgs e)
+        {
+            // Reset to default values
+            _autoLabelMinWidth = 10.0;
+            _autoLabelMaxWidth = 1000.0;
+            _autoLabelMinHeight = 10.0;
+            _autoLabelMaxHeight = 1000.0;
+
+            // Update sliders
+            if (MinWidthSlider != null) MinWidthSlider.Value = _autoLabelMinWidth;
+            if (MaxWidthSlider != null) MaxWidthSlider.Value = _autoLabelMaxWidth;
+            if (MinHeightSlider != null) MinHeightSlider.Value = _autoLabelMinHeight;
+            if (MaxHeightSlider != null) MaxHeightSlider.Value = _autoLabelMaxHeight;
+
+            // Save defaults
+            SaveFilterSettings();
+
+            SetStatus("Filter settings reset to defaults");
+        }
+        // Update all slider ValueChanged handlers to save settings:
+        // Update all slider ValueChanged handlers to call UpdateSizeFilterPreview:
+        private void SizeFiltersExpander_Expanded(object sender, RoutedEventArgs e)
+        {
+            // Run preview when expander opens
+            UpdateSizeFilterPreview();
+        }
+        private void MinWidthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (MinWidthValue != null)
+            {
+                _autoLabelMinWidth = e.NewValue;
+                MinWidthValue.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+
+                // ⭐ Only run preview if Size Filters expander is open
+                if (SizeFiltersExpander?.IsExpanded == true)
+                {
+                    UpdateSizeFilterPreview();
+                }
+
+                SaveFilterSettings();
+            }
+        }
+
+        // Repeat for the other 3 sliders...
+
+        private void MaxWidthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (MaxWidthValue != null)
+            {
+                _autoLabelMaxWidth = e.NewValue;
+                MaxWidthValue.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+                UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
+                SaveFilterSettings();
+            }
+        }
+
+        private void MinHeightSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (MinHeightValue != null)
+            {
+                _autoLabelMinHeight = e.NewValue;
+                MinHeightValue.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+                UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
+                SaveFilterSettings();
+            }
+        }
+
+        private void MaxHeightSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (MaxHeightValue != null)
+            {
+                _autoLabelMaxHeight = e.NewValue;
+                MaxHeightValue.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+                UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
+                SaveFilterSettings();
+            }
+        }
+        private void AnnotationListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                // Restore original colors for all previously highlighted shapes
+                foreach (var kvp in _originalShapeColors.ToList())
+                {
+                    RestoreOriginalColor(kvp.Key, kvp.Value);
+                }
+                _originalShapeColors.Clear();
+
+                // Remove previous highlights
+                foreach (var shapeInfo in _shapeInfos)
+                {
+                    RemoveHighlight(shapeInfo);
+                }
+
+                // If an item is selected, highlight its corresponding shape
+                if (AnnotationListView.SelectedItem is AnnotationRecord selectedAnnotation)
+                {
+                    // Find the corresponding shape
+                    var matchingShape = _shapeInfos.FirstOrDefault(info =>
+                        info.Record == selectedAnnotation);
+
+                    if (matchingShape != null)
+                    {
+                        // Store original color before changing
+                        Brush originalBrush = null;
+                        if (matchingShape.Shape is Shape shape)
+                        {
+                            originalBrush = shape.Stroke?.Clone();
+                        }
+
+                        if (originalBrush != null)
+                        {
+                            _originalShapeColors[matchingShape] = originalBrush;
+                        }
+
+                        // Apply highlight with temporary color change
+                        ApplyHighlightWithColorChange(matchingShape);
+
+                        // Show resize handles for easier editing
+                        _activeShapeInfo = matchingShape;
+                        if (matchingShape.Shape is Rectangle)
+                        {
+                            AddResizeHandles(matchingShape);
+                        }
+                        else if (matchingShape.Shape is Polyline || matchingShape.Shape is Polygon)
+                        {
+                            AddPolygonHandles(matchingShape);
+                        }
+
+                        SetStatus($"Selected: {selectedAnnotation.Label} (click outside to deselect)");
+                    }
+                }
+                else
+                {
+                    // Nothing selected - remove handles
+                    RemoveResizeHandles();
+                    _activeShapeInfo = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"AnnotationListView_SelectionChanged error: {ex}");
+            }
+        }
+
+        // ⭐ NEW: Apply highlight with temporary color change
+        private void ApplyHighlightWithColorChange(ShapeInfo info)
+        {
+            if (info?.Shape == null) return;
+
+            // Apply glow effect
+            info.Shape.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.Cyan,
+                BlurRadius = 20,
+                ShadowDepth = 0,
+                Opacity = 1.0
+            };
+
+            // Temporarily change color to bright cyan/yellow
+            var highlightBrush = new SolidColorBrush(Color.FromRgb(0, 255, 255)); // Cyan
+
+            if (info.Shape is Rectangle rect)
+            {
+                rect.Stroke = highlightBrush;
+                rect.StrokeThickness = 4;
+            }
+            else if (info.Shape is Polyline poly)
+            {
+                poly.Stroke = highlightBrush;
+                poly.StrokeThickness = 4;
+            }
+            else if (info.Shape is Polygon polygon)
+            {
+                polygon.Stroke = highlightBrush;
+                polygon.StrokeThickness = 4;
+            }
+
+            // Also highlight the label
+            if (info.LabelBlock != null)
+            {
+                info.LabelBlock.Foreground = highlightBrush;
+                info.LabelBlock.FontWeight = FontWeights.Bold;
+                info.LabelBlock.Background = new SolidColorBrush(Color.FromArgb(180, 0, 0, 0));
+            }
+        }
+
+        // ⭐ NEW: Remove highlight effects
+        private void RemoveHighlight(ShapeInfo info)
+        {
+            if (info?.Shape == null) return;
+
+            info.Shape.Effect = null;
+        }
+
+        // ⭐ NEW: Restore original color and styling
+        private void RestoreOriginalColor(ShapeInfo info, Brush originalBrush)
+        {
+            if (info?.Shape == null) return;
+
+            // Restore original stroke color
+            if (info.Shape is Rectangle rect)
+            {
+                rect.Stroke = originalBrush;
+                rect.StrokeThickness = 2;
+            }
+            else if (info.Shape is Polyline poly)
+            {
+                poly.Stroke = originalBrush;
+                poly.StrokeThickness = 2;
+            }
+            else if (info.Shape is Polygon polygon)
+            {
+                polygon.Stroke = originalBrush;
+                polygon.StrokeThickness = 2;
+            }
+
+            // Restore label styling
+            if (info.LabelBlock != null)
+            {
+                info.LabelBlock.Foreground = originalBrush;
+                info.LabelBlock.FontWeight = FontWeights.Normal;
+                info.LabelBlock.Background = Brushes.Transparent;
+            }
+
+            // Remove glow effect
+            info.Shape.Effect = null;
+        }
+
+        // ⭐ Update the existing HighlightShape method to use the new implementation
+        private void HighlightShape(ShapeInfo info, bool highlight)
+        {
+            if (highlight)
+            {
+                ApplyHighlightWithColorChange(info);
+            }
+            else
+            {
+                if (_originalShapeColors.TryGetValue(info, out var originalBrush))
+                {
+                    RestoreOriginalColor(info, originalBrush);
+                    _originalShapeColors.Remove(info);
+                }
+                else
+                {
+                    RemoveHighlight(info);
+                }
+            }
         }
         // Add these members/methods inside the DataSetPage class
 
@@ -286,11 +609,11 @@ namespace VisionAICam.Pages
             // For other button releases use existing left-button up logic -- the original handler already exists.
         }
 
+        // Update the BoundingBoxCanvas_MouseLeftButtonDown method (around line 520):
         private void BoundingBoxCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             BoundingBoxCanvas.Focus();
 
-            // Use unscaled logical position so zoom doesn't move the start point
             SWPoint pt = ClampPointToImage(GetMousePointUnscaled());
             _mouseLeftDown = true;
             _mouseDownPoint = pt;
@@ -308,9 +631,8 @@ namespace VisionAICam.Pages
                 if (IsPointOverHandle(pt, handle))
                 {
                     _activeHandle = handle;
-                    // attempt to recover hit info (some handles use HitType or PolygonVertexHit as Tag)
                     if (handle.Tag is HitType ht) _currentHit = ht;
-                    else if (handle.Tag is PolygonVertexHit pvh) _currentHit = HitType.Body; // placeholder for polygon vertex
+                    else if (handle.Tag is PolygonVertexHit pvh) _currentHit = HitType.Body;
                     _reshapeShapeInfo = _activeShapeInfo;
                     BoundingBoxCanvas.CaptureMouse();
                     SetStatus("Reshape started.");
@@ -319,7 +641,7 @@ namespace VisionAICam.Pages
                 }
             }
 
-            // DELAYED DRAG: remember candidate shape under cursor, but don't start dragging yet.
+            // DELAYED DRAG: remember candidate shape under cursor
             if (!_isDrawing)
             {
                 _pendingShapeInfo = _shapeInfos.LastOrDefault(info =>
@@ -327,7 +649,6 @@ namespace VisionAICam.Pages
 
                 if (_pendingShapeInfo != null)
                 {
-                    // don't set _isDraggingShape here; start drag when mouse moves while holding down and cursor is over shape
                     SetStatus("Hold and move to start dragging the shape.");
                     BoundingBoxCanvas.CaptureMouse();
                     e.Handled = true;
@@ -336,38 +657,56 @@ namespace VisionAICam.Pages
                 else
                 {
                     RemoveResizeHandles();
+
+                    // ⭐ NEW: Clear table selection when clicking empty space
+                    if (AnnotationListView != null)
+                    {
+                        AnnotationListView.SelectedItem = null;
+                    }
                 }
             }
 
-            // If drawing a polygon, add a new point
-            var label = LabelComboBox.SelectedItem?.ToString();
-            if (string.IsNullOrWhiteSpace(label))
+            // ⭐⭐⭐ MISSING CODE: Start new drawing! ⭐⭐⭐
+            if (!_isDrawing && LabelingImage?.Source != null)
             {
-                SetStatus("Please select a label before drawing.");
-                _mouseLeftDown = false;
+                string label = LabelComboBox?.SelectedItem?.ToString();
+                if (string.IsNullOrWhiteSpace(label))
+                {
+                    SetStatus("Please select a class label first.");
+                    return;
+                }
+
+                _isDrawing = true;
+
+                switch (_currentDrawingMode)
+                {
+                    case DrawingMode.Rectangle:
+                        StartRectangle(pt, label);
+                        BoundingBoxCanvas.CaptureMouse();
+                        SetStatus($"Drawing rectangle for '{label}'. Drag to size, release to finish.");
+                        break;
+
+                    case DrawingMode.Polygon:
+                        StartPolygon(pt, label);
+                        SetStatus($"Drawing polygon for '{label}'. Click to add points, Space/Right-click to finish.");
+                        break;
+
+                    case DrawingMode.FreePen:
+                        StartFreePen(pt, label);
+                        BoundingBoxCanvas.CaptureMouse();
+                        SetStatus($"Drawing free-pen for '{label}'. Drag to draw, release/Right-click to finish.");
+                        break;
+                }
+
+                e.Handled = true;
                 return;
             }
 
-            if (_currentDrawingMode == DrawingMode.Polygon)
+            // Handle subsequent polygon clicks (add point)
+            if (_isDrawing && _currentDrawingMode == DrawingMode.Polygon)
             {
-                _isDrawing = true;
-                StartPolygon(pt, label); // Adds a new point
-                _mouseLeftDown = false;
-                return;
-            }
-
-            // If drawing a rectangle
-            if (_currentDrawingMode == DrawingMode.Rectangle)
-            {
-                _isDrawing = true;
-                _dragStartPoint = pt; // store the drag start point in logical coords
-                StartRectangle(pt, label);
-                _mouseLeftDown = false;
-            }
-            else if (_currentDrawingMode == DrawingMode.FreePen)
-            {
-                _isDrawing = true;
-                StartFreePen(pt, label); _mouseLeftDown = false;
+                StartPolygon(pt, string.Empty); // label already set
+                e.Handled = true;
             }
         }
         // Tunnelled key handler: runs before focused controls receive the key.
@@ -2102,23 +2441,7 @@ namespace VisionAICam.Pages
             }
         }
 
-        private void HighlightShape(ShapeInfo info, bool highlight)
-        {
-            if (highlight)
-            {
-                info.Shape.Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = Colors.Yellow,
-                    BlurRadius = 10,
-                    ShadowDepth = 0,
-                    Opacity = 0.8
-                };
-            }
-            else
-            {
-                info.Shape.Effect = null;
-            }
-        }
+    
         private void AddResizeHandles(ShapeInfo info)
         {
             RemoveResizeHandles();
@@ -2403,11 +2726,310 @@ namespace VisionAICam.Pages
 
         private void Undo_Click(object sender, RoutedEventArgs e) => Undo();
         private void Redo_Click(object sender, RoutedEventArgs e) => Redo();
+        // Replace the existing EditAnnotation_Click method (around line 1050 based on symbol info):
+        // Replace the existing EditAnnotation_Click method:
+        // Add this method to enable double-click editing:
+        private void AnnotationListView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (AnnotationListView.SelectedItem != null)
+            {
+                EditAnnotation_Click(sender, new RoutedEventArgs());
+            }
+        }
+        // Replace the existing EditAnnotation_Click method:
+        // Replace the entire EditAnnotation_Click method with this corrected version:
         private void EditAnnotation_Click(object sender, RoutedEventArgs e)
         {
-            // TODO: Implement the logic to edit the selected annotation.
-            // For now, you can show a message box as a placeholder.
-            MessageBox.Show("Edit annotation clicked.");
+            if (AnnotationListView.SelectedItem is not AnnotationRecord selectedAnnotation)
+            {
+                MessageBox.Show("Please select an annotation to edit.", "No Selection",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Create an edit dialog window
+            var editWindow = new Window
+            {
+                Title = "Edit Annotation",
+                Width = 450,
+                Height = 450, // ⭐ INCREASED to 450 to ensure buttons are visible
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = Window.GetWindow(this),
+                ResizeMode = ResizeMode.CanResize,
+                Background = new SolidColorBrush(Color.FromRgb(37, 50, 56)),
+                MinWidth = 400, // ⭐ Set minimum dimensions
+                MinHeight = 450
+            };
+
+            var scrollViewer = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+
+            var mainGrid = new Grid { Margin = new Thickness(20) };
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Title
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Image
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Class
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Type
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Info
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Spacer
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Buttons
+
+            int currentRow = 0;
+
+            // Title
+            var titleText = new TextBlock
+            {
+                Text = "Edit Annotation Details",
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 20)
+            };
+            Grid.SetRow(titleText, currentRow++);
+            mainGrid.Children.Add(titleText);
+
+            // Image Name section
+            var imageStack = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
+
+            var imageLabel = new TextBlock
+            {
+                Text = "Image:",
+                Foreground = Brushes.LightGray,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            imageStack.Children.Add(imageLabel);
+
+            var imageText = new TextBox
+            {
+                Text = selectedAnnotation.ImageName,
+                IsReadOnly = true,
+                Background = new SolidColorBrush(Color.FromRgb(60, 70, 80)),
+                Foreground = Brushes.White,
+                Padding = new Thickness(8),
+                BorderThickness = new Thickness(0),
+                Height = 35
+            };
+            imageStack.Children.Add(imageText);
+
+            Grid.SetRow(imageStack, currentRow++);
+            mainGrid.Children.Add(imageStack);
+
+            // Class Label section
+            var classStack = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
+
+            var classLabelHeader = new TextBlock
+            {
+                Text = "Class Label:",
+                Foreground = Brushes.LightGray,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            classStack.Children.Add(classLabelHeader);
+
+            var classComboBox = new ComboBox
+            {
+                IsEditable = true,
+                Background = Brushes.White,
+                Foreground = Brushes.Black,
+                Padding = new Thickness(8),
+                Height = 35,
+                FontSize = 14,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(25, 118, 210)),
+                BorderThickness = new Thickness(2)
+            };
+
+            // Populate with all existing classes
+            foreach (var item in LabelComboBox.Items)
+            {
+                classComboBox.Items.Add(item?.ToString() ?? "");
+            }
+            classComboBox.Text = selectedAnnotation.Label;
+            classStack.Children.Add(classComboBox);
+
+            Grid.SetRow(classStack, currentRow++);
+            mainGrid.Children.Add(classStack);
+
+            // Type section
+            var typeStack = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
+
+            var typeLabel = new TextBlock
+            {
+                Text = "Type:",
+                Foreground = Brushes.LightGray,
+                FontSize = 12,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+            typeStack.Children.Add(typeLabel);
+
+            var typeText = new TextBox
+            {
+                Text = selectedAnnotation.AnnotationType.ToString(),
+                IsReadOnly = true,
+                Background = new SolidColorBrush(Color.FromRgb(60, 70, 80)),
+                Foreground = Brushes.White,
+                Padding = new Thickness(8),
+                BorderThickness = new Thickness(0),
+                Height = 35
+            };
+            typeStack.Children.Add(typeText);
+
+            Grid.SetRow(typeStack, currentRow++);
+            mainGrid.Children.Add(typeStack);
+
+            // Info text
+            var infoText = new TextBlock
+            {
+                Text = "💡 Select from existing classes or type a new one",
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 215, 0)),
+                FontSize = 11,
+                FontStyle = FontStyles.Italic,
+                Margin = new Thickness(0, 0, 0, 15),
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetRow(infoText, currentRow++);
+            mainGrid.Children.Add(infoText);
+
+            // Spacer row
+            currentRow++;
+
+            // Buttons - always at bottom
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 20, 0, 0) // ⭐ Increased top margin
+            };
+            Grid.SetRow(buttonPanel, currentRow);
+
+            var saveButton = new Button
+            {
+                Content = "💾 Save",
+                Width = 100,
+                Height = 35,
+                Margin = new Thickness(0, 0, 10, 0),
+                Background = new SolidColorBrush(Color.FromRgb(25, 118, 210)),
+                Foreground = Brushes.White,
+                FontSize = 14,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand
+            };
+
+            var cancelButton = new Button
+            {
+                Content = "✖ Cancel",
+                Width = 100,
+                Height = 35,
+                Background = new SolidColorBrush(Color.FromRgb(96, 96, 96)),
+                Foreground = Brushes.White,
+                FontSize = 14,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand
+            };
+
+            saveButton.Click += (s, args) =>
+            {
+                try
+                {
+                    string newLabel = classComboBox.Text?.Trim();
+
+                    if (string.IsNullOrWhiteSpace(newLabel))
+                    {
+                        MessageBox.Show("Class label cannot be empty.", "Validation Error",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+                        return;
+                    }
+
+                    string oldLabel = selectedAnnotation.Label;
+
+                    // Add new class if it doesn't exist
+                    bool isNewClass = false;
+                    bool classExists = false;
+
+                    foreach (var item in LabelComboBox.Items)
+                    {
+                        if (item?.ToString()?.Equals(newLabel, StringComparison.OrdinalIgnoreCase) == true)
+                        {
+                            classExists = true;
+                            break;
+                        }
+                    }
+
+                    if (!classExists)
+                    {
+                        LabelComboBox.Items.Add(newLabel);
+                        isNewClass = true;
+                    }
+
+                    // Update annotation
+                    selectedAnnotation.Label = newLabel;
+
+                    // Update visual shape
+                    var matchingShape = _shapeInfos.FirstOrDefault(info => info.Record == selectedAnnotation);
+                    if (matchingShape != null)
+                    {
+                        matchingShape.Metadata.Label = newLabel;
+                        matchingShape.LabelBlock.Text = newLabel;
+
+                        var newColor = GetColorForClass(newLabel);
+                        var newBrush = new SolidColorBrush(newColor);
+
+                        if (matchingShape.Shape is Rectangle rect)
+                            rect.Stroke = newBrush;
+                        else if (matchingShape.Shape is Polyline poly)
+                            poly.Stroke = newBrush;
+                        else if (matchingShape.Shape is Polygon polygon)
+                            polygon.Stroke = newBrush;
+
+                        matchingShape.LabelBlock.Foreground = newBrush;
+                    }
+
+                    // Update project
+                    if (isNewClass && _currentProject != null)
+                    {
+                        if (_currentProject.ClassLabels == null)
+                            _currentProject.ClassLabels = new List<string>();
+                        if (!_currentProject.ClassLabels.Contains(newLabel))
+                            _currentProject.ClassLabels.Add(newLabel);
+                    }
+
+                    SaveStateForUndo();
+                    RefreshAnnotations();
+                    UpdateClassStats();
+
+                    string statusMsg = oldLabel == newLabel
+                        ? $"No changes made"
+                        : isNewClass
+                            ? $"Updated: '{oldLabel}' → '{newLabel}' ✨ New class!"
+                            : $"Updated: '{oldLabel}' → '{newLabel}'";
+
+                    SetStatus(statusMsg);
+
+                    editWindow.DialogResult = true;
+                    editWindow.Close();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error: {ex.Message}", "Save Failed",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            };
+
+            cancelButton.Click += (s, args) =>
+            {
+                editWindow.DialogResult = false;
+                editWindow.Close();
+            };
+
+            buttonPanel.Children.Add(saveButton);
+            buttonPanel.Children.Add(cancelButton);
+            mainGrid.Children.Add(buttonPanel);
+
+            scrollViewer.Content = mainGrid;
+            editWindow.Content = scrollViewer;
+            editWindow.ShowDialog();
         }
         private void Undo()
         {
@@ -2471,6 +3093,20 @@ namespace VisionAICam.Pages
                     Canvas.SetLeft(label, x + 1);
                     Canvas.SetTop(label, y + 1);
                 }
+                else if (ann.AnnotationType == AnnotationType.RotatedBox && ann.Points.Count == 4)
+                {
+                    // ⭐ Draw rotated rectangle as a polygon with 4 corners
+                    shape = new Polygon
+                    {
+                        Stroke = brush,
+                        StrokeThickness = 2,
+                        Fill = Brushes.Transparent,
+                        Points = new PointCollection(ann.Points)
+                    };
+                    var first = ann.Points.First();
+                    Canvas.SetLeft(label, first.X + 1);
+                    Canvas.SetTop(label, first.Y + 1);
+                }
                 else if (ann.AnnotationType == AnnotationType.Polygon && ann.Points.Count > 2)
                 {
                     shape = new Polygon
@@ -2514,7 +3150,6 @@ namespace VisionAICam.Pages
             // update class statistics panel
             UpdateClassStats();
             //eckAutoLabelReady();
-
         }
 
         // Utility: Generate a deterministic color for each class name
@@ -4675,19 +5310,29 @@ namespace VisionAICam.Pages
         }
 
         // Update CheckAutoLabelEnable to handle the "Auto label" option:
-        
+
 
         // Update AutoLabelExecuteButton_Click to call the contour detection:
-        private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
-        {
-            await RunContourAutoLabelAsync();
-        }
+        //private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
+        //{
+        //    await RunContourAutoLabelAsync();
+        //}
 
         // Add the contour-based auto-labeling method:
+        // Update the RunContourAutoLabelAsync method (around line 3200) to use the size filters:
+        // Replace the entire RunContourAutoLabelAsync method:
+        // Replace RunContourAutoLabelAsync with this SIMPLIFIED version:
         private async Task RunContourAutoLabelAsync()
         {
             try
             {
+                // ⭐ CRITICAL: Reset drawing state FIRST to ensure clean state
+                _isDrawing = false;
+                _currentDrawingShapeInfo = null;
+                _currentPolygonPoints.Clear();
+                RemoveResizeHandles();
+                BoundingBoxCanvas.ReleaseMouseCapture();
+
                 if (LabelingImage?.Source == null)
                 {
                     SetStatus("No image loaded.");
@@ -4695,12 +5340,387 @@ namespace VisionAICam.Pages
                 }
 
                 string selectedLabel = LabelComboBox?.SelectedItem?.ToString() ?? "object";
-
-                SetStatus("Running contour detection with similarity filtering...");
+                SetStatus("Detecting objects...");
 
                 var currentBitmap = LabelingImage.Source as BitmapSource;
+                double minWidth = _autoLabelMinWidth;
+                double maxWidth = _autoLabelMaxWidth;
+                double minHeight = _autoLabelMinHeight;
+                double maxHeight = _autoLabelMaxHeight;
 
-                var detectedPolygons = await Task.Run(() =>
+                var detectedContours = await Task.Run(() =>
+                {
+                    try
+                    {
+                        using var mat = BitmapSourceToMat(currentBitmap);
+                        if (mat == null || mat.Empty())
+                        {
+                            Debug.WriteLine("[AutoLabel] Failed to load image");
+                            return new List<List<SWPoint>>();
+                        }
+
+                        Debug.WriteLine($"[AutoLabel] Image loaded: {mat.Width}x{mat.Height}");
+
+                        // ═══════════════════════════════════════════════════════
+                        // STEP 1: PREPROCESSING - Find object contours
+                        // ═══════════════════════════════════════════════════════
+
+                        using var gray = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.CvtColor(mat, gray, OpenCvSharp.ColorConversionCodes.BGR2GRAY);
+
+                        // Blur to reduce noise
+                        using var blurred = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(5, 5), 0);
+
+                        // Otsu threshold
+                        using var binary = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.Threshold(blurred, binary, 0, 255,
+                            OpenCvSharp.ThresholdTypes.Binary | OpenCvSharp.ThresholdTypes.Otsu);
+
+                        // Invert if objects are DARK on LIGHT background
+                        OpenCvSharp.Cv2.BitwiseNot(binary, binary);
+
+                        Debug.WriteLine("[AutoLabel] Threshold complete");
+
+                        // Morphology to clean up
+                        using var kernel = OpenCvSharp.Cv2.GetStructuringElement(
+                            OpenCvSharp.MorphShapes.Rect,
+                            new OpenCvSharp.Size(3, 3));
+
+                        using var morphed = new OpenCvSharp.Mat();
+                        OpenCvSharp.Cv2.MorphologyEx(binary, morphed,
+                            OpenCvSharp.MorphTypes.Close, kernel, iterations: 2);
+
+                        // ═══════════════════════════════════════════════════════
+                        // STEP 2: FIND CONTOURS with criteria
+                        // ═══════════════════════════════════════════════════════
+
+                        OpenCvSharp.Cv2.FindContours(
+                            morphed,
+                            out OpenCvSharp.Point[][] contours,
+                            out OpenCvSharp.HierarchyIndex[] hierarchy,
+                            OpenCvSharp.RetrievalModes.External,
+                            OpenCvSharp.ContourApproximationModes.ApproxSimple);
+
+                        Debug.WriteLine($"[AutoLabel] Found {contours.Length} contours");
+
+                        var validContours = new List<List<SWPoint>>();
+                        double imageArea = mat.Width * mat.Height;
+
+                        foreach (var contour in contours)
+                        {
+                            // ─────────────────────────────────────────────────
+                            // CRITERIA 1: Minimum points
+                            // ─────────────────────────────────────────────────
+                            if (contour.Length < 5)
+                            {
+                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: too few points ({contour.Length})");
+                                continue;
+                            }
+
+                            // ─────────────────────────────────────────────────
+                            // CRITERIA 2: Contour area must be reasonable
+                            // ─────────────────────────────────────────────────
+                            double area = OpenCvSharp.Cv2.ContourArea(contour);
+                            double areaRatio = area / imageArea;
+
+                            Debug.WriteLine($"[AutoLabel] Contour area: {area:F0} ({areaRatio:P2} of image)");
+
+                            // Reject if too small (noise) or too large (whole image)
+                            if (area < 100)
+                            {
+                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: area too small {area:F0}");
+                                continue;
+                            }
+
+                            if (areaRatio > 0.95)
+                            {
+                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: covers {areaRatio:P0} of image (likely border)");
+                                continue;
+                            }
+
+                            // ─────────────────────────────────────────────────
+                            // CRITERIA 3: Bounding box size check (using axis-aligned rect)
+                            // ─────────────────────────────────────────────────
+                            var boundingRect = OpenCvSharp.Cv2.BoundingRect(contour);
+
+                            if (boundingRect.Width < minWidth || boundingRect.Width > maxWidth ||
+                                boundingRect.Height < minHeight || boundingRect.Height > maxHeight)
+                            {
+                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: bounding box {boundingRect.Width}x{boundingRect.Height} outside range");
+                                continue;
+                            }
+
+                            // ─────────────────────────────────────────────────
+                            // ✅ VALID CONTOUR → Store raw contour points
+                            // ─────────────────────────────────────────────────
+                            var contourPoints = new List<SWPoint>();
+                            foreach (var pt in contour)
+                            {
+                                contourPoints.Add(new SWPoint(pt.X, pt.Y));
+                            }
+
+                            Debug.WriteLine($"[AutoLabel] ✅ VALID contour: {contour.Length} points, area={area:F0}");
+                            validContours.Add(contourPoints);
+                        }
+
+                        Debug.WriteLine($"[AutoLabel] ═══════════════════════════════");
+                        Debug.WriteLine($"[AutoLabel] Total VALID contours: {validContours.Count}");
+                        Debug.WriteLine($"[AutoLabel] ═══════════════════════════════");
+
+                        return validContours;
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[AutoLabel] ERROR: {ex.Message}");
+                        Debug.WriteLine($"[AutoLabel] StackTrace: {ex.StackTrace}");
+                        return new List<List<SWPoint>>();
+                    }
+                });
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 3: CREATE ANNOTATIONS from raw contours (as Polygon)
+                // ═══════════════════════════════════════════════════════
+
+                if (detectedContours.Count == 0)
+                {
+                    SetStatus("⚠️ No objects found. Check Output window for debug info.");
+                    MessageBox.Show(
+                        "No objects detected!\n\n" +
+                        "Troubleshooting:\n" +
+                        "1. Check Output window (View > Output) for debug logs\n" +
+                        "2. Try adjusting Min/Max Width/Height sliders\n" +
+                        "3. Make sure objects are visible in the image\n" +
+                        "4. If objects are LIGHT on DARK background, comment out BitwiseNot line",
+                        "Detection Info",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                int addedCount = 0;
+                foreach (var contourPoints in detectedContours)
+                {
+                    // Clamp all points to image bounds
+                    var clampedPoints = contourPoints.Select(p => new SWPoint(
+                        Math.Max(0, Math.Min(_currentImageWidth, p.X)),
+                        Math.Max(0, Math.Min(_currentImageHeight, p.Y))
+                    )).ToList();
+
+                    if (clampedPoints.Count < 3)
+                        continue;
+
+                    Annotations.Add(new AnnotationRecord
+                    {
+                        ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
+                        Label = selectedLabel,
+                        AnnotationType = AnnotationType.Polygon,  // ⭐ Store as Polygon, not RotatedBox
+                        Points = clampedPoints,
+                        RawValues = clampedPoints.SelectMany(p => new[] { p.X, p.Y }).ToList()
+                    });
+                    addedCount++;
+                }
+
+                SaveStateForUndo();
+                RefreshAnnotations();
+                UpdateClassStats();
+
+                SetStatus($"✅ Created {addedCount} contour polygons for '{selectedLabel}'");
+
+                // ⭐ CRITICAL: Reset drawing state AGAIN after completion to ensure clean state
+                _isDrawing = false;
+                _currentDrawingShapeInfo = null;
+                _currentPolygonPoints.Clear();
+                RemoveResizeHandles();
+
+                // ⭐ Force focus back to canvas so mouse events work
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    BoundingBoxCanvas.Focus();
+                }), System.Windows.Threading.DispatcherPriority.Input);
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"❌ Failed: {ex.Message}");
+                Debug.WriteLine($"[AutoLabel] EXCEPTION: {ex}");
+
+                // ⭐ CRITICAL: Reset state even on error
+                _isDrawing = false;
+                _currentDrawingShapeInfo = null;
+                _currentPolygonPoints.Clear();
+                RemoveResizeHandles();
+                BoundingBoxCanvas.ReleaseMouseCapture();
+            }
+        }
+
+        // Calculate normalized histogram
+
+
+        // Check if two contours are similar
+
+
+        // Calculate correlation between two histograms
+
+
+        // Helper method to get bounds of polygon
+        // Add these event handler methods anywhere in the DataSetPage class 
+        // (I recommend placing them near the other Auto Label related methods, around line 3300):
+
+        // Update the slider event handlers to provide live preview:
+        // Update slider event handlers to auto-highlight matching shapes:
+
+
+        // ⭐ NEW METHOD: Highlight shapes based on current filter settings
+        private void HighlightMatchingShapes()
+        {
+            try
+            {
+                double minWidth = _autoLabelMinWidth;
+                double maxWidth = _autoLabelMaxWidth;
+                double minHeight = _autoLabelMinHeight;
+                double maxHeight = _autoLabelMaxHeight;
+
+                foreach (var shapeInfo in _shapeInfos)
+                {
+                    var ann = shapeInfo.Record;
+                    if (ann.Points == null || ann.Points.Count < 2)
+                    {
+                        // Reset to original color
+                        RestoreOriginalShapeStyle(shapeInfo);
+                        continue;
+                    }
+
+                    // Calculate bounding box
+                    double width = ann.Points.Max(p => p.X) - ann.Points.Min(p => p.X);
+                    double height = ann.Points.Max(p => p.Y) - ann.Points.Min(p => p.Y);
+
+                    // Check if matches filter
+                    bool matches = (width >= minWidth && width <= maxWidth &&
+                                  height >= minHeight && height <= maxHeight);
+
+                    if (matches)
+                    {
+                        // ⭐ Green + Dashed (matches filter)
+                        ApplyMatchHighlight(shapeInfo);
+                    }
+                    else
+                    {
+                        // ⭐ Restore original color (doesn't match)
+                        RestoreOriginalShapeStyle(shapeInfo);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"HighlightMatchingShapes error: {ex}");
+            }
+        }
+
+        // ⭐ NEW METHOD: Apply green dashed highlight to matching shapes
+        private void ApplyMatchHighlight(ShapeInfo shapeInfo)
+        {
+            if (shapeInfo?.Shape == null) return;
+
+            var greenBrush = new SolidColorBrush(Color.FromRgb(0, 255, 0));
+
+            if (shapeInfo.Shape is Rectangle rect)
+            {
+                rect.Stroke = greenBrush;
+                rect.StrokeThickness = 3;
+                rect.StrokeDashArray = new DoubleCollection { 6, 3 }; // Dashed
+                rect.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Lime,
+                    BlurRadius = 12,
+                    ShadowDepth = 0,
+                    Opacity = 0.8
+                };
+            }
+            else if (shapeInfo.Shape is Polyline poly)
+            {
+                poly.Stroke = greenBrush;
+                poly.StrokeThickness = 3;
+                poly.StrokeDashArray = new DoubleCollection { 6, 3 };
+                poly.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Lime,
+                    BlurRadius = 12,
+                    ShadowDepth = 0,
+                    Opacity = 0.8
+                };
+            }
+            else if (shapeInfo.Shape is Polygon polygon)
+            {
+                polygon.Stroke = greenBrush;
+                polygon.StrokeThickness = 3;
+                polygon.StrokeDashArray = new DoubleCollection { 6, 3 };
+                polygon.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    Color = Colors.Lime,
+                    BlurRadius = 12,
+                    ShadowDepth = 0,
+                    Opacity = 0.8
+                };
+            }
+        }
+
+        // ⭐ NEW METHOD: Restore original color and style
+        private void RestoreOriginalShapeStyle(ShapeInfo shapeInfo)
+        {
+            if (shapeInfo?.Shape == null) return;
+
+            // Get original color for this class
+            var originalColor = GetColorForClass(shapeInfo.Metadata.Label);
+            var originalBrush = new SolidColorBrush(originalColor);
+
+            if (shapeInfo.Shape is Rectangle rect)
+            {
+                rect.Stroke = originalBrush;
+                rect.StrokeThickness = 2;
+                rect.StrokeDashArray = null; // Solid line
+                rect.Effect = null; // No glow
+            }
+            else if (shapeInfo.Shape is Polyline poly)
+            {
+                poly.Stroke = originalBrush;
+                poly.StrokeThickness = 2;
+                poly.StrokeDashArray = null;
+                poly.Effect = null;
+            }
+            else if (shapeInfo.Shape is Polygon polygon)
+            {
+                polygon.Stroke = originalBrush;
+                polygon.StrokeThickness = 2;
+                polygon.StrokeDashArray = null;
+                polygon.Effect = null;
+            }
+        }
+        // Update UpdateSizeFilterPreview to show rotated rectangles in preview:
+        private async void UpdateSizeFilterPreview()
+        {
+            try
+            {
+                foreach (var shape in _sizeFilterPreviewShapes)
+                {
+                    BoundingBoxCanvas.Children.Remove(shape);
+                }
+                _sizeFilterPreviewShapes.Clear();
+
+                if (LabelingImage?.Source == null)
+                    return;
+
+                var currentBitmap = LabelingImage.Source as BitmapSource;
+                if (currentBitmap == null)
+                    return;
+
+                double minWidth = _autoLabelMinWidth;
+                double maxWidth = _autoLabelMaxWidth;
+                double minHeight = _autoLabelMinHeight;
+                double maxHeight = _autoLabelMaxHeight;
+
+                SetStatus("Preview: detecting rotated rectangles...");
+
+                var detectedBoxes = await Task.Run(() =>
                 {
                     try
                     {
@@ -4719,221 +5739,238 @@ namespace VisionAICam.Pages
 
                         using var kernel = OpenCvSharp.Cv2.GetStructuringElement(
                             OpenCvSharp.MorphShapes.Rect,
-                            new OpenCvSharp.Size(3, 3));
+                            new OpenCvSharp.Size(5, 5));
                         using var dilated = new OpenCvSharp.Mat();
                         OpenCvSharp.Cv2.Dilate(edges, dilated, kernel, iterations: 2);
-                        using var closed = new OpenCvSharp.Mat();
-                        OpenCvSharp.Cv2.Erode(dilated, closed, kernel, iterations: 1);
 
                         OpenCvSharp.Cv2.FindContours(
-                            closed,
+                            dilated,
                             out OpenCvSharp.Point[][] contours,
                             out OpenCvSharp.HierarchyIndex[] hierarchy,
                             OpenCvSharp.RetrievalModes.External,
                             OpenCvSharp.ContourApproximationModes.ApproxSimple);
 
-                        // Extract features for each contour
-                        var contourData = new List<(List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram)>();
+                        var detectedBoxes = new List<List<SWPoint>>();
+                        double imageArea = mat.Width * mat.Height;
 
                         foreach (var contour in contours)
                         {
-                            double area = OpenCvSharp.Cv2.ContourArea(contour);
-                            if (area < 100.0)
+                            if (contour.Length < 5)
                                 continue;
 
-                            // Get rotated rectangle
+                            double area = OpenCvSharp.Cv2.ContourArea(contour);
+                            double areaRatio = area / imageArea;
+
+                            if (areaRatio < 0.0005 || areaRatio > 0.5)
+                                continue;
+
+                            // ⭐ Get minimum rotated rectangle
                             var rotatedRect = OpenCvSharp.Cv2.MinAreaRect(contour);
-                            var points = OpenCvSharp.Cv2.BoxPoints(rotatedRect);
+                            double width = rotatedRect.Size.Width;
+                            double height = rotatedRect.Size.Height;
 
-                            var polygon = new List<SWPoint>
-                    {
-                        new SWPoint(points[0].X, points[0].Y),
-                        new SWPoint(points[1].X, points[1].Y),
-                        new SWPoint(points[2].X, points[2].Y),
-                        new SWPoint(points[3].X, points[3].Y)
-                    };
+                            if (width < minWidth || width > maxWidth ||
+                                height < minHeight || height > maxHeight)
+                                continue;
 
-                            // Calculate shape features
-                            double perimeter = OpenCvSharp.Cv2.ArcLength(contour, true);
-                            double circularity = 4 * Math.PI * area / (perimeter * perimeter); // 0-1, 1=perfect circle
+                            double rectArea = width * height;
+                            double fillRatio = area / rectArea;
+                            if (fillRatio < 0.60)
+                                continue;
 
-                            // Extract color histogram inside contour
-                            using var mask = new OpenCvSharp.Mat(gray.Size(), OpenCvSharp.MatType.CV_8UC1, OpenCvSharp.Scalar.All(0));
-                            OpenCvSharp.Cv2.DrawContours(mask, new[] { contour }, 0, OpenCvSharp.Scalar.White, -1);
+                            var boxPoints = OpenCvSharp.Cv2.BoxPoints(rotatedRect);
 
-                            var histogram = CalculateHistogram(gray, mask);
+                            var rectangle = new List<SWPoint>();
+                            foreach (var pt in boxPoints)
+                            {
+                                rectangle.Add(new SWPoint(pt.X, pt.Y));
+                            }
 
-                            contourData.Add((polygon, area, perimeter, circularity, histogram));
+                            if (rectangle.Count == 4)
+                                detectedBoxes.Add(rectangle);
                         }
 
-                        if (contourData.Count == 0)
-                            return new List<List<SWPoint>>();
-
-                        // Group similar contours
-                        var groups = GroupSimilarContours(contourData);
-
-                        // Return only the largest group (most similar objects)
-                        var largestGroup = groups.OrderByDescending(g => g.Count).First();
-                        return largestGroup.Select(item => item.polygon).ToList();
+                        return detectedBoxes;
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        Debug.WriteLine($"Contour detection error: {ex.Message}");
                         return new List<List<SWPoint>>();
                     }
                 });
 
-                if (detectedPolygons.Count == 0)
+                // ⭐ Draw preview rotated rectangles
+                foreach (var box in detectedBoxes)
                 {
-                    SetStatus("No similar contours detected.");
-                    return;
-                }
-
-                int addedCount = 0;
-                foreach (var polygon in detectedPolygons)
-                {
-                    var clampedPoints = polygon.Select(p => new SWPoint(
+                    var clampedPoints = box.Select(p => new SWPoint(
                         Math.Max(0, Math.Min(_currentImageWidth, p.X)),
                         Math.Max(0, Math.Min(_currentImageHeight, p.Y))
                     )).ToList();
 
-                    var bounds = GetBounds(clampedPoints);
-                    if (bounds.width < 5 || bounds.height < 5)
+                    if (clampedPoints.Count != 4)
                         continue;
 
-                    Annotations.Add(new AnnotationRecord
+                    // ⭐ Orange dashed rotated rectangle preview
+                    var previewShape = new Polygon
                     {
-                        ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
-                        Label = selectedLabel,
-                        AnnotationType = AnnotationType.Polygon,
-                        Points = clampedPoints
-                    });
-                    addedCount++;
+                        Points = new PointCollection(clampedPoints),
+                        Stroke = new SolidColorBrush(Color.FromArgb(200, 255, 152, 0)), // Orange
+                        StrokeThickness = 2,
+                        Fill = new SolidColorBrush(Color.FromArgb(30, 255, 152, 0)),
+                        StrokeDashArray = new DoubleCollection { 6, 3 },
+                        IsHitTestVisible = false
+                    };
+
+                    BoundingBoxCanvas.Children.Add(previewShape);
+                    _sizeFilterPreviewShapes.Add(previewShape);
                 }
 
-                SaveStateForUndo();
-                RefreshAnnotations();
-                UpdateClassStats();
-
-                SetStatus($"{addedCount} similar objects labeled as '{selectedLabel}'.");
+                SetStatus($"Preview: {detectedBoxes.Count} minimum rotated rectangles ({minWidth}-{maxWidth}×{minHeight}-{maxHeight})");
             }
             catch (Exception ex)
             {
-                SetStatus($"Failed: {ex.Message}");
+                Debug.WriteLine($"Preview error: {ex.Message}");
+                SetStatus("Preview failed");
             }
         }
-
-        // Calculate normalized histogram
-        private double[] CalculateHistogram(OpenCvSharp.Mat grayImage, OpenCvSharp.Mat mask)
+        // Replace the ClearPreviewButton_Click method with this smart filtering version:
+        private void ClearPreviewButton_Click(object sender, RoutedEventArgs e)
         {
-            using var hist = new OpenCvSharp.Mat();
-            int[] histSize = { 16 }; // 16 bins
-            OpenCvSharp.Rangef[] ranges = { new OpenCvSharp.Rangef(0, 256) };
-
-            OpenCvSharp.Cv2.CalcHist(
-                new[] { grayImage },
-                new[] { 0 },
-                mask,
-                hist,
-                1,
-                histSize,
-                ranges);
-
-            // Normalize
-            OpenCvSharp.Cv2.Normalize(hist, hist, 0, 1, OpenCvSharp.NormTypes.MinMax);
-
-            var histogram = new double[16];
-            for (int i = 0; i < 16; i++)
+            try
             {
-                histogram[i] = hist.At<float>(i);
-            }
-
-            return histogram;
-        }
-
-        // Group contours by similarity
-        private List<List<(List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram)>>
-            GroupSimilarContours(
-                List<(List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram)> contours)
-        {
-            if (contours.Count == 0)
-                return new List<List<(List<SWPoint>, double, double, double, double[])>>();
-
-            var groups = new List<List<(List<SWPoint>, double, double, double, double[])>>();
-            var used = new bool[contours.Count];
-
-            for (int i = 0; i < contours.Count; i++)
-            {
-                if (used[i]) continue;
-
-                var group = new List<(List<SWPoint>, double, double, double, double[])> { contours[i] };
-                used[i] = true;
-
-                for (int j = i + 1; j < contours.Count; j++)
+                // Clear preview shapes from canvas
+                foreach (var shape in _sizeFilterPreviewShapes)
                 {
-                    if (used[j]) continue;
+                    BoundingBoxCanvas.Children.Remove(shape);
+                }
+                _sizeFilterPreviewShapes.Clear();
 
-                    if (AreSimilar(contours[i], contours[j]))
+                // Get current image name
+                string currentImageName = System.IO.Path.GetFileName(_currentImagePath ?? "");
+                if (string.IsNullOrEmpty(currentImageName))
+                {
+                    SetStatus("No image loaded");
+                    return;
+                }
+
+                // Get size filter values
+                double minWidth = _autoLabelMinWidth;
+                double maxWidth = _autoLabelMaxWidth;
+                double minHeight = _autoLabelMinHeight;
+                double maxHeight = _autoLabelMaxHeight;
+
+                // Find annotations for current image
+                var currentImageAnnotations = Annotations
+                    .Where(a => a.ImageName.Equals(currentImageName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (currentImageAnnotations.Count == 0)
+                {
+                    SetStatus("No annotations to filter");
+                    return;
+                }
+
+                // Separate annotations into those that match filter vs those that don't
+                var toKeep = new List<AnnotationRecord>();
+                var toRemove = new List<AnnotationRecord>();
+
+                foreach (var ann in currentImageAnnotations)
+                {
+                    if (ann.Points == null || ann.Points.Count < 2)
                     {
-                        group.Add(contours[j]);
-                        used[j] = true;
+                        toRemove.Add(ann);
+                        continue;
+                    }
+
+                    // Calculate bounding box dimensions
+                    double minX = ann.Points.Min(p => p.X);
+                    double maxX = ann.Points.Max(p => p.X);
+                    double minY = ann.Points.Min(p => p.Y);
+                    double maxY = ann.Points.Max(p => p.Y);
+
+                    double width = maxX - minX;
+                    double height = maxY - minY;
+
+                    // Check if annotation matches size filter
+                    if (width >= minWidth && width <= maxWidth && height >= minHeight && height <= maxHeight)
+                    {
+                        toKeep.Add(ann);
+                    }
+                    else
+                    {
+                        toRemove.Add(ann);
                     }
                 }
 
-                groups.Add(group);
+                // Show confirmation dialog
+                if (toRemove.Count > 0)
+                {
+                    var result = MessageBox.Show(
+                        $"Filter will remove {toRemove.Count} annotation(s) that don't match size criteria:\n\n" +
+                        $"Size range: {minWidth}-{maxWidth} × {minHeight}-{maxHeight}\n\n" +
+                        $"Keep: {toKeep.Count}\n" +
+                        $"Remove: {toRemove.Count}\n\n" +
+                        "Continue?",
+                        "Apply Size Filter",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
+                    if (result != MessageBoxResult.Yes)
+                    {
+                        SetStatus("Filter cancelled");
+                        return;
+                    }
+
+                    // Save state for undo before removing
+                    SaveStateForUndo();
+
+                    // Remove annotations that don't match
+                    foreach (var ann in toRemove)
+                    {
+                        Annotations.Remove(ann);
+                    }
+
+                    // Remove corresponding shapes from canvas
+                    var shapesToRemove = _shapeInfos
+                        .Where(si => toRemove.Contains(si.Record))
+                        .ToList();
+
+                    foreach (var shapeInfo in shapesToRemove)
+                    {
+                        BoundingBoxCanvas.Children.Remove(shapeInfo.Shape);
+                        BoundingBoxCanvas.Children.Remove(shapeInfo.LabelBlock);
+                        _shapeInfos.Remove(shapeInfo);
+                    }
+
+                    // Refresh UI
+                    RefreshAnnotations();
+                    UpdateClassStats();
+
+                    SetStatus($"Filtered: kept {toKeep.Count}, removed {toRemove.Count} annotations outside size range");
+                }
+                else
+                {
+                    SetStatus("All annotations match current size filter - nothing to remove");
+                }
             }
-
-            return groups;
-        }
-
-        // Check if two contours are similar
-        private bool AreSimilar(
-            (List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram) a,
-            (List<SWPoint> polygon, double area, double perimeter, double circularity, double[] colorHistogram) b)
-        {
-            // Shape similarity: area and circularity must be similar
-            double areaRatio = Math.Min(a.area, b.area) / Math.Max(a.area, b.area);
-            double circularityDiff = Math.Abs(a.circularity - b.circularity);
-
-            if (areaRatio < 0.7 || circularityDiff > 0.3) // 70% area match, max 0.3 circularity difference
-                return false;
-
-            // Appearance similarity: histogram correlation
-            double correlation = CalculateHistogramCorrelation(a.colorHistogram, b.colorHistogram);
-
-            return correlation > 0.7; // 70% histogram similarity
-        }
-
-        // Calculate correlation between two histograms
-        private double CalculateHistogramCorrelation(double[] hist1, double[] hist2)
-        {
-            if (hist1.Length != hist2.Length)
-                return 0;
-
-            double mean1 = hist1.Average();
-            double mean2 = hist2.Average();
-
-            double numerator = 0;
-            double denom1 = 0;
-            double denom2 = 0;
-
-            for (int i = 0; i < hist1.Length; i++)
+            catch (Exception ex)
             {
-                double diff1 = hist1[i] - mean1;
-                double diff2 = hist2[i] - mean2;
-
-                numerator += diff1 * diff2;
-                denom1 += diff1 * diff1;
-                denom2 += diff2 * diff2;
+                MessageBox.Show($"Filter failed: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                SetStatus($"Filter failed: {ex.Message}");
             }
-
-            if (denom1 == 0 || denom2 == 0)
-                return 0;
-
-            return numerator / Math.Sqrt(denom1 * denom2);
         }
+        // ⭐ NEW METHOD: Clear preview when execute button is clicked
+        private async void AutoLabelExecuteButton_Click(object? sender, RoutedEventArgs e)
+        {
+            // Clear preview shapes before running actual labeling
+            foreach (var shape in _sizeFilterPreviewShapes)
+            {
+                BoundingBoxCanvas.Children.Remove(shape);
+            }
+            _sizeFilterPreviewShapes.Clear();
 
-        // Helper method to get bounds of polygon
+            await RunContourAutoLabelAsync();
+        }
         private (double width, double height) GetBounds(List<SWPoint> points)
         {
             if (points.Count == 0) return (0, 0);

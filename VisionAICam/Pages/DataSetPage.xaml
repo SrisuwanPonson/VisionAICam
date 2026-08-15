@@ -154,103 +154,304 @@
                         <!-- ✅ Controls Row with dark theme -->
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                             <!-- Class Management -->
-                            <GroupBox Margin="0,0,4,0"
-                                      Foreground="{StaticResource AccentBrush}"
+                            <GroupBox Foreground="{StaticResource AccentBrush}"
                                       Background="{StaticResource PanelBackground}"
                                       BorderBrush="{StaticResource PanelBorderBrush}"
                                       BorderThickness="2"
-                                      HorizontalAlignment="Left">
+                                      VerticalAlignment="Top"
+                                      MinWidth="500"
+                                      MaxWidth="800"
+                                      Height="80"
+                                      Margin="0,0,10,0">
                                 <GroupBox.Header>
                                     <TextBlock FontWeight="Bold">
                                         <Run Text="🏷️ "/>
                                         <Run Text="Class Management"/>
                                     </TextBlock>
                                 </GroupBox.Header>
-                                <StackPanel Orientation="Horizontal" Margin="5,4,5,4" Background="{StaticResource PanelBackground}">
+                                <StackPanel Orientation="Horizontal" 
+                                            Margin="10,8,10,8" 
+                                            VerticalAlignment="Center">
                                     <TextBlock Text="Label:" 
                                                VerticalAlignment="Center" 
                                                Foreground="{StaticResource ForegroundBrush}" 
-                                               Margin="0,0,5,0"/>
-                                    <ComboBox x:Name="LabelComboBox" MinWidth="100" Margin="0,0,5,0"/>
+                                               Margin="0,0,8,0"/>
+                                    <ComboBox x:Name="LabelComboBox" 
+                                              MinWidth="120"
+                                              MaxWidth="200"
+                                              VerticalAlignment="Center"
+                                              Margin="0,0,16,0"/>
+                                
                                     <TextBox x:Name="NewClassTextBox" 
-                                             MinWidth="80" 
-                                             Margin="0,0,5,0" 
-                                             VerticalAlignment="Center" 
-                                             ToolTip="Add new class"/>
-                                    <Button MinWidth="70" Click="AddClassButton_Click">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="➕ " VerticalAlignment="Center"/>
-                                            <TextBlock Text="Add Class" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
+                                             MinWidth="120"
+                                             MaxWidth="200"
+                                             VerticalAlignment="Center"
+                                             Margin="0,0,8,0"
+                                             Height="26"/>
+                                
+                                    <Button Content="➕ Add Class" 
+                                            Click="AddClassButton_Click"
+                                            VerticalAlignment="Center"
+                                            Height="26"
+                                            Padding="8,0"/>
                                 </StackPanel>
                             </GroupBox>
 
                             <!-- Drawing Mode -->
-                            <GroupBox Margin="0,0,4,0"
-                                      Foreground="{StaticResource AccentBrush}"
+                            <GroupBox Foreground="{StaticResource AccentBrush}"
                                       Background="{StaticResource PanelBackground}"
                                       BorderBrush="{StaticResource PanelBorderBrush}"
                                       BorderThickness="2"
                                       VerticalAlignment="Top"
-                                      HorizontalAlignment="Left">
+                                      MinWidth="200"
+                                      MaxWidth="350"
+                                      Height="80"
+                                      Margin="0,0,10,0">
                                 <GroupBox.Header>
                                     <TextBlock FontWeight="Bold">
                                         <Run Text="✏️ "/>
                                         <Run Text="Drawing Mode"/>
                                     </TextBlock>
                                 </GroupBox.Header>
-                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="{StaticResource PanelBackground}">
+                                <StackPanel Orientation="Horizontal" 
+                                            Margin="10,8,10,8" 
+                                            VerticalAlignment="Center">
                                     <TextBlock Text="Mode:" 
                                                VerticalAlignment="Center" 
                                                Foreground="{StaticResource ForegroundBrush}" 
                                                Margin="0,0,8,0"/>
-                                    <ComboBox x:Name="DrawingModeComboBox" MinWidth="120" SelectionChanged="DrawingModeComboBox_SelectionChanged">
+                                    <ComboBox x:Name="DrawingModeComboBox" 
+                                              MinWidth="120"
+                                              MaxWidth="180"
+                                              VerticalAlignment="Center"
+                                              SelectionChanged="DrawingModeComboBox_SelectionChanged">
                                         <ComboBoxItem Content="Free Pen"/>
                                         <ComboBoxItem Content="Rectangle" IsSelected="True"/>
                                         <ComboBoxItem Content="Polygon"/>
                                     </ComboBox>
                                 </StackPanel>
-                            </GroupBox>
+                            </GroupBox>     
 
-                            <!-- ✅ Auto Actions with dark theme and icons -->
+                            <!-- ✅ Auto Actions - Reorganized Layout -->
                             <GroupBox x:Name="AutoLabelGroupBox"
                                       Visibility="Visible"
-                                      Margin="10,0,0,0"
                                       Foreground="{StaticResource AccentBrush}"
                                       Background="{StaticResource PanelBackground}"
                                       BorderBrush="{StaticResource PanelBorderBrush}"
                                       BorderThickness="2"
                                       VerticalAlignment="Top"
-                                      HorizontalAlignment="Left">
+                                      MinWidth="320"
+                                      MaxWidth="600">
                                 <GroupBox.Header>
                                     <TextBlock FontWeight="Bold">
                                         <Run Text="🤖 "/>
                                         <Run Text="Auto Actions"/>
                                     </TextBlock>
                                 </GroupBox.Header>
-                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="{StaticResource PanelBackground}">
+                                
+                                <Grid Margin="10,4,10,4">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/> <!-- Size Filters -->
+                                        <RowDefinition Height="Auto"/> <!-- Buttons Row -->
+                                        <RowDefinition Height="Auto"/> <!-- Status -->
+                                    </Grid.RowDefinitions>
 
-                                    <!-- Execute Button with Icon -->
-                                    <Button x:Name="AutoLabelExecuteButton"
-        MinWidth="100"
-        IsEnabled="True"
-        Click="AutoLabelExecuteButton_Click">
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="▶ " FontSize="16" Margin="0,0,6,0"/>
-                                            <TextBlock Text="Execute" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
+                                    <!-- ⭐ Row 0: Size Filters (Collapsible) -->
+                                    <Expander x:Name="SizeFiltersExpander"
+                                              Header="📏 Size Filters" 
+                                              IsExpanded="True" 
+                                              Foreground="{StaticResource ForegroundBrush}"
+                                              Margin="0,0,0,8"
+                                              Expanded="SizeFiltersExpander_Expanded">
+                                        <Grid Margin="8,8,8,4">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="8"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="8"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="8"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="12"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="55"/>
+                                                <ColumnDefinition Width="*" MinWidth="140"/>
+                                                <ColumnDefinition Width="55"/>
+                                            </Grid.ColumnDefinitions>
 
-                                    <TextBlock x:Name="AutoLabelReadyTextBlock"
-                                               Text=""
-                                               VerticalAlignment="Center"
-                                               Margin="12,0,0,0"
-                                               Foreground="#4CAF50"
-                                               FontWeight="Bold"
-                                               Visibility="Collapsed"/>
-                                </StackPanel>
+                                            <!-- Min Width -->
+                                            <TextBlock Text="Min W:" 
+                                                       Grid.Row="0" Grid.Column="0"
+                                                       VerticalAlignment="Center" 
+                                                       Foreground="{StaticResource ForegroundBrush}"/>
+                                            <Slider x:Name="MinWidthSlider" 
+                                                    Grid.Row="0" Grid.Column="1"
+                                                    Minimum="1" 
+                                                    Maximum="500" 
+                                                    Value="10" 
+                                                    TickFrequency="10"
+                                                    IsSnapToTickEnabled="True"
+                                                    VerticalAlignment="Center"
+                                                    Margin="4,0,4,0"
+                                                    ValueChanged="MinWidthSlider_ValueChanged"/>
+                                            <TextBlock x:Name="MinWidthValue" 
+                                                       Grid.Row="0" Grid.Column="2"
+                                                       Text="10" 
+                                                       VerticalAlignment="Center" 
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource AccentBrush}"
+                                                       FontWeight="Bold"
+                                                       FontSize="13"/>
+
+                                            <!-- Max Width -->
+                                            <TextBlock Text="Max W:" 
+                                                       Grid.Row="2" Grid.Column="0"
+                                                       VerticalAlignment="Center" 
+                                                       Foreground="{StaticResource ForegroundBrush}"/>
+                                            <Slider x:Name="MaxWidthSlider" 
+                                                    Grid.Row="2" Grid.Column="1"
+                                                    Minimum="10" 
+                                                    Maximum="2000" 
+                                                    Value="1000" 
+                                                    TickFrequency="50"
+                                                    IsSnapToTickEnabled="True"
+                                                    VerticalAlignment="Center"
+                                                    Margin="4,0,4,0"
+                                                    ValueChanged="MaxWidthSlider_ValueChanged"/>
+                                            <TextBlock x:Name="MaxWidthValue" 
+                                                       Grid.Row="2" Grid.Column="2"
+                                                       Text="1000" 
+                                                       VerticalAlignment="Center" 
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource AccentBrush}"
+                                                       FontWeight="Bold"
+                                                       FontSize="13"/>
+
+                                            <!-- Min Height -->
+                                            <TextBlock Text="Min H:" 
+                                                       Grid.Row="4" Grid.Column="0"
+                                                       VerticalAlignment="Center" 
+                                                       Foreground="{StaticResource ForegroundBrush}"/>
+                                            <Slider x:Name="MinHeightSlider" 
+                                                    Grid.Row="4" Grid.Column="1"
+                                                    Minimum="1" 
+                                                    Maximum="500" 
+                                                    Value="10" 
+                                                    TickFrequency="10"
+                                                    IsSnapToTickEnabled="True"
+                                                    VerticalAlignment="Center"
+                                                    Margin="4,0,4,0"
+                                                    ValueChanged="MinHeightSlider_ValueChanged"/>
+                                            <TextBlock x:Name="MinHeightValue" 
+                                                       Grid.Row="4" Grid.Column="2"
+                                                       Text="10" 
+                                                       VerticalAlignment="Center" 
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource AccentBrush}"
+                                                       FontWeight="Bold"
+                                                       FontSize="13"/>
+
+                                            <!-- Max Height -->
+                                            <TextBlock Text="Max H:" 
+                                                       Grid.Row="6" Grid.Column="0"
+                                                       VerticalAlignment="Center" 
+                                                       Foreground="{StaticResource ForegroundBrush}"/>
+                                            <Slider x:Name="MaxHeightSlider" 
+                                                    Grid.Row="6" Grid.Column="1"
+                                                    Minimum="10" 
+                                                    Maximum="2000" 
+                                                    Value="1000" 
+                                                    TickFrequency="50"
+                                                    IsSnapToTickEnabled="True"
+                                                    VerticalAlignment="Center"
+                                                    Margin="4,0,4,0"
+                                                    ValueChanged="MaxHeightSlider_ValueChanged"/>
+                                            <TextBlock x:Name="MaxHeightValue" 
+                                                       Grid.Row="6" Grid.Column="2"
+                                                       Text="1000" 
+                                                       VerticalAlignment="Center" 
+                                                       HorizontalAlignment="Right"
+                                                       Foreground="{StaticResource AccentBrush}"
+                                                       FontWeight="Bold"
+                                                       FontSize="13"/>
+
+                                            <!-- Reset Button -->
+                                            <Button x:Name="ResetFilterButton"
+                                                    Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="3"
+                                                    Content="🔄 Reset to Defaults"
+                                                    Height="26"
+                                                    FontSize="11"
+                                                    Click="ResetFilterButton_Click"
+                                                    HorizontalAlignment="Center"
+                                                    MinWidth="140"/>
+                                        </Grid>
+                                    </Expander>
+
+                                    <!-- ⭐ Row 1: Action Buttons (Always Visible) -->
+                                    <Grid Grid.Row="1" Margin="0,4,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="8"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- Execute Button -->
+                                        <Button x:Name="AutoLabelExecuteButton"
+                                                Grid.Column="1"
+                                                MinWidth="110"
+                                                Height="34"
+                                                IsEnabled="True"
+                                                Click="AutoLabelExecuteButton_Click"
+                                                Background="#4CAF50"
+                                                Foreground="White"
+                                                BorderThickness="0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="▶ " FontSize="16" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Execute" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <!-- Apply Filter Button -->
+                                        <Button x:Name="ClearPreviewButton"
+                                                Grid.Column="3"
+                                                MinWidth="110"
+                                                Height="34"
+                                                Click="ClearPreviewButton_Click"
+                                                Background="#D32F2F"
+                                                Foreground="White"
+                                                BorderThickness="0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="✂️ " FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                <TextBlock Text="Apply Filter" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+
+                                    <!-- ⭐ Row 2: Status Message -->
+                                    <Border Grid.Row="2"
+                                            Background="#E8F5E9"
+                                            BorderBrush="#4CAF50"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            Padding="8,6"
+                                            Margin="0,4,0,0"
+                                            Visibility="Collapsed"
+                                            x:Name="AutoLabelStatusBorder">
+                                        <TextBlock x:Name="AutoLabelReadyTextBlock"
+                                                   Text=""
+                                                   TextWrapping="Wrap"
+                                                   Foreground="#2E7D32"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="11"
+                                                   HorizontalAlignment="Center"/>
+                                    </Border>
+                                </Grid>
                             </GroupBox>
+                        
                         </StackPanel>
                     </StackPanel>
 
@@ -519,68 +720,121 @@
                                           Content="◀ Controls"/>-->
 
                             <!-- Annotation Controls -->
+                            <!-- Find the AnnotationControlsPanel Border (around line 500-600) -->
+                            <!-- Replace it with this version that has INDEPENDENT height: -->
+
                             <Border x:Name="AnnotationControlsPanel"
-                                    Grid.Column="1"
-                                    Background="#F5F5F5"
-                                    CornerRadius="8"
-                                    Padding="16"
-                                    Margin="16,0,0,0"
-                                    MinWidth="320"
-                                    MaxWidth="420">
-                                <Grid VerticalAlignment="Stretch">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="*"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                        <RowDefinition Height="Auto"/>
-                                    </Grid.RowDefinitions>
-                                    <TextBlock Text="Annotations" FontSize="20" FontWeight="Bold" Foreground="#222" Margin="0,0,0,10" Grid.Row="0"/>
-                                    <ListView x:Name="AnnotationListView"
-                                              MinHeight="120"
-                                              Margin="0,0,0,10"
-                                              ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                                              Background="#FFF"
-                                              Foreground="#222"
-                                              Grid.Row="1">
-                                        <ListView.ContextMenu>
-                                            <ContextMenu>
-                                                <MenuItem Header="Edit" Click="EditAnnotation_Click"/>
-                                            </ContextMenu>
-                                        </ListView.ContextMenu>
-                                        <ListView.View>
-                                            <GridView>
-                                                <GridViewColumn Header="ImageName" Width="120" DisplayMemberBinding="{Binding ImageName}"/>
-                                                <GridViewColumn Header="Label" Width="80" DisplayMemberBinding="{Binding Label}"/>
-                                                <GridViewColumn Header="AnnotationType" Width="100" DisplayMemberBinding="{Binding AnnotationType}"/>
-                                                <GridViewColumn Header="Coordinates" Width="200" DisplayMemberBinding="{Binding Coordinates}"/>
-                                            </GridView>
-                                        </ListView.View>
-                                    </ListView>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10" Grid.Row="2">
-                                        <Button Content="Remove Selected" Margin="0,0,10,0" MinWidth="100" Click="RemoveSelected_Click"/>
-                                    </StackPanel>
-                                    <TextBlock Text="Tip: Drag to draw a box. Select a label before saving." FontStyle="Italic" Foreground="#1976D2" Grid.Row="3"/>
-                                    <!-- Shortcut Hints Panel -->
-                                    <Border Background="#EEE" BorderBrush="#1976D2" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Grid.Row="4">
-                                        <StackPanel>
-                                            <TextBlock Text="Keyboard Shortcuts:" FontWeight="Bold" FontSize="14" Foreground="#1976D2" Margin="0,0,0,6"/>
-                                            <TextBlock Text="F: Next image" Foreground="#222"/>
-                                            <TextBlock Text="S: Previous image" Foreground="#222"/>
-                                            <TextBlock Text="A: Add box" Foreground="#222"/>
-                                            <TextBlock Text="D: Remove selected" Foreground="#222"/>
-                                            <TextBlock Text="E: Export YOLO" Foreground="#222"/>
-                                            <TextBlock Text="Enter: Save annotations" Foreground="#222"/>
-                                            <TextBlock Text="Ctrl+Z: Undo" Foreground="#222"/>
-                                            <TextBlock Text="Ctrl+Y: Redo" Foreground="#222"/>
-                                            <TextBlock Text="F: Toggle full screen" Foreground="#222"/>
-                                            <TextBlock Text="(Polygon) Press Space Bar: Finish polygon" FontStyle="Italic" Foreground="#1976D2"/>
+        Grid.Column="1"
+        Background="#F5F5F5"
+        CornerRadius="8"
+        Padding="16"
+        Margin="16,0,0,0"
+        MinWidth="320"
+        MaxWidth="420"
+        VerticalAlignment="Top"
+        MaxHeight="800">
+                                <!-- ⭐ Changed from VerticalAlignment="Stretch" to VerticalAlignment="Top" -->
+                                <!-- ⭐ Added MaxHeight="800" so it doesn't stretch to match image height -->
+
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+                                    <Grid VerticalAlignment="Top">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Title -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- ListView -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Remove button -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Tip -->
+                                            <RowDefinition Height="Auto"/>
+                                            <!-- Shortcuts -->
+                                        </Grid.RowDefinitions>
+
+                                        <!-- Title -->
+                                        <TextBlock Grid.Row="0"
+                       Text="Annotations" 
+                       FontSize="20" 
+                       FontWeight="Bold" 
+                       Foreground="#222" 
+                       Margin="0,0,0,10"/>
+
+                                        <!-- ⭐ ListView with independent, flexible height -->
+                                        <ListView x:Name="AnnotationListView"
+                      Grid.Row="1"
+                      MinHeight="100"
+                      MaxHeight="400"
+                      Margin="0,0,0,10"
+                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                      Background="#FFF"
+                      Foreground="#222"
+                      SelectionChanged="AnnotationListView_SelectionChanged"
+                      MouseDoubleClick="AnnotationListView_MouseDoubleClick">
+                                            <ListView.ContextMenu>
+                                                <ContextMenu>
+                                                    <MenuItem Header="Edit" Click="EditAnnotation_Click"/>
+                                                    <MenuItem Header="Delete" Click="RemoveSelected_Click"/>
+                                                </ContextMenu>
+                                            </ListView.ContextMenu>
+                                            <ListView.View>
+                                                <GridView>
+                                                    <GridViewColumn Header="ImageName" Width="120" DisplayMemberBinding="{Binding ImageName}"/>
+                                                    <GridViewColumn Header="Label" Width="80" DisplayMemberBinding="{Binding Label}"/>
+                                                    <GridViewColumn Header="AnnotationType" Width="100" DisplayMemberBinding="{Binding AnnotationType}"/>
+                                                    <GridViewColumn Header="Coordinates" Width="200" DisplayMemberBinding="{Binding Coordinates}"/>
+                                                </GridView>
+                                            </ListView.View>
+                                        </ListView>
+
+                                        <!-- Remove Button -->
+                                        <StackPanel Grid.Row="2"
+                        Orientation="Horizontal" 
+                        Margin="0,0,0,10">
+                                            <Button Content="Remove Selected" 
+                        Margin="0,0,10,0" 
+                        MinWidth="100" 
+                        Click="RemoveSelected_Click"/>
                                         </StackPanel>
-                                    </Border>
-                                </Grid>
+
+                                        <!-- Tip -->
+                                        <TextBlock Grid.Row="3"
+                       Text="Tip: Drag to draw a box. Select a label before saving." 
+                       FontStyle="Italic" 
+                       Foreground="#1976D2"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,10"/>
+
+                                        <!-- Shortcut Hints Panel -->
+                                        <Border Grid.Row="4"
+                    Background="#EEE" 
+                    BorderBrush="#1976D2" 
+                    BorderThickness="1" 
+                    CornerRadius="6" 
+                    Padding="10">
+                                            <StackPanel>
+                                                <TextBlock Text="Keyboard Shortcuts:" 
+                               FontWeight="Bold" 
+                               FontSize="14" 
+                               Foreground="#1976D2" 
+                               Margin="0,0,0,6"/>
+                                                <TextBlock Text="F: Next image" Foreground="#222"/>
+                                                <TextBlock Text="S: Previous image" Foreground="#222"/>
+                                                <TextBlock Text="A: Add box" Foreground="#222"/>
+                                                <TextBlock Text="D: Remove selected" Foreground="#222"/>
+                                                <TextBlock Text="E: Export YOLO" Foreground="#222"/>
+                                                <TextBlock Text="Enter: Save annotations" Foreground="#222"/>
+                                                <TextBlock Text="Ctrl+Z: Undo" Foreground="#222"/>
+                                                <TextBlock Text="Ctrl+Y: Redo" Foreground="#222"/>
+                                                <TextBlock Text="F: Toggle full screen" Foreground="#222"/>
+                                                <TextBlock Text="(Polygon) Press Space Bar: Finish polygon" 
+                               FontStyle="Italic" 
+                               Foreground="#1976D2"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+                                </ScrollViewer>
                             </Border>
                         </Grid>
                     </Border>

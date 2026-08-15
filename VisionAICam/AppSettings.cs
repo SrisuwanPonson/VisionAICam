@@ -84,6 +84,11 @@ namespace VisionAICam
         // -----------------------------
         // Class ID mapping
         // -----------------------------
+
+        public double AutoLabelMinWidth { get; set; } = 10.0;
+        public double AutoLabelMaxWidth { get; set; } = 1000.0;
+        public double AutoLabelMinHeight { get; set; } = 10.0;
+        public double AutoLabelMaxHeight { get; set; } = 1000.0;
         public List<ClassIdEntry> ClassIdEntries { get; set; } = new List<ClassIdEntry>
         {
             new ClassIdEntry { Name = "person", Id = 1 },
