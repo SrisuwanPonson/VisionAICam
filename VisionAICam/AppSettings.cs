@@ -13,6 +13,30 @@ namespace VisionAICam
 
     public class AppSettings
     {
+        public double WatershedSensitivity { get; set; } = 30.0;
+
+        // -----------------------------
+        // ✅ Auto Label - Image Processing Parameters
+        // -----------------------------
+        public double AutoBlurKernel { get; set; } = 5;
+        public double MorphKernelSize { get; set; } = 3;
+        public double MorphIterations { get; set; } = 2;
+
+        // -----------------------------
+        // ✅ Auto Label - Size Filters
+        // -----------------------------
+        public double AutoLabelMinWidth { get; set; } = 10.0;
+        public double AutoLabelMaxWidth { get; set; } = 1360.0;
+        public double AutoLabelMinHeight { get; set; } = 10.0;
+        public double AutoLabelMaxHeight { get; set; } = 1260.0;
+
+        // -----------------------------
+        // ✅ Auto Label - Canny/Contour Parameters
+        // -----------------------------
+        public double AutoCannyT1 { get; set; } = 50.0;
+        public double AutoCannyT2 { get; set; } = 150.0;
+        public double AutoMinArea { get; set; } = 100.0;
+
         // -----------------------------
         // OpenCV camera settings
         // -----------------------------
@@ -84,11 +108,6 @@ namespace VisionAICam
         // -----------------------------
         // Class ID mapping
         // -----------------------------
-
-        public double AutoLabelMinWidth { get; set; } = 10.0;
-        public double AutoLabelMaxWidth { get; set; } = 1000.0;
-        public double AutoLabelMinHeight { get; set; } = 10.0;
-        public double AutoLabelMaxHeight { get; set; } = 1000.0;
         public List<ClassIdEntry> ClassIdEntries { get; set; } = new List<ClassIdEntry>
         {
             new ClassIdEntry { Name = "person", Id = 1 },

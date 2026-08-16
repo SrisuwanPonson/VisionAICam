@@ -258,7 +258,7 @@ namespace VisionAICam.Pages
         // ⭐ NEW: Add this method to handle table row selection
         // ⭐ NEW: Add this method to handle table row selection with temporary color change
         // ⭐ NEW: Add this method to handle table row selection with temporary color change
-     
+
         private void LoadFilterSettings()
         {
             try
@@ -271,16 +271,29 @@ namespace VisionAICam.Pages
                     _autoLabelMinHeight = settings.AutoLabelMinHeight;
                     _autoLabelMaxHeight = settings.AutoLabelMaxHeight;
 
-                    // Update slider values on UI thread
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
+                        // Size filters
                         if (MinWidthSlider != null) MinWidthSlider.Value = _autoLabelMinWidth;
                         if (MaxWidthSlider != null) MaxWidthSlider.Value = _autoLabelMaxWidth;
                         if (MinHeightSlider != null) MinHeightSlider.Value = _autoLabelMinHeight;
                         if (MaxHeightSlider != null) MaxHeightSlider.Value = _autoLabelMaxHeight;
+
+                        // Canny/Contour parameters
+                        if (AutoCannyT1Slider != null) AutoCannyT1Slider.Value = settings.AutoCannyT1;
+                        if (AutoCannyT2Slider != null) AutoCannyT2Slider.Value = settings.AutoCannyT2;
+                        if (AutoMinAreaSlider != null) AutoMinAreaSlider.Value = settings.AutoMinArea;
+
+                        // Image processing parameters
+                        if (AutoBlurSlider != null) AutoBlurSlider.Value = settings.AutoBlurKernel;
+                        if (MorphKernelSlider != null) MorphKernelSlider.Value = settings.MorphKernelSize;
+                        if (MorphIterationsSlider != null) MorphIterationsSlider.Value = settings.MorphIterations;
+
+                        // ✅ Watershed sensitivity
+                        if (WatershedSensitivitySlider != null) WatershedSensitivitySlider.Value = settings.WatershedSensitivity;
                     }));
 
-                    Debug.WriteLine($"Loaded filter settings: W({_autoLabelMinWidth}-{_autoLabelMaxWidth}) H({_autoLabelMinHeight}-{_autoLabelMaxHeight})");
+                    Debug.WriteLine($"Loaded filter settings: W({_autoLabelMinWidth}-{_autoLabelMaxWidth}) H({_autoLabelMinHeight}-{_autoLabelMaxHeight}), Watershed={settings.WatershedSensitivity}");
                 }
             }
             catch (Exception ex)
@@ -313,22 +326,47 @@ namespace VisionAICam.Pages
         // Add reset button handler:
         private void ResetFilterButton_Click(object sender, RoutedEventArgs e)
         {
-            // Reset to default values
-            _autoLabelMinWidth = 10.0;
-            _autoLabelMaxWidth = 1000.0;
-            _autoLabelMinHeight = 10.0;
-            _autoLabelMaxHeight = 1000.0;
+            try
+            {
+                // Reset sliders to XAML defaults
+                MinWidthSlider.Value = 10;
+                MaxWidthSlider.Value = 1360;
+                MinHeightSlider.Value = 10;
+                MaxHeightSlider.Value = 1260;
+                AutoCannyT1Slider.Value = 50;
+                AutoCannyT2Slider.Value = 150;
+                AutoMinAreaSlider.Value = 100;
+                AutoBlurSlider.Value = 5;
+                MorphKernelSlider.Value = 3;
+                MorphIterationsSlider.Value = 2;
+                WatershedSensitivitySlider.Value = 30;  // ✅ NEW
 
-            // Update sliders
-            if (MinWidthSlider != null) MinWidthSlider.Value = _autoLabelMinWidth;
-            if (MaxWidthSlider != null) MaxWidthSlider.Value = _autoLabelMaxWidth;
-            if (MinHeightSlider != null) MinHeightSlider.Value = _autoLabelMinHeight;
-            if (MaxHeightSlider != null) MaxHeightSlider.Value = _autoLabelMaxHeight;
+                // Save defaults via SettingsManager
+                var settings = SettingsManager.Load();
+                if (settings != null)
+                {
+                    settings.AutoLabelMinWidth = 10;
+                    settings.AutoLabelMaxWidth = 1360;
+                    settings.AutoLabelMinHeight = 10;
+                    settings.AutoLabelMaxHeight = 1260;
+                    settings.AutoCannyT1 = 50;
+                    settings.AutoCannyT2 = 150;
+                    settings.AutoMinArea = 100;
+                    settings.AutoBlurKernel = 5;
+                    settings.MorphKernelSize = 3;
+                    settings.MorphIterations = 2;
+                    settings.WatershedSensitivity = 30;  // ✅ NEW
+                    SettingsManager.Save(settings);
+                }
 
-            // Save defaults
-            SaveFilterSettings();
-
-            SetStatus("Filter settings reset to defaults");
+                SetStatus("✅ Filter settings reset to defaults");
+                Debug.WriteLine("[ResetFilter] All settings reset to defaults");
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"❌ Reset failed: {ex.Message}");
+                Debug.WriteLine($"[ResetFilter] Error: {ex}");
+            }
         }
         // Update all slider ValueChanged handlers to save settings:
         // Update all slider ValueChanged handlers to call UpdateSizeFilterPreview:
@@ -337,37 +375,38 @@ namespace VisionAICam.Pages
             // Run preview when expander opens
             UpdateSizeFilterPreview();
         }
+        // ═══════════════════════════════════════════════════════════
+        // Size Filter Sliders
+        // ═══════════════════════════════════════════════════════════
+
+        // ═══════════════════════════════════════════════════════════
+        // Size Filter Sliders
+        // ═══════════════════════════════════════════════════════════
+
         private void MinWidthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (MinWidthValue != null)
             {
-                _autoLabelMinWidth = e.NewValue;
-                MinWidthValue.Text = ((int)e.NewValue).ToString();
+                _autoLabelMinWidth = MinWidthSlider.Value;
+                MinWidthValue.Text = ((int)_autoLabelMinWidth).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoLabelMinWidth), _autoLabelMinWidth);
 
+                // ✅ Update both preview AND existing shape highlights
+                UpdateSizeFilterPreview();
                 HighlightMatchingShapes();
-
-                // ⭐ Only run preview if Size Filters expander is open
-                if (SizeFiltersExpander?.IsExpanded == true)
-                {
-                    UpdateSizeFilterPreview();
-                }
-
-                SaveFilterSettings();
             }
         }
-
-        // Repeat for the other 3 sliders...
 
         private void MaxWidthSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (MaxWidthValue != null)
             {
-                _autoLabelMaxWidth = e.NewValue;
-                MaxWidthValue.Text = ((int)e.NewValue).ToString();
+                _autoLabelMaxWidth = MaxWidthSlider.Value;
+                MaxWidthValue.Text = ((int)_autoLabelMaxWidth).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoLabelMaxWidth), _autoLabelMaxWidth);
 
+                UpdateSizeFilterPreview();
                 HighlightMatchingShapes();
-                UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
-                SaveFilterSettings();
             }
         }
 
@@ -375,12 +414,12 @@ namespace VisionAICam.Pages
         {
             if (MinHeightValue != null)
             {
-                _autoLabelMinHeight = e.NewValue;
-                MinHeightValue.Text = ((int)e.NewValue).ToString();
+                _autoLabelMinHeight = MinHeightSlider.Value;
+                MinHeightValue.Text = ((int)_autoLabelMinHeight).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoLabelMinHeight), _autoLabelMinHeight);
 
+                UpdateSizeFilterPreview();
                 HighlightMatchingShapes();
-                UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
-                SaveFilterSettings();
             }
         }
 
@@ -388,25 +427,28 @@ namespace VisionAICam.Pages
         {
             if (MaxHeightValue != null)
             {
-                _autoLabelMaxHeight = e.NewValue;
-                MaxHeightValue.Text = ((int)e.NewValue).ToString();
+                _autoLabelMaxHeight = MaxHeightSlider.Value;
+                MaxHeightValue.Text = ((int)_autoLabelMaxHeight).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoLabelMaxHeight), _autoLabelMaxHeight);
 
+                UpdateSizeFilterPreview();
                 HighlightMatchingShapes();
-                UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
-                SaveFilterSettings();
             }
         }
-        // ⭐ NEW: Canny/Contour slider event handlers
+
+        // ═══════════════════════════════════════════════════════════
+        // Canny/Contour Parameter Sliders (only affect preview)
+        // ═══════════════════════════════════════════════════════════
+
         private void AutoCannyT1Slider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (AutoCannyT1Value != null)
             {
-                _autoCannyThresh1 = e.NewValue;
-                AutoCannyT1Value.Text = ((int)e.NewValue).ToString();
+                AutoCannyT1Value.Text = ((int)AutoCannyT1Slider.Value).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoCannyT1), AutoCannyT1Slider.Value);
 
-                HighlightMatchingShapes(); // ⭐ Apply visual feedback
+                // ✅ Only affects preview detection, not existing shapes
                 UpdateSizeFilterPreview();
-                SaveFilterSettings();
             }
         }
 
@@ -414,12 +456,10 @@ namespace VisionAICam.Pages
         {
             if (AutoCannyT2Value != null)
             {
-                _autoCannyThresh2 = e.NewValue;
-                AutoCannyT2Value.Text = ((int)e.NewValue).ToString();
+                AutoCannyT2Value.Text = ((int)AutoCannyT2Slider.Value).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoCannyT2), AutoCannyT2Slider.Value);
 
-                HighlightMatchingShapes();
                 UpdateSizeFilterPreview();
-                SaveFilterSettings();
             }
         }
 
@@ -427,12 +467,10 @@ namespace VisionAICam.Pages
         {
             if (AutoMinAreaValue != null)
             {
-                _autoMinContourArea = e.NewValue;
-                AutoMinAreaValue.Text = ((int)e.NewValue).ToString();
+                AutoMinAreaValue.Text = ((int)AutoMinAreaSlider.Value).ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoMinArea), AutoMinAreaSlider.Value);
 
-                HighlightMatchingShapes();
                 UpdateSizeFilterPreview();
-                SaveFilterSettings();
             }
         }
 
@@ -440,12 +478,77 @@ namespace VisionAICam.Pages
         {
             if (AutoBlurValue != null)
             {
-                _autoBlurKernel = e.NewValue;
-                AutoBlurValue.Text = ((int)e.NewValue).ToString();
+                int value = (int)AutoBlurSlider.Value;
+                if (value % 2 == 0) value++;
+                AutoBlurValue.Text = value.ToString();
+                SaveFilterSetting(nameof(AppSettings.AutoBlurKernel), (double)value);
 
-                HighlightMatchingShapes();
                 UpdateSizeFilterPreview();
-                SaveFilterSettings();
+            }
+        }
+
+        private void MorphKernelSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (MorphKernelValue != null)
+            {
+                int value = (int)MorphKernelSlider.Value;
+                if (value % 2 == 0) value++;
+                MorphKernelValue.Text = value.ToString();
+                SaveFilterSetting(nameof(AppSettings.MorphKernelSize), (double)value);
+
+                UpdateSizeFilterPreview();
+            }
+        }
+
+        private void MorphIterationsSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (MorphIterationsValue != null)
+            {
+                int value = (int)MorphIterationsSlider.Value;
+                MorphIterationsValue.Text = value.ToString();
+                SaveFilterSetting(nameof(AppSettings.MorphIterations), (double)value);
+
+                UpdateSizeFilterPreview();
+            }
+        }
+        private void WatershedSensitivitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (WatershedSensitivityValue != null)
+            {
+                int value = (int)WatershedSensitivitySlider.Value;
+                WatershedSensitivityValue.Text = value.ToString();
+
+                // ✅ Save to settings using the helper method
+                SaveFilterSetting(nameof(AppSettings.WatershedSensitivity), (double)value);
+
+                // ✅ Update preview
+                UpdateSizeFilterPreview();
+            }
+        }
+        // ✅ Helper method to save settings via SettingsManager
+        private void SaveFilterSetting(string propertyName, object value)
+        {
+            try
+            {
+                var settings = SettingsManager.Load();
+                if (settings != null)
+                {
+                    var prop = settings.GetType().GetProperty(propertyName);
+                    if (prop != null && prop.CanWrite)
+                    {
+                        prop.SetValue(settings, value);
+                        SettingsManager.Save(settings);
+                        Debug.WriteLine($"[SaveFilterSetting] {propertyName} = {value}");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"[SaveFilterSetting] ❌ Property '{propertyName}' not found or not writable");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SaveFilterSetting] Failed to save {propertyName}: {ex.Message}");
             }
         }
         private void AnnotationListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -5097,211 +5200,7 @@ namespace VisionAICam.Pages
         //    catch { /* non-critical */ }
         //}
 
-        private async void PrepareAutoLabel()
-        {
-            try
-            {
-                // Helper: find most recent trained model in the fixed AutoLabel model folder first
-                string FindLatestTrainedModel()
-                {
-                    try
-                    {
-                        if (Directory.Exists(AutoLabelModelDir))
-                        {
-                            // look for common candidate files and then any .pt sorted by modification time
-                            var candidateFiles = new[]
-                            {
-                                    System.IO.Path.Combine(AutoLabelModelDir, "best.pt"),
-                                    System.IO.Path.Combine(AutoLabelModelDir, "last.pt"),
-                                    System.IO.Path.Combine(AutoLabelModelDir, "weights", "best.pt"),
-                                    System.IO.Path.Combine(AutoLabelModelDir, "weights", "last.pt")
-                                };
-
-                            foreach (var c in candidateFiles)
-                                if (File.Exists(c)) return c;
-
-                            var pts = Directory.EnumerateFiles(AutoLabelModelDir, "*.pt", SearchOption.AllDirectories)
-                                .Select(p => new { Path = p, Time = File.GetLastWriteTimeUtc(p) })
-                                .OrderByDescending(x => x.Time)
-                                .Select(x => x.Path)
-                                .ToList();
-                            if (pts.Count > 0) return pts[0];
-                        }
-
-                        // Fallback to original search under app base
-                        string baseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-                        string modelsRoot = System.IO.Path.Combine(baseDir, "training_output", "models");
-                        if (Directory.Exists(modelsRoot))
-                        {
-                            var runDirs = Directory.GetDirectories(modelsRoot)
-                                .Select(d => new { Path = d, Time = Directory.GetLastWriteTimeUtc(d) })
-                                .OrderByDescending(x => x.Time)
-                                .Select(x => x.Path)
-                                .ToList();
-
-                            foreach (var rd in runDirs)
-                            {
-                                string[] candidates =
-                                {
-                                        System.IO.Path.Combine(rd, "weights", "best.pt"),
-                                        System.IO.Path.Combine(rd, "weights", "last.pt"),
-                                        System.IO.Path.Combine(rd, "best.pt"),
-                                        System.IO.Path.Combine(rd, "last.pt")
-                                    };
-                                foreach (var c in candidates)
-                                    if (File.Exists(c)) return c;
-                            }
-                        }
-
-                        return null;
-                    }
-                    catch { return null; }
-                }
-
-                // Search for model on background thread.
-                string existingModel = await Task.Run(() => FindLatestTrainedModel()).ConfigureAwait(false);
-
-                var svc = new VisionAICam.Services.AutoLabelerService();
-
-                if (!string.IsNullOrEmpty(existingModel))
-                {
-                    SetStatus($"Found existing model: {existingModel}. Running inference...");
-
-                    try
-                    {
-                        bool added = await svc.RunAutoLabelingAsync(existingModel, 0.5).ConfigureAwait(false);
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            if (added)
-                            {
-                                if (ProjectSession.Annotations != null) Annotations = ProjectSession.Annotations;
-                                RefreshAnnotations();
-                                SetStatus("Auto-labeling finished — annotations added (using existing model).");
-                            }
-                            else
-                            {
-                                SetStatus("Auto-labeling finished — no annotations were added (existing model).");
-                            }
-                            //CheckAutoLabelEnable();
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        SetStatus($"Auto-label inference failed: {ex.Message}");
-                    }
-
-                    return;
-                }
-
-                // No model found — run full pipeline (export -> train -> wait -> infer)
-                SetStatus("No existing model found. Running full auto-label pipeline (export → train → infer)...");
-
-                if (_currentProject == null || _currentProject.ImagePaths == null || _currentProject.ImagePaths.Count == 0)
-                {
-                    SetStatus("No project or images available for auto-label pipeline.");
-                    return;
-                }
-
-                // Export dataset into fixed AutoLabel dataset root
-                try
-                {
-                    Directory.CreateDirectory(AutoLabelDataSetDir);
-                }
-                catch { /* ignore */ }
-
-                string exportFolder = System.IO.Path.Combine(AutoLabelDataSetDir, $"Yolo8OBB_Auto_{DateTime.Now:yyyyMMdd_HHmmss}");
-                Directory.CreateDirectory(exportFolder);
-
-                try
-                {
-                    var projectForExport = Convert2RotatedBox(_currentProject);
-                    ExportYoloV8_OBB_MiniSave(projectForExport, exportFolder);
-                    SetStatus($"Exported dataset for auto-label to: {exportFolder}");
-                }
-                catch (Exception ex)
-                {
-                    SetStatus($"Failed to export dataset: {ex.Message}");
-                    return;
-                }
-
-                // Save project snapshot (non-fatal)
-                try
-                {
-                    var projFile = System.IO.Path.Combine(exportFolder, $"{_currentProject.ProjectName}_snapshot_{DateTime.Now:yyyyMMdd_HHmmss}.json");
-                    var json = System.Text.Json.JsonSerializer.Serialize(_currentProject, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    File.WriteAllText(projFile, json);
-                }
-                catch { /* non-fatal */ }
-
-                // Launch training and supply updateStatus callback
-                Action<string> updateStatusCB = s => SetStatus(s);
-                bool started = false;
-                try
-                {
-                    started = await svc.LaunchYOLOv8TrainingAsync(exportFolder, updateStatusCB).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    SetStatus($"Failed to launch training: {ex.Message}");
-                    started = false;
-                }
-
-                string foundModel = null;
-                if (started)
-                {
-                    // Poll for a produced model (short-poll, conservative timeout)
-                    var timeout = TimeSpan.FromMinutes(30);
-                    var pollInterval = TimeSpan.FromSeconds(5);
-                    var t0 = DateTime.UtcNow;
-                    SetStatus("Training started — waiting for trained model...");
-
-                    while (DateTime.UtcNow - t0 < timeout)
-                    {
-                        foundModel = await Task.Run(() => FindLatestTrainedModel()).ConfigureAwait(false);
-                        if (!string.IsNullOrEmpty(foundModel))
-                            break;
-
-                        await Task.Delay(pollInterval).ConfigureAwait(false);
-                    }
-                }
-
-                if (string.IsNullOrEmpty(foundModel))
-                {
-                    SetStatus("Training started but trained model not found within timeout. You may run inference manually when model is ready.");
-                    return;
-                }
-
-                SetStatus($"Trained model found: {foundModel}. Running inference...");
-                try
-                {
-                    bool added = await svc.RunAutoLabelingAsync(foundModel, 0.5).ConfigureAwait(false);
-
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (added)
-                        {
-                            if (ProjectSession.Annotations != null) Annotations = ProjectSession.Annotations;
-                            RefreshAnnotations();
-                            SetStatus("Auto-label pipeline finished — annotations added.");
-                        }
-                        else
-                        {
-                            SetStatus("Auto-label pipeline finished — no annotations were added.");
-                        }
-                        //CheckAutoLabelEnable();
-                    });
-                }
-                catch (Exception ex)
-                {
-                    SetStatus($"Auto-label inference failed: {ex.Message}");
-                }
-            }
-            catch (Exception ex)
-            {
-                SetStatus($"Auto-label failed: {ex.Message}");
-            }
-        }
+       
         public bool Prewarm()
         {
             // Read python DLL path from settings if available
@@ -5409,6 +5308,18 @@ namespace VisionAICam.Pages
                 double minHeight = _autoLabelMinHeight;
                 double maxHeight = _autoLabelMaxHeight;
 
+                // ✅ Read slider values before Task.Run
+                int blurSize = (int)AutoBlurSlider.Value;
+                if (blurSize % 2 == 0) blurSize++; // Ensure odd
+
+                int morphKernelSize = (int)MorphKernelSlider.Value;
+                if (morphKernelSize % 2 == 0) morphKernelSize++; // Ensure odd
+
+                int morphIterations = (int)MorphIterationsSlider.Value;
+
+                // ✅ Read watershed sensitivity (NEW)
+                int watershedSensitivity = (int)WatershedSensitivitySlider.Value;
+
                 var detectedContours = await Task.Run(() =>
                 {
                     try
@@ -5421,6 +5332,7 @@ namespace VisionAICam.Pages
                         }
 
                         Debug.WriteLine($"[AutoLabel] Image loaded: {mat.Width}x{mat.Height}");
+                        Debug.WriteLine($"[AutoLabel] BlurSize={blurSize}, MorphKernel={morphKernelSize}, MorphIter={morphIterations}, Watershed={watershedSensitivity}");
 
                         // ═══════════════════════════════════════════════════════
                         // STEP 1: PREPROCESSING - Find object contours
@@ -5429,9 +5341,9 @@ namespace VisionAICam.Pages
                         using var gray = new OpenCvSharp.Mat();
                         OpenCvSharp.Cv2.CvtColor(mat, gray, OpenCvSharp.ColorConversionCodes.BGR2GRAY);
 
-                        // Blur to reduce noise
+                        // Blur to reduce noise (✅ uses slider)
                         using var blurred = new OpenCvSharp.Mat();
-                        OpenCvSharp.Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(5, 5), 0);
+                        OpenCvSharp.Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(blurSize, blurSize), 0);
 
                         // Otsu threshold
                         using var binary = new OpenCvSharp.Mat();
@@ -5443,90 +5355,30 @@ namespace VisionAICam.Pages
 
                         Debug.WriteLine("[AutoLabel] Threshold complete");
 
-                        // Morphology to clean up
+                        // Morphology to clean up (✅ uses sliders)
                         using var kernel = OpenCvSharp.Cv2.GetStructuringElement(
                             OpenCvSharp.MorphShapes.Rect,
-                            new OpenCvSharp.Size(3, 3));
+                            new OpenCvSharp.Size(morphKernelSize, morphKernelSize));
 
                         using var morphed = new OpenCvSharp.Mat();
                         OpenCvSharp.Cv2.MorphologyEx(binary, morphed,
-                            OpenCvSharp.MorphTypes.Close, kernel, iterations: 2);
+                            OpenCvSharp.MorphTypes.Close, kernel, iterations: morphIterations);
 
                         // ═══════════════════════════════════════════════════════
-                        // STEP 2: FIND CONTOURS with criteria
+                        // ⭐ STEP 2: Use WATERSHED to separate merged/touching objects
                         // ═══════════════════════════════════════════════════════
+                        Debug.WriteLine("[AutoLabel] Applying Watershed segmentation...");
 
-                        OpenCvSharp.Cv2.FindContours(
+                        var validContours = SeparateOverlappingObjects(
                             morphed,
-                            out OpenCvSharp.Point[][] contours,
-                            out OpenCvSharp.HierarchyIndex[] hierarchy,
-                            OpenCvSharp.RetrievalModes.External,
-                            OpenCvSharp.ContourApproximationModes.ApproxSimple);
-
-                        Debug.WriteLine($"[AutoLabel] Found {contours.Length} contours");
-
-                        var validContours = new List<List<SWPoint>>();
-                        double imageArea = mat.Width * mat.Height;
-
-                        foreach (var contour in contours)
-                        {
-                            // ─────────────────────────────────────────────────
-                            // CRITERIA 1: Minimum points
-                            // ─────────────────────────────────────────────────
-                            if (contour.Length < 5)
-                            {
-                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: too few points ({contour.Length})");
-                                continue;
-                            }
-
-                            // ─────────────────────────────────────────────────
-                            // CRITERIA 2: Contour area must be reasonable
-                            // ─────────────────────────────────────────────────
-                            double area = OpenCvSharp.Cv2.ContourArea(contour);
-                            double areaRatio = area / imageArea;
-
-                            Debug.WriteLine($"[AutoLabel] Contour area: {area:F0} ({areaRatio:P2} of image)");
-
-                            // Reject if too small (noise) or too large (whole image)
-                            if (area < 100)
-                            {
-                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: area too small {area:F0}");
-                                continue;
-                            }
-
-                            if (areaRatio > 0.95)
-                            {
-                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: covers {areaRatio:P0} of image (likely border)");
-                                continue;
-                            }
-
-                            // ─────────────────────────────────────────────────
-                            // CRITERIA 3: Bounding box size check (using axis-aligned rect)
-                            // ─────────────────────────────────────────────────
-                            var boundingRect = OpenCvSharp.Cv2.BoundingRect(contour);
-
-                            if (boundingRect.Width < minWidth || boundingRect.Width > maxWidth ||
-                                boundingRect.Height < minHeight || boundingRect.Height > maxHeight)
-                            {
-                                Debug.WriteLine($"[AutoLabel] ❌ Skipped: bounding box {boundingRect.Width}x{boundingRect.Height} outside range");
-                                continue;
-                            }
-
-                            // ─────────────────────────────────────────────────
-                            // ✅ VALID CONTOUR → Store raw contour points
-                            // ─────────────────────────────────────────────────
-                            var contourPoints = new List<SWPoint>();
-                            foreach (var pt in contour)
-                            {
-                                contourPoints.Add(new SWPoint(pt.X, pt.Y));
-                            }
-
-                            Debug.WriteLine($"[AutoLabel] ✅ VALID contour: {contour.Length} points, area={area:F0}");
-                            validContours.Add(contourPoints);
-                        }
+                            minWidth,
+                            maxWidth,
+                            minHeight,
+                            maxHeight,
+                            watershedSensitivity);  // ✅ Pass watershed sensitivity
 
                         Debug.WriteLine($"[AutoLabel] ═══════════════════════════════");
-                        Debug.WriteLine($"[AutoLabel] Total VALID contours: {validContours.Count}");
+                        Debug.WriteLine($"[AutoLabel] Total separated objects: {validContours.Count}");
                         Debug.WriteLine($"[AutoLabel] ═══════════════════════════════");
 
                         return validContours;
@@ -5540,7 +5392,7 @@ namespace VisionAICam.Pages
                 });
 
                 // ═══════════════════════════════════════════════════════
-                // STEP 3: CREATE ANNOTATIONS from raw contours (as Polygon)
+                // STEP 3: CREATE ANNOTATIONS from separated rotated rectangles
                 // ═══════════════════════════════════════════════════════
 
                 if (detectedContours.Count == 0)
@@ -5551,8 +5403,10 @@ namespace VisionAICam.Pages
                         "Troubleshooting:\n" +
                         "1. Check Output window (View > Output) for debug logs\n" +
                         "2. Try adjusting Min/Max Width/Height sliders\n" +
-                        "3. Make sure objects are visible in the image\n" +
-                        "4. If objects are LIGHT on DARK background, comment out BitwiseNot line",
+                        "3. Adjust Blur Kernel, Morph Kernel, and Morph Iterations sliders\n" +
+                        "4. Lower Watershed Sensitivity (10-20) to detect more separate objects\n" +
+                        "5. Make sure objects are visible in the image\n" +
+                        "6. If objects are LIGHT on DARK background, comment out BitwiseNot line",
                         "Detection Info",
                         MessageBoxButton.OK,
                         MessageBoxImage.Information);
@@ -5568,14 +5422,14 @@ namespace VisionAICam.Pages
                         Math.Max(0, Math.Min(_currentImageHeight, p.Y))
                     )).ToList();
 
-                    if (clampedPoints.Count < 3)
+                    if (clampedPoints.Count != 4)  // ⭐ Expect exactly 4 points for rotated rect
                         continue;
 
                     Annotations.Add(new AnnotationRecord
                     {
                         ImageName = System.IO.Path.GetFileName(_currentImagePath ?? ""),
                         Label = selectedLabel,
-                        AnnotationType = AnnotationType.Polygon,  // ⭐ Store as Polygon, not RotatedBox
+                        AnnotationType = AnnotationType.Polygon,  // ⭐ Store as Polygon with 4 points (rotated rect)
                         Points = clampedPoints,
                         RawValues = clampedPoints.SelectMany(p => new[] { p.X, p.Y }).ToList()
                     });
@@ -5586,7 +5440,7 @@ namespace VisionAICam.Pages
                 RefreshAnnotations();
                 UpdateClassStats();
 
-                SetStatus($"✅ Created {addedCount} contour polygons for '{selectedLabel}'");
+                SetStatus($"✅ Created {addedCount} separated rotated rectangles for '{selectedLabel}'");
 
                 // ⭐ CRITICAL: Reset drawing state AGAIN after completion to ensure clean state
                 _isDrawing = false;
@@ -5611,6 +5465,158 @@ namespace VisionAICam.Pages
                 _currentPolygonPoints.Clear();
                 RemoveResizeHandles();
                 BoundingBoxCanvas.ReleaseMouseCapture();
+            }
+        }
+
+        /// <summary>
+        /// Uses Watershed algorithm to separate touching/overlapping objects
+        /// </summary>
+        private List<List<SWPoint>> SeparateOverlappingObjects(
+            OpenCvSharp.Mat binary,
+            double minWidth,
+            double maxWidth,
+            double minHeight,
+            double maxHeight,
+            int sensitivity = 30)  // ✅ NEW: Watershed sensitivity parameter (10-50)
+        {
+            try
+            {
+                // ═══════════════════════════════════════════════════════
+                // STEP 1: Distance transform to find object centers
+                // ═══════════════════════════════════════════════════════
+                using var dist = new OpenCvSharp.Mat();
+                OpenCvSharp.Cv2.DistanceTransform(binary, dist,
+                    OpenCvSharp.DistanceTypes.L2,
+                    OpenCvSharp.DistanceTransformMasks.Mask5);
+
+                // Normalize to 0-255
+                using var distNorm = new OpenCvSharp.Mat();
+                OpenCvSharp.Cv2.Normalize(dist, distNorm, 0, 255, OpenCvSharp.NormTypes.MinMax);
+                distNorm.ConvertTo(distNorm, OpenCvSharp.MatType.CV_8U);
+
+                Debug.WriteLine("[Watershed] Distance transform complete");
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 2: Threshold to get sure foreground (object centers)
+                // ✅ Use sensitivity parameter (10→0.1, 30→0.3, 50→0.5)
+                // ═══════════════════════════════════════════════════════
+                double threshold = sensitivity / 100.0;
+
+                using var sureFg = new OpenCvSharp.Mat();
+                OpenCvSharp.Cv2.Threshold(distNorm, sureFg, threshold * 255, 255,
+                    OpenCvSharp.ThresholdTypes.Binary);
+
+                Debug.WriteLine($"[Watershed] Using sensitivity={sensitivity} (threshold={threshold:F2})");
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 3: Find sure background (dilate binary)
+                // ═══════════════════════════════════════════════════════
+                using var kernel = OpenCvSharp.Cv2.GetStructuringElement(
+                    OpenCvSharp.MorphShapes.Rect,
+                    new OpenCvSharp.Size(3, 3));
+
+                using var sureBg = new OpenCvSharp.Mat();
+                OpenCvSharp.Cv2.Dilate(binary, sureBg, kernel, iterations: 2);
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 4: Find unknown region (border between objects)
+                // ═══════════════════════════════════════════════════════
+                using var unknown = new OpenCvSharp.Mat();
+                sureFg.ConvertTo(sureFg, OpenCvSharp.MatType.CV_8U);
+                OpenCvSharp.Cv2.Subtract(sureBg, sureFg, unknown);
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 5: Label connected components (markers)
+                // ═══════════════════════════════════════════════════════
+                using var markers = new OpenCvSharp.Mat();
+                int numLabels = OpenCvSharp.Cv2.ConnectedComponents(sureFg, markers);
+
+                Debug.WriteLine($"[Watershed] Found {numLabels - 1} potential object seeds");
+
+                // Add 1 to all labels using Cv2.Add
+                using var ones = new OpenCvSharp.Mat(markers.Size(), markers.Type(), new OpenCvSharp.Scalar(1));
+                OpenCvSharp.Cv2.Add(markers, ones, markers);
+
+                // Mark unknown regions as 0 (watershed boundary)
+                markers.SetTo(0, unknown);
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 6: Apply Watershed algorithm
+                // ═══════════════════════════════════════════════════════
+                using var srcColor = new OpenCvSharp.Mat();
+                OpenCvSharp.Cv2.CvtColor(binary, srcColor, OpenCvSharp.ColorConversionCodes.GRAY2BGR);
+                OpenCvSharp.Cv2.Watershed(srcColor, markers);
+
+                Debug.WriteLine("[Watershed] Watershed segmentation complete");
+
+                // ═══════════════════════════════════════════════════════
+                // STEP 7: Extract individual object rotated rectangles
+                // ═══════════════════════════════════════════════════════
+                var separatedRects = new List<List<SWPoint>>();
+
+                for (int label = 2; label <= numLabels; label++)
+                {
+                    // Create mask for this specific label
+                    using var mask = new OpenCvSharp.Mat();
+                    OpenCvSharp.Cv2.InRange(markers,
+                        new OpenCvSharp.Scalar(label),
+                        new OpenCvSharp.Scalar(label),
+                        mask);
+
+                    // Find contours of this segmented object
+                    OpenCvSharp.Cv2.FindContours(mask,
+                        out OpenCvSharp.Point[][] contours,
+                        out _,
+                        OpenCvSharp.RetrievalModes.External,
+                        OpenCvSharp.ContourApproximationModes.ApproxSimple);
+
+                    foreach (var contour in contours)
+                    {
+                        if (contour.Length < 5) continue;
+
+                        // Check contour area to filter noise
+                        double area = OpenCvSharp.Cv2.ContourArea(contour);
+                        if (area < 100)
+                        {
+                            Debug.WriteLine($"[Watershed] ❌ Skipped object {label}: area too small ({area:F0})");
+                            continue;
+                        }
+
+                        // Get rotated rectangle
+                        var rotatedRect = OpenCvSharp.Cv2.MinAreaRect(contour);
+                        double width = rotatedRect.Size.Width;
+                        double height = rotatedRect.Size.Height;
+
+                        // Check size filter
+                        if (width < minWidth || width > maxWidth ||
+                            height < minHeight || height > maxHeight)
+                        {
+                            Debug.WriteLine($"[Watershed] ❌ Skipped object {label}: size {width:F0}x{height:F0} outside range [{minWidth}-{maxWidth}]x[{minHeight}-{maxHeight}]");
+                            continue;
+                        }
+
+                        // Extract 4 corner points
+                        var boxPoints = OpenCvSharp.Cv2.BoxPoints(rotatedRect);
+                        var rectanglePoints = new List<SWPoint>();
+
+                        foreach (var pt in boxPoints)
+                            rectanglePoints.Add(new SWPoint(pt.X, pt.Y));
+
+                        if (rectanglePoints.Count == 4)
+                        {
+                            Debug.WriteLine($"[Watershed] ✅ Valid object {label}: {width:F0}x{height:F0}, area={area:F0}");
+                            separatedRects.Add(rectanglePoints);
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"[Watershed] Final count: {separatedRects.Count} separated objects");
+                return separatedRects;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Watershed] ERROR: {ex.Message}");
+                return new List<List<SWPoint>>();
             }
         }
 
@@ -5774,10 +5780,23 @@ namespace VisionAICam.Pages
                 if (currentBitmap == null)
                     return;
 
+                // ✅ Read size filter values
                 double minWidth = _autoLabelMinWidth;
                 double maxWidth = _autoLabelMaxWidth;
                 double minHeight = _autoLabelMinHeight;
                 double maxHeight = _autoLabelMaxHeight;
+
+                // ✅ Read slider values (before Task.Run for UI thread access)
+                int blurSize = (int)AutoBlurSlider.Value;
+                if (blurSize % 2 == 0) blurSize++;
+
+                int cannyT1 = (int)AutoCannyT1Slider.Value;
+                int cannyT2 = (int)AutoCannyT2Slider.Value;
+
+                int morphKernelSize = (int)MorphKernelSlider.Value;
+                if (morphKernelSize % 2 == 0) morphKernelSize++;
+
+                int morphIterations = (int)MorphIterationsSlider.Value;
 
                 SetStatus("Preview: detecting rotated rectangles...");
 
@@ -5792,17 +5811,20 @@ namespace VisionAICam.Pages
                         using var gray = new OpenCvSharp.Mat();
                         OpenCvSharp.Cv2.CvtColor(mat, gray, OpenCvSharp.ColorConversionCodes.BGR2GRAY);
 
+                        // ✅ Use slider value for blur
                         using var blurred = new OpenCvSharp.Mat();
-                        OpenCvSharp.Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(5, 5), 0);
+                        OpenCvSharp.Cv2.GaussianBlur(gray, blurred, new OpenCvSharp.Size(blurSize, blurSize), 0);
 
+                        // ✅ Use slider values for Canny
                         using var edges = new OpenCvSharp.Mat();
-                        OpenCvSharp.Cv2.Canny(blurred, edges, 50, 150);
+                        OpenCvSharp.Cv2.Canny(blurred, edges, cannyT1, cannyT2);
 
+                        // ✅ Use slider values for morphology
                         using var kernel = OpenCvSharp.Cv2.GetStructuringElement(
                             OpenCvSharp.MorphShapes.Rect,
-                            new OpenCvSharp.Size(5, 5));
+                            new OpenCvSharp.Size(morphKernelSize, morphKernelSize));
                         using var dilated = new OpenCvSharp.Mat();
-                        OpenCvSharp.Cv2.Dilate(edges, dilated, kernel, iterations: 2);
+                        OpenCvSharp.Cv2.Dilate(edges, dilated, kernel, iterations: morphIterations);
 
                         OpenCvSharp.Cv2.FindContours(
                             dilated,
@@ -5830,6 +5852,7 @@ namespace VisionAICam.Pages
                             double width = rotatedRect.Size.Width;
                             double height = rotatedRect.Size.Height;
 
+                            // ✅ Use size filter values
                             if (width < minWidth || width > maxWidth ||
                                 height < minHeight || height > maxHeight)
                                 continue;
@@ -5853,8 +5876,9 @@ namespace VisionAICam.Pages
 
                         return detectedBoxes;
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        Debug.WriteLine($"[Preview] Error: {ex.Message}");
                         return new List<List<SWPoint>>();
                     }
                 });
@@ -5885,11 +5909,11 @@ namespace VisionAICam.Pages
                     _sizeFilterPreviewShapes.Add(previewShape);
                 }
 
-                SetStatus($"Preview: {detectedBoxes.Count} minimum rotated rectangles ({minWidth}-{maxWidth}×{minHeight}-{maxHeight})");
+                SetStatus($"Preview: {detectedBoxes.Count} rotated rectangles | Blur={blurSize}, Canny=({cannyT1},{cannyT2}), Morph={morphKernelSize}x{morphIterations} | Size: {minWidth}-{maxWidth}×{minHeight}-{maxHeight}");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Preview error: {ex.Message}");
+                Debug.WriteLine($"[Preview] Error: {ex.Message}");
                 SetStatus("Preview failed");
             }
         }
