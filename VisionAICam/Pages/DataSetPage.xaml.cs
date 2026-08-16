@@ -146,6 +146,14 @@ namespace VisionAICam.Pages
         private double _autoLabelMaxWidth = 1000.0; // Maximum object width
         private double _autoLabelMinHeight = 10.0;  // Minimum object height
         private double _autoLabelMaxHeight = 1000.0; // Maximum object height
+
+   
+
+        // ⭐ Add Canny/Contour filter parameters
+        private double _autoCannyThresh1 = 50.0;    // Canny threshold 1
+        private double _autoCannyThresh2 = 150.0;   // Canny threshold 2
+        private double _autoMinContourArea = 100.0; // Minimum contour area
+        private double _autoBlurKernel = 5.0;       // Blur kernel size
         public DataSetPage()
         {
             InitializeComponent();
@@ -250,6 +258,7 @@ namespace VisionAICam.Pages
         // ⭐ NEW: Add this method to handle table row selection
         // ⭐ NEW: Add this method to handle table row selection with temporary color change
         // ⭐ NEW: Add this method to handle table row selection with temporary color change
+     
         private void LoadFilterSettings()
         {
             try
@@ -384,6 +393,58 @@ namespace VisionAICam.Pages
 
                 HighlightMatchingShapes();
                 UpdateSizeFilterPreview(); // ⭐ Show preview of new detections
+                SaveFilterSettings();
+            }
+        }
+        // ⭐ NEW: Canny/Contour slider event handlers
+        private void AutoCannyT1Slider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (AutoCannyT1Value != null)
+            {
+                _autoCannyThresh1 = e.NewValue;
+                AutoCannyT1Value.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes(); // ⭐ Apply visual feedback
+                UpdateSizeFilterPreview();
+                SaveFilterSettings();
+            }
+        }
+
+        private void AutoCannyT2Slider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (AutoCannyT2Value != null)
+            {
+                _autoCannyThresh2 = e.NewValue;
+                AutoCannyT2Value.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+                UpdateSizeFilterPreview();
+                SaveFilterSettings();
+            }
+        }
+
+        private void AutoMinAreaSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (AutoMinAreaValue != null)
+            {
+                _autoMinContourArea = e.NewValue;
+                AutoMinAreaValue.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+                UpdateSizeFilterPreview();
+                SaveFilterSettings();
+            }
+        }
+
+        private void AutoBlurSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            if (AutoBlurValue != null)
+            {
+                _autoBlurKernel = e.NewValue;
+                AutoBlurValue.Text = ((int)e.NewValue).ToString();
+
+                HighlightMatchingShapes();
+                UpdateSizeFilterPreview();
                 SaveFilterSettings();
             }
         }

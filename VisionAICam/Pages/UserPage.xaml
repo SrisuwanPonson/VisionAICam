@@ -4,28 +4,90 @@
       Title="UserPage">
 
     <Page.Resources>
-        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#F5F5F5" Offset="0"/>
-            <GradientStop Color="#E0E0E0" Offset="1"/>
+        <!-- ✅ Dark theme palette matching other pages -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
 
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
+
+        <!-- ✅ TextBlock style -->
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#222"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
             <Setter Property="FontSize" Value="14"/>
         </Style>
 
+        <!-- ✅ Button style -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#E0E0E0"/>
-            <Setter Property="Foreground" Value="#222"/>
+            <Setter Property="Background" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="Padding" Value="10,6"/>
             <Setter Property="Margin" Value="0,10,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#2196F3"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
+        <!-- ✅ Border style -->
         <Style TargetType="Border">
-            <Setter Property="BorderBrush" Value="#CCCCCC"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+        </Style>
+
+        <!-- ✅ TextBox style -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="#FAFAFA"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <!-- ✅ PasswordBox style -->
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <!-- ✅ TabControl style -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+
+        <!-- ✅ TabItem style -->
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
     </Page.Resources>
 
@@ -37,7 +99,7 @@
         <TabControl x:Name="UserTabControl">
 
             <!-- Profile Tab -->
-            <TabItem Header="Profile">
+            <TabItem Header="👤 Profile">
                 <Grid Margin="20">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*"/>
@@ -48,7 +110,7 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="User Profile" FontSize="30" FontWeight="Bold" Grid.ColumnSpan="2" Margin="0,0,0,20"/>
+                    <TextBlock Text="User Profile" FontSize="30" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Grid.ColumnSpan="2" Margin="0,0,0,20"/>
 
                     <!-- Profile Image -->
                     <StackPanel Grid.Row="1" Grid.Column="0" HorizontalAlignment="Center">
@@ -90,7 +152,7 @@
             </TabItem>
 
             <!-- Login Tab -->
-            <TabItem Header="Login">
+            <TabItem Header="🔐 Login">
                 <Grid Margin="40">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -110,12 +172,12 @@
                     <PasswordBox Grid.Row="1" Grid.Column="1" x:Name="LoginPasswordBox" Margin="0,0,0,20"/>
 
                     <Button Grid.Row="2" Grid.Column="1" Content="Login" Width="100" HorizontalAlignment="Left" Click="LoginButton_Click"/>
-                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="LoginErrorText" Foreground="Red" Margin="0,10,0,0"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" x:Name="LoginErrorText" Foreground="#F44336" Margin="0,10,0,0"/>
                 </Grid>
             </TabItem>
 
             <!-- Register Tab -->
-            <TabItem Header="Register">
+            <TabItem Header="📝 Register">
                 <Grid Margin="40">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -143,7 +205,7 @@
                     <PasswordBox Grid.Row="3" Grid.Column="1" x:Name="RegConfirmPasswordBox" Margin="0,0,0,20"/>
 
                     <Button Grid.Row="4" Grid.Column="1" Content="Register" Width="100" HorizontalAlignment="Left" Click="RegisterButton_Click"/>
-                    <TextBlock Grid.Row="5" Grid.Column="1" x:Name="RegisterErrorText" Foreground="Red" Margin="0,10,0,0"/>
+                    <TextBlock Grid.Row="5" Grid.Column="1" x:Name="RegisterErrorText" Foreground="#F44336" Margin="0,10,0,0"/>
                 </Grid>
             </TabItem>
         </TabControl>

@@ -8,44 +8,48 @@
       d:DesignHeight="800" d:DesignWidth="1200"
       Title="ModelPage">
 
-    <!-- 🌫️ Gradient Background -->
-    <Page.Background>
-        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+    <Page.Resources>
+        <!-- ✅ Dark theme palette matching DataSetPage -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#263238" Offset="0"/>
             <GradientStop Color="#37474F" Offset="0.5"/>
             <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
-    </Page.Background>
 
-    <Page.Resources>
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
+
+        <!-- ✅ Shadow effect for panels -->
         <DropShadowEffect x:Key="ShadowEffect"
-                          Color="Black"
+                          Color="#1976D2"
                           Direction="270"
-                          ShadowDepth="4"
-                          Opacity="0.3"
-                          BlurRadius="8"/>
+                          ShadowDepth="0"
+                          Opacity="0.6"
+                          BlurRadius="12"/>
     </Page.Resources>
 
+    <Page.Background>
+        <StaticResource ResourceKey="PageBackgroundBrush"/>
+    </Page.Background>
+
     <DockPanel LastChildFill="True">
-        <!-- 🧭 Menu Bar -->
-        <Menu DockPanel.Dock="Top" Background="#FFFFFF" Foreground="#333">
+        <!-- ✅ Menu Bar with dark theme -->
+        <Menu DockPanel.Dock="Top" Background="{StaticResource PanelBackground}" Foreground="{StaticResource ForegroundBrush}">
             <Menu.Resources>
                 <Style TargetType="MenuItem">
-                    <Setter Property="FontSize" Value="15"/>
-                    <Setter Property="Padding" Value="12,6"/>
+                    <Setter Property="FontSize" Value="16"/>
+                    <Setter Property="Padding" Value="10,5"/>
+                    <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+                    <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
                     <Setter Property="Margin" Value="2"/>
-                    <Setter Property="Background" Value="Transparent"/>
-                    <Setter Property="Foreground" Value="#333"/>
-                    <Setter Property="FontWeight" Value="SemiBold"/>
-                    <Setter Property="Cursor" Value="Hand"/>
-                    <Style.Triggers>
-                        <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Background" Value="#E3F2FD"/>
-                        </Trigger>
-                    </Style.Triggers>
                 </Style>
             </Menu.Resources>
-            <MenuItem Header="File">
+
+            <MenuItem Header="📁 File">
                 <MenuItem Header="New Project" Click="NewModel_Click"/>
                 <MenuItem Header="Open Project" Click="OpenModel_Click"/>
                 <Separator/>
@@ -55,53 +59,100 @@
                 <Separator/>
                 <MenuItem Header="Exit" Click="Exit_Click"/>
             </MenuItem>
-            <MenuItem Header="Edit">
+            <MenuItem Header="✏️ Edit">
                 <MenuItem Header="Undo" InputGestureText="Ctrl+Z" Click="Undo_Click"/>
                 <MenuItem Header="Redo" InputGestureText="Ctrl+Y" Click="Redo_Click"/>
             </MenuItem>
-            <MenuItem Header="View">
+            <MenuItem Header="👁️ View">
                 <MenuItem Header="Full Screen" InputGestureText="F11" Click="FullScreenToggleButton_Click"/>
             </MenuItem>
-            <MenuItem Header="Help">
+            <MenuItem Header="❓ Help">
                 <MenuItem Header="View Help" Click="ViewHelp_Click"/>
                 <MenuItem Header="About" Click="About_Click"/>
             </MenuItem>
         </Menu>
 
-        <!-- 🧠 Main Workspace -->
-        <Grid Margin="10">
+        <!-- ✅ Main Workspace with dark theme -->
+        <Grid Margin="30">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- 🔧 Model Training Configuration Panel (wrapped for visibility control) -->
+            <!-- ✅ Model Training Configuration Panel -->
             <Grid x:Name="ConfigPanelGrid" Grid.Row="0" Visibility="Collapsed">
                 <Border
-                    Background="#FAFAFA"
+                    Background="{StaticResource PanelBackground}"
                     CornerRadius="8"
-                    BorderBrush="#DDD"
-                    BorderThickness="1"
-                    Padding="18,12"
-                    Margin="0,0,0,10"
+                    BorderBrush="{StaticResource PanelBorderBrush}"
+                    BorderThickness="2"
+                    Padding="20,14"
+                    Margin="0,0,0,16"
                     Effect="{StaticResource ShadowEffect}">
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <!-- Project Type ComboBox -->
-                        <TextBlock Text="Project:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <ComboBox x:Name="ProjectTypeComboBox" Width="180" Margin="0,0,12,0" SelectionChanged="ProjectTypeComboBox_SelectionChanged">
+                        <!-- Project Type -->
+                        <TextBlock Text="🎯 Project:" 
+                                   VerticalAlignment="Center" 
+                                   Margin="0,0,8,0"
+                                   Foreground="{StaticResource ForegroundBrush}"
+                                   FontWeight="SemiBold"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="ProjectTypeComboBox" 
+                                  Width="200" 
+                                  Height="32"
+                                  Margin="0,0,20,0" 
+                                  SelectionChanged="ProjectTypeComboBox_SelectionChanged"
+                                  Background="{StaticResource CardBackground}"
+                                  Foreground="{StaticResource ForegroundBrush}"
+                                  BorderBrush="{StaticResource PanelBorderBrush}"
+                                  FontSize="14">
                             <ComboBoxItem Content="Object Detection" IsSelected="True"/>
                             <ComboBoxItem Content="Image Classification"/>
                             <ComboBoxItem Content="Defect Detection"/>
                         </ComboBox>
 
-                        <TextBlock Text="Dataset:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <ComboBox x:Name="DatasetComboBox" Width="160" Margin="0,0,12,0"/>
-                        <Button Content="Browse..." Width="80" Click="BrowseDataset_Click" Margin="0,0,18,0"/>
+                        <!-- Dataset -->
+                        <TextBlock Text="📊 Dataset:" 
+                                   VerticalAlignment="Center" 
+                                   Margin="0,0,8,0"
+                                   Foreground="{StaticResource ForegroundBrush}"
+                                   FontWeight="SemiBold"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="DatasetComboBox" 
+                                  Width="180" 
+                                  Height="32"
+                                  Margin="0,0,10,0"
+                                  Background="{StaticResource CardBackground}"
+                                  Foreground="{StaticResource ForegroundBrush}"
+                                  BorderBrush="{StaticResource PanelBorderBrush}"
+                                  FontSize="14"/>
+                        <Button Content="Browse..." 
+                                Width="90" 
+                                Height="32"
+                                Click="BrowseDataset_Click" 
+                                Margin="0,0,20,0"
+                                Background="{StaticResource PanelBorderBrush}"
+                                Foreground="White"
+                                BorderBrush="{StaticResource AccentBrush}"
+                                FontWeight="SemiBold"
+                                Cursor="Hand"/>
 
-                        <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <!-- Architecture ComboBox -->
-                        <ComboBox x:Name="ModelArchComboBox" Width="200" Height="30" SelectionChanged="ModelArchComboBox_SelectionChanged">
+                        <!-- Model Architecture -->
+                        <TextBlock Text="🤖 Model:" 
+                                   VerticalAlignment="Center" 
+                                   Margin="0,0,8,0"
+                                   Foreground="{StaticResource ForegroundBrush}"
+                                   FontWeight="SemiBold"
+                                   FontSize="14"/>
+                        <ComboBox x:Name="ModelArchComboBox" 
+                                  Width="200" 
+                                  Height="32" 
+                                  SelectionChanged="ModelArchComboBox_SelectionChanged"
+                                  Background="{StaticResource CardBackground}"
+                                  Foreground="{StaticResource ForegroundBrush}"
+                                  BorderBrush="{StaticResource PanelBorderBrush}"
+                                  FontSize="14">
                             <ComboBoxItem Content="YOLOv8n"/>
                             <ComboBoxItem Content="YOLOv8s"/>
                             <ComboBoxItem Content="YOLOv8m"/>
@@ -112,52 +163,58 @@
                 </Border>
             </Grid>
 
-            <!-- 🎯 Training Canvas -->
+            <!-- ✅ Training Canvas with dark theme -->
             <Border Grid.Row="1"
-                    Background="#FAFAFA"
+                    Background="{StaticResource CardBackground}"
                     CornerRadius="8"
-                    BorderBrush="#DDD"
-                    BorderThickness="1"
-                    Padding="10"
+                    BorderBrush="{StaticResource PanelBorderBrush}"
+                    BorderThickness="2"
+                    Padding="12"
                     SnapsToDevicePixels="True"
                     Effect="{StaticResource ShadowEffect}">
                 <Canvas x:Name="TrainingCanvas"
                         AllowDrop="True"
-                        ClipToBounds="True"/>
+                        ClipToBounds="True"
+                        Background="Transparent"/>
             </Border>
 
-            <!-- 🚀 Footer Controls -->
+            <!-- ✅ Footer Controls with dark theme -->
             <StackPanel Grid.Row="2"
                         Orientation="Horizontal"
                         HorizontalAlignment="Right"
                         VerticalAlignment="Bottom"
-                        Margin="0,20,10,10">
+                        Margin="0,20,0,10">
                 <TextBlock x:Name="TrainingStatusText"
                            Text="🧠 Drag blocks to build your training pipeline"
                            FontSize="16"
                            FontWeight="SemiBold"
-                           Foreground="#1976D2"
+                           Foreground="{StaticResource AccentBrush}"
                            VerticalAlignment="Center"
                            Margin="0,0,20,0"/>
 
                 <Button x:Name="TrainModelButton"
                         Content="🚀 Train Model"
-                        Width="160"
+                        Width="180"
                         Height="48"
                         FontWeight="Bold"
-                        Background="#1976D2"
+                        FontSize="16"
+                        Background="#4CAF50"
                         Foreground="White"
+                        BorderBrush="{StaticResource AccentBrush}"
+                        BorderThickness="2"
                         Cursor="Hand"
                         Click="TrainModelButton_Click"
-                        Margin="0,0,10,0">
+                        Margin="0,0,0,0">
                     <Button.Style>
                         <Style TargetType="Button">
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="Button">
                                         <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
                                                 CornerRadius="6"
-                                                Padding="10"
+                                                Padding="12"
                                                 SnapsToDevicePixels="True">
                                             <ContentPresenter HorizontalAlignment="Center"
                                                               VerticalAlignment="Center"/>
@@ -167,7 +224,7 @@
                             </Setter>
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#1565C0"/>
+                                    <Setter Property="Background" Value="#45A049"/>
                                 </Trigger>
                             </Style.Triggers>
                         </Style>

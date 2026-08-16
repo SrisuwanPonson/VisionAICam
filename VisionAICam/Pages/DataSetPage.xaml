@@ -111,137 +111,72 @@
                             <Run Text="Data Preparation"/>
                         </TextBlock>
 
-                        <!-- ✅ Image Navigation with dark theme -->
-                        <GroupBox Margin="0,0,0,4" 
-                                  Foreground="{StaticResource AccentBrush}" 
-                                  Background="{StaticResource PanelBackground}" 
-                                  BorderBrush="{StaticResource PanelBorderBrush}"
-                                  BorderThickness="2">
-                            <GroupBox.Header>
-                                <TextBlock FontWeight="Bold">
-                                    <Run Text="🖼️ "/>
-                                    <Run Text="Image Navigation"/>
-                                </TextBlock>
-                            </GroupBox.Header>
-                            <StackPanel Orientation="Horizontal" Margin="10,4,10,4" Background="{StaticResource PanelBackground}">
-                                <Button MinWidth="100" Click="LoadFolder_Click" Margin="0,0,10,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="📂 " VerticalAlignment="Center"/>
-                                        <TextBlock Text="Load Folder" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button MinWidth="80" Click="PrevImage_Click" Margin="0,0,10,0">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="◀ " VerticalAlignment="Center"/>
-                                        <TextBlock Text="Previous" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button MinWidth="80" Click="NextImage_Click">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="▶ " VerticalAlignment="Center"/>
-                                        <TextBlock Text="Next" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <TextBlock x:Name="ImageProgressText" 
-                                           Text="No images loaded" 
-                                           FontSize="16" 
-                                           Foreground="{StaticResource ForegroundBrush}" 
-                                           VerticalAlignment="Center" 
-                                           Margin="20,0,0,0"/>
-                            </StackPanel>
-                        </GroupBox>
+                        <!-- ✅ Main Layout Grid -->
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" MinWidth="700"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="0"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                        <!-- ✅ Controls Row with dark theme -->
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
-                            <!-- Class Management -->
-                            <GroupBox Foreground="{StaticResource AccentBrush}"
-                                      Background="{StaticResource PanelBackground}"
+                            <!-- Row 0: Image Navigation -->
+                            <GroupBox Grid.Row="0" Grid.Column="0"
+                                      Foreground="{StaticResource AccentBrush}" 
+                                      Background="{StaticResource PanelBackground}" 
                                       BorderBrush="{StaticResource PanelBorderBrush}"
                                       BorderThickness="2"
-                                      VerticalAlignment="Top"
-                                      MinWidth="500"
-                                      MaxWidth="800"
-                                      Height="80"
-                                      Margin="0,0,10,0">
+                                      Margin="0,0,0,1" Grid.RowSpan="2">
                                 <GroupBox.Header>
                                     <TextBlock FontWeight="Bold">
-                                        <Run Text="🏷️ "/>
-                                        <Run Text="Class Management"/>
+                                        <Run Text="🖼️ "/>
+                                        <Run Text="Image Navigation"/>
                                     </TextBlock>
                                 </GroupBox.Header>
-                                <StackPanel Orientation="Horizontal" 
-                                            Margin="10,8,10,8" 
-                                            VerticalAlignment="Center">
-                                    <TextBlock Text="Label:" 
-                                               VerticalAlignment="Center" 
+                                <StackPanel Orientation="Horizontal" Margin="10,4,10,4">
+                                    <Button MinWidth="100" Click="LoadFolder_Click" Margin="0,0,10,0" Height="32">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="📂 " VerticalAlignment="Center"/>
+                                            <TextBlock Text="Load Folder" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button MinWidth="80" Click="PrevImage_Click" Margin="0,0,10,0" Height="32">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="◀ " VerticalAlignment="Center"/>
+                                            <TextBlock Text="Previous" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button MinWidth="80" Click="NextImage_Click" Margin="0,0,10,0" Height="31">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="▶ " VerticalAlignment="Center"/>
+                                            <TextBlock Text="Next" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <TextBlock x:Name="ImageProgressText" 
+                                               Text="No images loaded" 
+                                               FontSize="16" 
                                                Foreground="{StaticResource ForegroundBrush}" 
-                                               Margin="0,0,8,0"/>
-                                    <ComboBox x:Name="LabelComboBox" 
-                                              MinWidth="120"
-                                              MaxWidth="200"
-                                              VerticalAlignment="Center"
-                                              Margin="0,0,16,0"/>
-                                
-                                    <TextBox x:Name="NewClassTextBox" 
-                                             MinWidth="120"
-                                             MaxWidth="200"
-                                             VerticalAlignment="Center"
-                                             Margin="0,0,8,0"
-                                             Height="26"/>
-                                
-                                    <Button Content="➕ Add Class" 
-                                            Click="AddClassButton_Click"
-                                            VerticalAlignment="Center"
-                                            Height="26"
-                                            Padding="8,0"/>
+                                               VerticalAlignment="Center" 
+                                               Margin="20,0,0,0"/>
                                 </StackPanel>
                             </GroupBox>
 
-                            <!-- Drawing Mode -->
-                            <GroupBox Foreground="{StaticResource AccentBrush}"
-                                      Background="{StaticResource PanelBackground}"
-                                      BorderBrush="{StaticResource PanelBorderBrush}"
-                                      BorderThickness="2"
-                                      VerticalAlignment="Top"
-                                      MinWidth="200"
-                                      MaxWidth="350"
-                                      Height="80"
-                                      Margin="0,0,10,0">
-                                <GroupBox.Header>
-                                    <TextBlock FontWeight="Bold">
-                                        <Run Text="✏️ "/>
-                                        <Run Text="Drawing Mode"/>
-                                    </TextBlock>
-                                </GroupBox.Header>
-                                <StackPanel Orientation="Horizontal" 
-                                            Margin="10,8,10,8" 
-                                            VerticalAlignment="Center">
-                                    <TextBlock Text="Mode:" 
-                                               VerticalAlignment="Center" 
-                                               Foreground="{StaticResource ForegroundBrush}" 
-                                               Margin="0,0,8,0"/>
-                                    <ComboBox x:Name="DrawingModeComboBox" 
-                                              MinWidth="120"
-                                              MaxWidth="180"
-                                              VerticalAlignment="Center"
-                                              SelectionChanged="DrawingModeComboBox_SelectionChanged">
-                                        <ComboBoxItem Content="Free Pen"/>
-                                        <ComboBoxItem Content="Rectangle" IsSelected="True"/>
-                                        <ComboBoxItem Content="Polygon"/>
-                                    </ComboBox>
-                                </StackPanel>
-                            </GroupBox>     
-
-                            <!-- ✅ Auto Actions - Reorganized Layout -->
+                            <!-- Row 0, Column 2: Auto Actions -->
                             <GroupBox x:Name="AutoLabelGroupBox"
+                                      Grid.Row="0" Grid.Column="2" Grid.RowSpan="3"
                                       Visibility="Visible"
                                       Foreground="{StaticResource AccentBrush}"
                                       Background="{StaticResource PanelBackground}"
                                       BorderBrush="{StaticResource PanelBorderBrush}"
                                       BorderThickness="2"
-                                      VerticalAlignment="Top"
-                                      MinWidth="320"
-                                      MaxWidth="600">
+                                      Margin="0"
+                                      VerticalAlignment="Stretch"
+                                      MinWidth="800"
+                                      MaxWidth="1000">
                                 <GroupBox.Header>
                                     <TextBlock FontWeight="Bold">
                                         <Run Text="🤖 "/>
@@ -251,208 +186,223 @@
                                 
                                 <Grid Margin="10,4,10,4">
                                     <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto"/> <!-- Size Filters -->
-                                        <RowDefinition Height="Auto"/> <!-- Buttons Row -->
-                                        <RowDefinition Height="Auto"/> <!-- Status -->
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
-                                    <!-- ⭐ Row 0: Size Filters (Collapsible) -->
+                                    <!-- Size Filters -->
                                     <Expander x:Name="SizeFiltersExpander"
+                                              Grid.Row="0"
                                               Header="📏 Size Filters" 
                                               IsExpanded="True" 
                                               Foreground="{StaticResource ForegroundBrush}"
                                               Margin="0,0,0,8"
                                               Expanded="SizeFiltersExpander_Expanded">
-                                        <Grid Margin="8,8,8,4">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="8"/>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="8"/>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="8"/>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="12"/>
-                                                <RowDefinition Height="Auto"/>
-                                            </Grid.RowDefinitions>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="55"/>
-                                                <ColumnDefinition Width="*" MinWidth="140"/>
-                                                <ColumnDefinition Width="55"/>
-                                            </Grid.ColumnDefinitions>
+                                        <StackPanel Margin="8,8,8,4">
+                                            <!-- Row 1: Min/Max W/H -->
+                                            <Grid Margin="0,0,0,12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="55"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="60"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="55"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="60"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                </Grid.ColumnDefinitions>
 
-                                            <!-- Min Width -->
-                                            <TextBlock Text="Min W:" 
-                                                       Grid.Row="0" Grid.Column="0"
-                                                       VerticalAlignment="Center" 
-                                                       Foreground="{StaticResource ForegroundBrush}"/>
-                                            <Slider x:Name="MinWidthSlider" 
-                                                    Grid.Row="0" Grid.Column="1"
-                                                    Minimum="1" 
-                                                    Maximum="500" 
-                                                    Value="10" 
-                                                    TickFrequency="10"
-                                                    IsSnapToTickEnabled="True"
-                                                    VerticalAlignment="Center"
-                                                    Margin="4,0,4,0"
-                                                    ValueChanged="MinWidthSlider_ValueChanged"/>
-                                            <TextBlock x:Name="MinWidthValue" 
-                                                       Grid.Row="0" Grid.Column="2"
-                                                       Text="10" 
-                                                       VerticalAlignment="Center" 
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{StaticResource AccentBrush}"
-                                                       FontWeight="Bold"
-                                                       FontSize="13"/>
+                                                <!-- Min W -->
+                                                <TextBlock Text="Min W:" Grid.Column="0" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="MinWidthSlider" Grid.Column="1" Minimum="1" Maximum="500" Value="10" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="MinWidthSlider_ValueChanged"/>
+                                                <TextBlock x:Name="MinWidthValue" Grid.Column="2" Text="10" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
 
-                                            <!-- Max Width -->
-                                            <TextBlock Text="Max W:" 
-                                                       Grid.Row="2" Grid.Column="0"
-                                                       VerticalAlignment="Center" 
-                                                       Foreground="{StaticResource ForegroundBrush}"/>
-                                            <Slider x:Name="MaxWidthSlider" 
-                                                    Grid.Row="2" Grid.Column="1"
-                                                    Minimum="10" 
-                                                    Maximum="2000" 
-                                                    Value="1000" 
-                                                    TickFrequency="50"
-                                                    IsSnapToTickEnabled="True"
-                                                    VerticalAlignment="Center"
-                                                    Margin="4,0,4,0"
-                                                    ValueChanged="MaxWidthSlider_ValueChanged"/>
-                                            <TextBlock x:Name="MaxWidthValue" 
-                                                       Grid.Row="2" Grid.Column="2"
-                                                       Text="1000" 
-                                                       VerticalAlignment="Center" 
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{StaticResource AccentBrush}"
-                                                       FontWeight="Bold"
-                                                       FontSize="13"/>
+                                                <!-- Max W -->
+                                                <TextBlock Text="Max W:" Grid.Column="4" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="MaxWidthSlider" Grid.Column="5" Minimum="10" Maximum="2000" Value="1360" TickFrequency="50" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="MaxWidthSlider_ValueChanged"/>
+                                                <TextBlock x:Name="MaxWidthValue" Grid.Column="6" Text="1360" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
 
-                                            <!-- Min Height -->
-                                            <TextBlock Text="Min H:" 
-                                                       Grid.Row="4" Grid.Column="0"
-                                                       VerticalAlignment="Center" 
-                                                       Foreground="{StaticResource ForegroundBrush}"/>
-                                            <Slider x:Name="MinHeightSlider" 
-                                                    Grid.Row="4" Grid.Column="1"
-                                                    Minimum="1" 
-                                                    Maximum="500" 
-                                                    Value="10" 
-                                                    TickFrequency="10"
-                                                    IsSnapToTickEnabled="True"
-                                                    VerticalAlignment="Center"
-                                                    Margin="4,0,4,0"
-                                                    ValueChanged="MinHeightSlider_ValueChanged"/>
-                                            <TextBlock x:Name="MinHeightValue" 
-                                                       Grid.Row="4" Grid.Column="2"
-                                                       Text="10" 
-                                                       VerticalAlignment="Center" 
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{StaticResource AccentBrush}"
-                                                       FontWeight="Bold"
-                                                       FontSize="13"/>
+                                                <!-- Min H -->
+                                                <TextBlock Text="Min H:" Grid.Column="8" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="MinHeightSlider" Grid.Column="9" Minimum="1" Maximum="500" Value="10" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="MinHeightSlider_ValueChanged"/>
+                                                <TextBlock x:Name="MinHeightValue" Grid.Column="10" Text="10" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
 
-                                            <!-- Max Height -->
-                                            <TextBlock Text="Max H:" 
-                                                       Grid.Row="6" Grid.Column="0"
-                                                       VerticalAlignment="Center" 
-                                                       Foreground="{StaticResource ForegroundBrush}"/>
-                                            <Slider x:Name="MaxHeightSlider" 
-                                                    Grid.Row="6" Grid.Column="1"
-                                                    Minimum="10" 
-                                                    Maximum="2000" 
-                                                    Value="1000" 
-                                                    TickFrequency="50"
-                                                    IsSnapToTickEnabled="True"
-                                                    VerticalAlignment="Center"
-                                                    Margin="4,0,4,0"
-                                                    ValueChanged="MaxHeightSlider_ValueChanged"/>
-                                            <TextBlock x:Name="MaxHeightValue" 
-                                                       Grid.Row="6" Grid.Column="2"
-                                                       Text="1000" 
-                                                       VerticalAlignment="Center" 
-                                                       HorizontalAlignment="Right"
-                                                       Foreground="{StaticResource AccentBrush}"
-                                                       FontWeight="Bold"
-                                                       FontSize="13"/>
+                                                <!-- Max H -->
+                                                <TextBlock Text="Max H:" Grid.Column="12" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="MaxHeightSlider" Grid.Column="13" Minimum="10" Maximum="2000" Value="1260" TickFrequency="50" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="MaxHeightSlider_ValueChanged"/>
+                                                <TextBlock x:Name="MaxHeightValue" Grid.Column="14" Text="1260" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
+                                            </Grid>
 
-                                            <!-- Reset Button -->
-                                            <Button x:Name="ResetFilterButton"
-                                                    Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="3"
-                                                    Content="🔄 Reset to Defaults"
-                                                    Height="26"
-                                                    FontSize="11"
-                                                    Click="ResetFilterButton_Click"
-                                                    HorizontalAlignment="Center"
-                                                    MinWidth="140"/>
-                                        </Grid>
+                                            <!-- Row 2: Canny/Contour Parameters -->
+                                            <Grid Margin="0,0,0,12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="65"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="65"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="65"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="65"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="50"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <!-- Canny T1 -->
+                                                <TextBlock Text="Canny T1:" Grid.Column="0" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="AutoCannyT1Slider" Grid.Column="1" Minimum="0" Maximum="300" Value="50" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="AutoCannyT1Slider_ValueChanged"/>
+                                                <TextBlock x:Name="AutoCannyT1Value" Grid.Column="2" Text="50" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
+
+                                                <!-- Canny T2 -->
+                                                <TextBlock Text="Canny T2:" Grid.Column="4" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="AutoCannyT2Slider" Grid.Column="5" Minimum="0" Maximum="300" Value="150" TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="AutoCannyT2Slider_ValueChanged"/>
+                                                <TextBlock x:Name="AutoCannyT2Value" Grid.Column="6" Text="150" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
+
+                                                <!-- Min Area -->
+                                                <TextBlock Text="Min Area:" Grid.Column="8" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="AutoMinAreaSlider" Grid.Column="9" Minimum="0" Maximum="10000" Value="100" TickFrequency="100" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="AutoMinAreaSlider_ValueChanged"/>
+                                                <TextBlock x:Name="AutoMinAreaValue" Grid.Column="10" Text="100" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
+
+                                                <!-- Blur Kernel -->
+                                                <TextBlock Text="Blur Ker:" Grid.Column="12" VerticalAlignment="Center" Foreground="{StaticResource ForegroundBrush}"/>
+                                                <Slider x:Name="AutoBlurSlider" Grid.Column="13" Minimum="1" Maximum="21" Value="5" TickFrequency="2" IsSnapToTickEnabled="True" VerticalAlignment="Center" Margin="4,0" ValueChanged="AutoBlurSlider_ValueChanged"/>
+                                                <TextBlock x:Name="AutoBlurValue" Grid.Column="14" Text="5" VerticalAlignment="Center" HorizontalAlignment="Right" Foreground="{StaticResource AccentBrush}" FontWeight="Bold" FontSize="14"/>
+                                            </Grid>
+
+                                            <!-- All 3 Buttons in one row -->
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="10"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <Button x:Name="ResetFilterButton" 
+                                                        Grid.Column="0"
+                                                        Content="🔄 Reset to Defaults" 
+                                                        Height="38" 
+                                                        FontSize="12" 
+                                                        Click="ResetFilterButton_Click"
+                                                        Background="#607D8B"
+                                                        Foreground="White"
+                                                        BorderThickness="0"/>
+
+                                                <Button x:Name="AutoLabelExecuteButton" 
+                                                        Grid.Column="2"
+                                                        Height="38"
+                                                        Click="AutoLabelExecuteButton_Click"
+                                                        Background="#4CAF50"
+                                                        Foreground="White"
+                                                        BorderThickness="0">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <TextBlock Text="▶ " FontSize="16" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="Execute" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold"/>
+                                                    </StackPanel>
+                                                </Button>
+
+                                                <Button x:Name="ClearPreviewButton" 
+                                                        Grid.Column="4"
+                                                        Height="38"
+                                                        Click="ClearPreviewButton_Click"
+                                                        Background="#D32F2F"
+                                                        Foreground="White"
+                                                        BorderThickness="0">
+                                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                        <TextBlock Text="✂️ " FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="Apply Filter" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </Grid>
+                                        </StackPanel>
                                     </Expander>
-
-                                    <!-- ⭐ Row 1: Action Buttons (Always Visible) -->
-                                    <Grid Grid.Row="1" Margin="0,4,0,4">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="8"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-
-                                        <!-- Execute Button -->
-                                        <Button x:Name="AutoLabelExecuteButton"
-                                                Grid.Column="1"
-                                                MinWidth="110"
-                                                Height="34"
-                                                IsEnabled="True"
-                                                Click="AutoLabelExecuteButton_Click"
-                                                Background="#4CAF50"
-                                                Foreground="White"
-                                                BorderThickness="0">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="▶ " FontSize="16" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                                <TextBlock Text="Execute" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"/>
-                                            </StackPanel>
-                                        </Button>
-
-                                        <!-- Apply Filter Button -->
-                                        <Button x:Name="ClearPreviewButton"
-                                                Grid.Column="3"
-                                                MinWidth="110"
-                                                Height="34"
-                                                Click="ClearPreviewButton_Click"
-                                                Background="#D32F2F"
-                                                Foreground="White"
-                                                BorderThickness="0">
-                                            <StackPanel Orientation="Horizontal">
-                                                <TextBlock Text="✂️ " FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                                <TextBlock Text="Apply Filter" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"/>
-                                            </StackPanel>
-                                        </Button>
-                                    </Grid>
-
-                                    <!-- ⭐ Row 2: Status Message -->
-                                    <Border Grid.Row="2"
-                                            Background="#E8F5E9"
-                                            BorderBrush="#4CAF50"
-                                            BorderThickness="1"
-                                            CornerRadius="4"
-                                            Padding="8,6"
-                                            Margin="0,4,0,0"
-                                            Visibility="Collapsed"
-                                            x:Name="AutoLabelStatusBorder">
-                                        <TextBlock x:Name="AutoLabelReadyTextBlock"
-                                                   Text=""
-                                                   TextWrapping="Wrap"
-                                                   Foreground="#2E7D32"
-                                                   FontWeight="SemiBold"
-                                                   FontSize="11"
-                                                   HorizontalAlignment="Center"/>
+                                    
+                                    <!-- Status Message -->
+                                    <Border Grid.Row="2" Background="#E8F5E9" BorderBrush="#4CAF50" BorderThickness="1" CornerRadius="4" Padding="8,6" Margin="0,4,0,0" Visibility="Collapsed" x:Name="AutoLabelStatusBorder">
+                                        <TextBlock x:Name="AutoLabelReadyTextBlock" Text="" TextWrapping="Wrap" Foreground="#2E7D32" FontWeight="SemiBold" FontSize="11" HorizontalAlignment="Center"/>
                                     </Border>
                                 </Grid>
                             </GroupBox>
-                        
-                        </StackPanel>
+
+                            <!-- Row 2, Column 0: Class Management + Drawing Mode -->
+                            <StackPanel Grid.Row="2" Grid.Column="0" Orientation="Horizontal" Margin="0,-2,0,0">
+                                <GroupBox Foreground="{StaticResource AccentBrush}"
+                                          Background="{StaticResource PanelBackground}"
+                                          BorderBrush="{StaticResource PanelBorderBrush}"
+                                          BorderThickness="2"
+                                          Width="430" Height="80">
+                                    <GroupBox.Header>
+                                        <TextBlock FontWeight="Bold">
+                                            <Run Text="🏷️ "/>
+                                            <Run Text="Class Management"/>
+                                        </TextBlock>
+                                    </GroupBox.Header>
+                                    <StackPanel Orientation="Horizontal" Margin="10,8">
+                                        <TextBlock Text="Label:" 
+                                                   VerticalAlignment="Center" 
+                                                   Foreground="{StaticResource ForegroundBrush}" 
+                                                   Margin="0,0,8,0"
+                                                   Width="45"/>
+                                        <ComboBox x:Name="LabelComboBox" 
+                                                  Width="120"
+                                                  VerticalAlignment="Center"
+                                                  Margin="0,0,10,0"/>
+                                        <TextBox x:Name="NewClassTextBox" 
+                                                 Width="120"
+                                                 VerticalAlignment="Center"
+                                                 Margin="0,0,8,0"
+                                                 Height="26"/>
+                                        <Button Content="➕ Add Class" 
+                                                Click="AddClassButton_Click"
+                                                VerticalAlignment="Center"
+                                                Height="26"
+                                                MinWidth="85"/>
+                                    </StackPanel>
+                                </GroupBox>
+                                
+                                <GroupBox Foreground="{StaticResource AccentBrush}"
+                                          Background="{StaticResource PanelBackground}"
+                                          BorderBrush="{StaticResource PanelBorderBrush}"
+                                          BorderThickness="2"
+                                          Width="260"
+                                          Margin="10,0,0,0">
+                                    <GroupBox.Header>
+                                        <TextBlock FontWeight="Bold">
+                                            <Run Text="✏️ "/>
+                                            <Run Text="Drawing Mode"/>
+                                        </TextBlock>
+                                    </GroupBox.Header>
+                                    <StackPanel Orientation="Horizontal" Margin="10,8">
+                                        <TextBlock Text="Mode:" 
+                                                   VerticalAlignment="Center" 
+                                                   Foreground="{StaticResource ForegroundBrush}" 
+                                                   Margin="0,0,8,0"
+                                                   Width="45"/>
+                                        <ComboBox x:Name="DrawingModeComboBox" 
+                                                  Width="160"   
+                                                  VerticalAlignment="Center"
+                                                  SelectionChanged="DrawingModeComboBox_SelectionChanged">
+                                            <ComboBoxItem Content="Free Pen"/>
+                                            <ComboBoxItem Content="Rectangle" IsSelected="True"/>
+                                            <ComboBoxItem Content="Polygon"/>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </GroupBox>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
 
                     <!-- ✅ Main Content with dark theme borders -->
@@ -662,7 +612,7 @@
                                                             <ItemsControl.ItemTemplate>
                                                                 <DataTemplate>
                                                                     <DockPanel LastChildFill="False" Margin="0,2">
-                                                                        <TextBlock Text="{Binding Label}" Foreground="#222" />
+                                                                        <TextBlock Text="{Binding Label}" Foreground="#222" />  
                                                                         <TextBlock Text="{Binding Count}" Foreground="#222" FontWeight="Bold" DockPanel.Dock="Right" Margin="8,0,0,0"/>
                                                                     </DockPanel>
                                                                 </DataTemplate>

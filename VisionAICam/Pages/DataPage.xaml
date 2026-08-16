@@ -5,35 +5,107 @@
       Title="DataPage">
 
     <Page.Resources>
-        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#F5F5F5" Offset="0"/>
-            <GradientStop Color="#E0E0E0" Offset="1"/>
+        <!-- ✅ Dark theme palette matching other pages -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
         </LinearGradientBrush>
 
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
+
+        <!-- ✅ TextBlock style -->
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#222"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
             <Setter Property="FontSize" Value="14"/>
         </Style>
 
+        <!-- ✅ Border style -->
         <Style TargetType="Border">
-            <Setter Property="BorderBrush" Value="#CCCCCC"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Background" Value="#FAFAFA"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
         </Style>
 
+        <!-- ✅ Button style -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#E0E0E0"/>
-            <Setter Property="Foreground" Value="#222"/>
+            <Setter Property="Background" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="Margin" Value="0,0,10,0"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#2196F3"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
+        <!-- ✅ TextBox style -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <!-- ✅ DataGrid style -->
         <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="White"/>
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
             <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-            <Setter Property="RowBackground" Value="#F9F9F9"/>
-            <Setter Property="AlternatingRowBackground" Value="#EFEFEF"/>
+            <Setter Property="RowBackground" Value="{StaticResource PanelBackground}"/>
+            <Setter Property="AlternatingRowBackground" Value="{StaticResource CardBackground}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="ColumnHeaderHeight" Value="32"/>
+        </Style>
+
+        <!-- ✅ TabControl style -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+
+        <!-- ✅ TabItem style -->
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ✅ StatusBar style -->
+        <Style TargetType="StatusBar">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource SecondaryForeBrush}"/>
+        </Style>
+
+        <!-- ✅ ListView style -->
+        <Style TargetType="ListView">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
         </Style>
 
         <!-- Converter for ClassId display (DetectionResult or PredictionEntity) -->
@@ -48,26 +120,25 @@
         <TabControl>
 
             <!-- 📋 Tab 1: Records -->
-            <TabItem Header="Records">
-                <DockPanel Margin="12">
-                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-                        <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <TextBox x:Name="SearchTextBox" Width="200" Margin="0,0,10,0"/>
+            <TabItem Header="📋 Records">
+                <DockPanel Margin="16">
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16">
+                        <TextBlock Text="🔍 Search:" VerticalAlignment="Center" Margin="0,0,10,0" FontWeight="SemiBold"/>
+                        <TextBox x:Name="SearchTextBox" Width="220" Margin="0,0,10,0"/>
                         <Button Content="Filter" Width="80" Click="FilterButton_Click"/>
-                        <Button Content="Refresh" Width="80" Click="RefreshButton_Click" Margin="8,0,0,0"/>
-                        <Button Content="Load DB" Width="80" Click="LoadDbButton_Click" Margin="8,0,0,0"/>
-                        <Button Content="Export" Width="80" Click="ExportButton_Click" Margin="8,0,0,0"/>
-                        <Button Content="Delete Selected" Width="120" Click="DeleteButton_Click" Margin="8,0,0,0"/>
+                        <Button Content="🔄 Refresh" Width="90" Click="RefreshButton_Click"/>
+                        <Button Content="📂 Load DB" Width="90" Click="LoadDbButton_Click"/>
+                        <Button Content="📤 Export" Width="80" Click="ExportButton_Click"/>
+                        <Button Content="🗑️ Delete" Width="100" Click="DeleteButton_Click" Background="#F44336"/>
                     </StackPanel>
 
                     <DataGrid x:Name="ResultsGrid"
                               AutoGenerateColumns="False"
                               SelectionMode="Single"
-                              HeadersVisibility="Column"
                               IsReadOnly="True"
-                              Height="360"
+                              Height="400"
                               DockPanel.Dock="Top"
-                              Margin="0,0,0,8">
+                              Margin="0,0,0,12">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="Timestamp"
                                                 Binding="{Binding Timestamp, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}"
@@ -77,15 +148,7 @@
                                                 Width="150"/>
 
                             <!-- Class ID column (works for DetectionResult or PredictionEntity) -->
-                            <DataGridTemplateColumn Header="Class ID" Width="90">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate>
-                                        <TextBlock Text="{Binding Converter={StaticResource ClassIdConverter}}"
-                                                   VerticalAlignment="Center"
-                                                   Padding="4,0,4,0"/>
-                                    </DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Class ID" Width="90" Binding="{Binding ClassId}"/>
 
                             <DataGridTextColumn Header="Box Position"
                                                 Binding="{Binding Box}"
@@ -98,6 +161,7 @@
                                     <Style TargetType="TextBlock">
                                         <Setter Property="HorizontalAlignment" Value="Right"/>
                                         <Setter Property="Padding" Value="0,0,6,0"/>
+                                        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
                                     </Style>
                                 </DataGridTextColumn.ElementStyle>
                             </DataGridTextColumn>
@@ -105,8 +169,8 @@
 
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="Delete" Click="DeleteButton_Click"/>
-                                <MenuItem Header="Show Details" Click="ShowDetailsContext_Click"/>
+                                <MenuItem Header="🗑️ Delete" Click="DeleteButton_Click"/>
+                                <MenuItem Header="ℹ️ Show Details" Click="ShowDetailsContext_Click"/>
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
@@ -132,27 +196,27 @@
             </TabItem>
 
             <!-- 🔍 Tab 2: Preview -->
-            <TabItem Header="Preview">
-                <StackPanel Margin="12">
-                    <TextBlock Text="Preview Details" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
-                    <Border BorderBrush="#CCC" BorderThickness="1" Background="White" Height="220">
+            <TabItem Header="🔍 Preview">
+                <StackPanel Margin="16">
+                    <TextBlock Text="Preview Details" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,16"/>
+                    <Border Height="380" Padding="8">
                         <Image x:Name="PreviewImage" Stretch="Uniform"/>
                     </Border>
-                    <TextBlock x:Name="DetailsTextBlock" Text="Select a row to see details." TextWrapping="Wrap" Margin="0,12,0,0"/>
+                    <TextBlock x:Name="DetailsTextBlock" Text="Select a row to see details." TextWrapping="Wrap" Margin="0,16,0,0" FontSize="14"/>
                 </StackPanel>
             </TabItem>
 
             <!-- ⚠️ Tab 3: Errors -->
-            <TabItem Header="Errors">
-                <StackPanel Margin="12">
-                    <TextBlock Text="Error Events" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
-                    <ListView x:Name="ErrorListView" Height="300">
+            <TabItem Header="⚠️ Errors">
+                <StackPanel Margin="16">
+                    <TextBlock Text="Error Events" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,16"/>
+                    <ListView x:Name="ErrorListView" Height="400">
                         <ListView.View>
                             <GridView>
-                                <GridViewColumn Header="Timestamp" DisplayMemberBinding="{Binding Timestamp}" Width="150"/>
-                                <GridViewColumn Header="File Name" DisplayMemberBinding="{Binding FileName}" Width="200"/>
+                                <GridViewColumn Header="Timestamp" DisplayMemberBinding="{Binding Timestamp}" Width="160"/>
+                                <GridViewColumn Header="File Name" DisplayMemberBinding="{Binding FileName}" Width="220"/>
                                 <GridViewColumn Header="Error Type" DisplayMemberBinding="{Binding ErrorType}" Width="150"/>
-                                <GridViewColumn Header="Message" DisplayMemberBinding="{Binding Message}" Width="300"/>
+                                <GridViewColumn Header="Message" DisplayMemberBinding="{Binding Message}" Width="400"/>
                             </GridView>
                         </ListView.View>
                     </ListView>
@@ -160,24 +224,29 @@
             </TabItem>
 
             <!-- 📊 Tab 4: Statistics -->
-            <TabItem Header="Statistics">
-                <StackPanel Margin="12">
-                    <TextBlock Text="Record Summary" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
-                    <TextBlock x:Name="StatTotalRecordsText" Text="Total Records: 0" Margin="0,6"/>
-                    <TextBlock x:Name="StatAverageConfidenceText" Text="Average Confidence: N/A" Margin="0,6"/>
-                    <TextBlock x:Name="StatClassBreakdownText" Text="Detected Classes: None" Margin="0,6"/>
+            <TabItem Header="📊 Statistics">
+                <StackPanel Margin="16">
+                    <TextBlock Text="Record Summary" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,16"/>
+                    <Border Background="{StaticResource PanelBackground}" BorderBrush="{StaticResource PanelBorderBrush}" BorderThickness="2" Padding="16" CornerRadius="6">
+                        <StackPanel>
+                            <TextBlock x:Name="StatTotalRecordsText" Text="Total Records: 0" Margin="0,8" FontSize="16"/>
+                            <TextBlock x:Name="StatAverageConfidenceText" Text="Average Confidence: N/A" Margin="0,8" FontSize="16"/>
+                            <TextBlock x:Name="StatClassBreakdownText" Text="Detected Classes: None" Margin="0,8" FontSize="16"/>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </TabItem>
 
             <!-- 📈 Tab 5: Graph -->
-            <TabItem Header="Graph">
-                <StackPanel Margin="12">
-                    <TextBlock Text="Confidence Distribution" FontSize="20" FontWeight="Bold" Margin="0,0,0,12"/>
-                    <Border Background="White" BorderBrush="#CCC" BorderThickness="1" Height="300">
-                        <TextBlock Text="Graph placeholder (e.g., histogram or pie chart)"
+            <TabItem Header="📈 Graph">
+                <StackPanel Margin="16">
+                    <TextBlock Text="Confidence Distribution" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,16"/>
+                    <Border Height="400" Padding="16">
+                        <TextBlock Text="📊 Graph placeholder (histogram or pie chart)"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
-                                   Foreground="#999"/>
+                                   FontSize="18"
+                                   Foreground="{StaticResource SecondaryForeBrush}"/>
                     </Border>
                 </StackPanel>
             </TabItem>
