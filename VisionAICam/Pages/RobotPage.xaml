@@ -1,93 +1,274 @@
 ﻿<Page x:Class="VisionAICam.Pages.RobotPage"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Background="White">
+      Background="#263238">
 
-    <Grid Margin="16">
+    <Page.Resources>
+        <!-- ✅ Dark theme palette -->
+        <LinearGradientBrush x:Key="PageBackgroundBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#263238" Offset="0"/>
+            <GradientStop Color="#37474F" Offset="0.5"/>
+            <GradientStop Color="#263238" Offset="1"/>
+        </LinearGradientBrush>
+
+        <SolidColorBrush x:Key="PanelBackground" Color="#37474F"/>
+        <SolidColorBrush x:Key="CardBackground" Color="#263238"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#1976D2"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FFD700"/>
+        <SolidColorBrush x:Key="ForegroundBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SecondaryForeBrush" Color="#B0BEC5"/>
+
+        <!-- ✅ TextBlock default style -->
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <!-- ✅ TextBox style for dark theme -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="CaretBrush" Value="{StaticResource ForegroundBrush}"/>
+        </Style>
+
+        <!-- ✅ Button style with click highlight -->
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- ✅ Hover effect -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#2196F3"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <!-- ✅ Click/Press effect -->
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#0D47A1"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#0A3D8F"/>
+                                <Setter TargetName="Border" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <!-- ✅ Disabled effect -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Border" Property="Background" Value="#616161"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#424242"/>
+                                <Setter Property="Foreground" Value="#9E9E9E"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+        </Style>
+
+        <!-- ✅ ToggleButton style for Step buttons -->
+        <Style TargetType="ToggleButton">
+            <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="3"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#455A64"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource PanelBorderBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
+        </Style>
+
+        <!-- ✅ CheckBox style for dark theme -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <!-- ✅ RadioButton style for dark theme -->
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
+
+        <!-- ✅ GroupBox style for dark theme -->
+        <Style TargetType="GroupBox">
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="2"/>
+            <Setter Property="Background" Value="{StaticResource PanelBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Padding" Value="8"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+        </Style>
+
+        <!-- ✅ Separator style -->
+        <Style TargetType="Separator">
+            <Setter Property="Background" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="Height" Value="2"/>
+            <Setter Property="Margin" Value="0,8"/>
+        </Style>
+    </Page.Resources>
+
+    <Grid Margin="16" Background="{StaticResource PageBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="320"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- LEFT PANEL -->
-        <StackPanel Grid.Column="0" Orientation="Vertical" Margin="0,0,16,0">
+        <Border Grid.Column="0" 
+                Background="{StaticResource PanelBackground}"
+                BorderBrush="{StaticResource PanelBorderBrush}"
+                BorderThickness="2"
+                CornerRadius="8"
+                Padding="16"
+                Margin="0,0,16,0">
+            <StackPanel Orientation="Vertical">
 
-            <!-- Connection -->
-            <TextBlock Text="Connection" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <TextBlock Text="Host:" VerticalAlignment="Center" Width="50"/>
-                <TextBox x:Name="HostTextBox" Width="160" Text="192.168.1.6"/>
-            </StackPanel>
+                <!-- Connection -->
+                <TextBlock Text="🔌 Connection" FontSize="18" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12"/>
 
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                <TextBlock Text="Port:" VerticalAlignment="Center" Width="50"/>
-                <TextBox x:Name="PortTextBox" Width="80" Text="502"/>
-            </StackPanel>
-
-            <CheckBox x:Name="SwapWordsCheckBox"
-                      Content="Swap float words"
-                      Margin="0,0,0,8"/>
-
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                <Button x:Name="ConnectButton" Width="120" Height="30"
-                        Click="ConnectButton_Click">Connect</Button>
-                <TextBlock x:Name="StatusTextBlock"
-                           Margin="12,6,0,0"
-                           Foreground="Gray"
-                           Text="Disconnected"/>
-            </StackPanel>
-
-            <Separator/>
-
-            <!-- Manual Move -->
-            <TextBlock Text="Manual Move" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,8"/>
-
-            <GroupBox Header="Mode" Margin="0,0,0,6">
-                <StackPanel Orientation="Horizontal">
-                    <RadioButton x:Name="JogModeRadio" GroupName="Mode" IsChecked="True" Content="Jog" Width="80"/>
-                    <RadioButton x:Name="StepModeRadio" GroupName="Mode" Content="Step" Width="80"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Host:" VerticalAlignment="Center" Width="50"/>
+                    <TextBox x:Name="HostTextBox" Width="200" Text="192.168.1.6"/>
                 </StackPanel>
-            </GroupBox>
 
-            <TextBlock Text="Step Value" Margin="0,6,0,6"/>
-            <UniformGrid Columns="4" Margin="0,0,0,12">
-                <ToggleButton x:Name="Step0_1Button" IsChecked="True" Click="StepToggle_Click">0.1</ToggleButton>
-                <ToggleButton x:Name="Step1Button" Click="StepToggle_Click">1</ToggleButton>
-                <ToggleButton x:Name="Step5Button" Click="StepToggle_Click">5</ToggleButton>
-                <ToggleButton x:Name="Step10Button" Click="StepToggle_Click">10</ToggleButton>
-            </UniformGrid>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Port:" VerticalAlignment="Center" Width="50"/>
+                    <TextBox x:Name="PortTextBox" Width="100" Text="502"/>
+                </StackPanel>
 
-            <!-- Cartesian and Joints side-by-side -->
-            <Grid Margin="0,6,0,6">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
+                <CheckBox x:Name="SwapWordsCheckBox"
+                          Content="Swap float words"
+                          Margin="0,0,0,12"/>
 
-                <!-- Cartesian -->
-                <StackPanel Grid.Column="0">
-                    <TextBlock Text="Cartesian (mm)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                    <StackPanel>
-                        <TextBlock> X: <Run x:Name="XValRun">--</Run></TextBlock>
-                        <TextBlock> Y: <Run x:Name="YValRun">--</Run></TextBlock>
-                        <TextBlock> Z: <Run x:Name="ZValRun">--</Run></TextBlock>
-                        <TextBlock> R: <Run x:Name="RValRun">--</Run></TextBlock>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+                    <Button x:Name="ConnectButton" Width="120" Height="36"
+                            Click="ConnectButton_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🔗 " FontSize="14" VerticalAlignment="Center"/>
+                            <TextBlock Text="Connect" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <TextBlock x:Name="StatusTextBlock"
+                               Margin="12,8,0,0"
+                               Foreground="#FF9800"
+                               FontWeight="SemiBold"
+                               Text="Disconnected"/>
+                </StackPanel>
+
+                <Separator/>
+
+                <!-- Manual Move -->
+                <TextBlock Text="🎮 Manual Move" FontSize="18" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,8,0,12"/>
+
+                <GroupBox Header="Mode" Margin="0,0,0,8">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="JogModeRadio" GroupName="Mode" IsChecked="True" Content="Jog" Width="100" Margin="4"/>
+                        <RadioButton x:Name="StepModeRadio" GroupName="Mode" Content="Step" Width="100" Margin="4"/>
                     </StackPanel>
-                </StackPanel>
+                </GroupBox>
 
-                <!-- Joints -->
-                <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                    <TextBlock Text="Joints (deg)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                    <StackPanel>
-                        <TextBlock> J1: <Run x:Name="J1ValRun">--</Run></TextBlock>
-                        <TextBlock> J2: <Run x:Name="J2ValRun">--</Run></TextBlock>
-                        <TextBlock> J3: <Run x:Name="J3ValRun">--</Run></TextBlock>
-                        <TextBlock> J4: <Run x:Name="J4ValRun">--</Run></TextBlock>
-                    </StackPanel>
-                </StackPanel>
-            </Grid>
+                <TextBlock Text="Step Value (mm/deg)" Margin="0,8,0,6" Foreground="{StaticResource SecondaryForeBrush}"/>
+                <UniformGrid Columns="4" Margin="0,0,0,16">
+                    <ToggleButton x:Name="Step0_1Button" IsChecked="True" Click="StepToggle_Click" Margin="2">0.1</ToggleButton>
+                    <ToggleButton x:Name="Step1Button" Click="StepToggle_Click" Margin="2">1</ToggleButton>
+                    <ToggleButton x:Name="Step5Button" Click="StepToggle_Click" Margin="2">5</ToggleButton>
+                    <ToggleButton x:Name="Step10Button" Click="StepToggle_Click" Margin="2">10</ToggleButton>
+                </UniformGrid>
 
-        </StackPanel>
+                <!-- Cartesian and Joints side-by-side -->
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Cartesian -->
+                    <Border Grid.Column="0" 
+                            Background="{StaticResource CardBackground}"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8"
+                            Margin="0,0,4,0">
+                        <StackPanel>
+                            <TextBlock Text="📐 Cartesian (mm)" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,8"/>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> X: <Run x:Name="XValRun" Foreground="#4CAF50" FontWeight="Bold">--</Run></TextBlock>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> Y: <Run x:Name="YValRun" Foreground="#4CAF50" FontWeight="Bold">--</Run></TextBlock>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> Z: <Run x:Name="ZValRun" Foreground="#4CAF50" FontWeight="Bold">--</Run></TextBlock>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> R: <Run x:Name="RValRun" Foreground="#4CAF50" FontWeight="Bold">--</Run></TextBlock>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Joints -->
+                    <Border Grid.Column="1" 
+                            Background="{StaticResource CardBackground}"
+                            BorderBrush="{StaticResource PanelBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8"
+                            Margin="4,0,0,0">
+                        <StackPanel>
+                            <TextBlock Text="⚙️ Joints (deg)" FontSize="14" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Margin="0,0,0,8"/>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> J1: <Run x:Name="J1ValRun" Foreground="#FF9800" FontWeight="Bold">--</Run></TextBlock>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> J2: <Run x:Name="J2ValRun" Foreground="#FF9800" FontWeight="Bold">--</Run></TextBlock>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> J3: <Run x:Name="J3ValRun" Foreground="#FF9800" FontWeight="Bold">--</Run></TextBlock>
+                            <TextBlock Foreground="{StaticResource ForegroundBrush}"> J4: <Run x:Name="J4ValRun" Foreground="#FF9800" FontWeight="Bold">--</Run></TextBlock>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+            </StackPanel>
+        </Border>
 
         <!-- RIGHT PANEL -->
         <Grid Grid.Column="1">
@@ -97,88 +278,128 @@
             </Grid.RowDefinitions>
 
             <!-- XY + ZR Pads -->
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,16">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,24">
 
-                <!-- XY -->
-                <Grid Width="200" Height="200" Margin="12">
-                    <Grid.RowDefinitions>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                    </Grid.ColumnDefinitions>
+                <!-- XY Pad -->
+                <Border Background="{StaticResource PanelBackground}"
+                        BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Padding="12"
+                        Margin="12">
+                    <StackPanel>
+                        <TextBlock Text="🔄 XY Control" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <Grid Width="200" Height="200">
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
 
-                    <Button Grid.Row="0" Grid.Column="1" Content="Y+" Click="YPlus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="0" Content="X-" Click="XMinus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="2" Content="X+" Click="XPlus_Click"/>
-                    <Button Grid.Row="2" Grid.Column="1" Content="Y-" Click="YMinus_Click"/>
-                </Grid>
+                            <Button Grid.Row="0" Grid.Column="1" Content="Y +" Click="YPlus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="0" Content="X -" Click="XMinus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="2" Content="X +" Click="XPlus_Click" Margin="2"/>
+                            <Button Grid.Row="2" Grid.Column="1" Content="Y -" Click="YMinus_Click" Margin="2"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
-                <!-- ZR -->
-                <Grid Width="200" Height="200" Margin="12">
-                    <Grid.RowDefinitions>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                    </Grid.ColumnDefinitions>
+                <!-- ZR Pad -->
+                <Border Background="{StaticResource PanelBackground}"
+                        BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Padding="12"
+                        Margin="12">
+                    <StackPanel>
+                        <TextBlock Text="↕️ ZR Control" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <Grid Width="200" Height="200">
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
 
-                    <Button Grid.Row="0" Grid.Column="1" Content="Z+" Click="ZPlus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="0" Content="R-" Click="RMinus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="2" Content="R+" Click="RPlus_Click"/>
-                    <Button Grid.Row="2" Grid.Column="1" Content="Z-" Click="ZMinus_Click"/>
-                </Grid>
+                            <Button Grid.Row="0" Grid.Column="1" Content="Z +" Click="ZPlus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="0" Content="R -" Click="RMinus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="2" Content="R +" Click="RPlus_Click" Margin="2"/>
+                            <Button Grid.Row="2" Grid.Column="1" Content="Z -" Click="ZMinus_Click" Margin="2"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
             </StackPanel>
 
             <!-- Joint Pads -->
             <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center">
 
-                <!-- J1/J2 -->
-                <Grid Width="200" Height="200" Margin="12">
-                    <Grid.RowDefinitions>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                    </Grid.ColumnDefinitions>
+                <!-- J1/J2 Pad -->
+                <Border Background="{StaticResource PanelBackground}"
+                        BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Padding="12"
+                        Margin="12">
+                    <StackPanel>
+                        <TextBlock Text="⚙️ J1/J2 Control" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <Grid Width="200" Height="200">
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
 
-                    <Button Grid.Row="0" Grid.Column="1" Content="J1+" Click="J1Plus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="0" Content="J2+" Click="J2Plus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="2" Content="J2-" Click="J2Minus_Click"/>
-                    <Button Grid.Row="2" Grid.Column="1" Content="J1-" Click="J1Minus_Click"/>
-                </Grid>
+                            <Button Grid.Row="0" Grid.Column="1" Content="J1 +" Click="J1Plus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="0" Content="J2 +" Click="J2Plus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="2" Content="J2 -" Click="J2Minus_Click" Margin="2"/>
+                            <Button Grid.Row="2" Grid.Column="1" Content="J1 -" Click="J1Minus_Click" Margin="2"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
-                <!-- J3/J4 -->
-                <Grid Width="200" Height="200" Margin="12">
-                    <Grid.RowDefinitions>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                        <RowDefinition/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
-                    </Grid.ColumnDefinitions>
+                <!-- J3/J4 Pad -->
+                <Border Background="{StaticResource PanelBackground}"
+                        BorderBrush="{StaticResource PanelBorderBrush}"
+                        BorderThickness="2"
+                        CornerRadius="8"
+                        Padding="12"
+                        Margin="12">
+                    <StackPanel>
+                        <TextBlock Text="⚙️ J3/J4 Control" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                        <Grid Width="200" Height="200">
+                            <Grid.RowDefinitions>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                                <RowDefinition/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                                <ColumnDefinition/>
+                            </Grid.ColumnDefinitions>
 
-                    <Button Grid.Row="0" Grid.Column="1" Content="J3+" Click="J3Plus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="0" Content="J4+" Click="J4Plus_Click"/>
-                    <Button Grid.Row="1" Grid.Column="2" Content="J4-" Click="J4Minus_Click"/>
-                    <Button Grid.Row="2" Grid.Column="1" Content="J3-" Click="J3Minus_Click"/>
-                </Grid>
+                            <Button Grid.Row="0" Grid.Column="1" Content="J3 +" Click="J3Plus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="0" Content="J4 +" Click="J4Plus_Click" Margin="2"/>
+                            <Button Grid.Row="1" Grid.Column="2" Content="J4 -" Click="J4Minus_Click" Margin="2"/>
+                            <Button Grid.Row="2" Grid.Column="1" Content="J3 -" Click="J3Minus_Click" Margin="2"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
 
             </StackPanel>
 

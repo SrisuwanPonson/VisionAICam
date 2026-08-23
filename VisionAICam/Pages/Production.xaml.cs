@@ -176,209 +176,607 @@ namespace VisionAICam.Pages
             return bmp;
         }
 
+        private readonly SemaphoreSlim _startLock = new SemaphoreSlim(1, 1);
+
         public async Task StartProduction()
         {
-            if (_isRunning) return;
-
-            _isRunning = true;
-            _isPaused = false;
-            StatusTextBlock.Text = "Production started";
-            LoadingOverlay.Visibility = Visibility.Visible;
-
-            _appSettings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
-
-            if (_appSettings == null)
+            // Prevent concurrent starts
+            if (!await _startLock.WaitAsync(0))
             {
-                MessageBox.Show("Failed to load application settings.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                _isRunning = false;
-                LoadingOverlay.Visibility = Visibility.Collapsed;
+                _logger?.LogWarning("Production start blocked - already starting/running");
+
+                // Show friendly message to user
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    MessageBox.Show(
+                        "Production is already starting. Please wait for the camera to initialize.",
+                        "Please Wait",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                });
+
                 return;
             }
 
-            int opencvIndex = _appSettings.CameraIndex;
-            var backend = _appSettings.CameraBackend;
-
-            if (_timer != null)
+            try
             {
-                int intervalMs = _appSettings.SamplingInterval;
-                if (intervalMs <= 0) intervalMs = 20;
-                _timer.Interval = intervalMs;
-            }
-
-            _perFrameSummary.Clear();
-            _productionCancelTokenSource = new CancellationTokenSource();
-
-            // =================================================================
-            // HIKVISION BACKEND
-            // =================================================================
-            if (backend == CameraBackend.Hikvision)
-            {
-                Debug.WriteLine("[PRODUCTION] Starting Hikvision backend");
-                _logger?.LogInfo("Starting Hikvision backend");
-
-                try
+                if (_isRunning)
                 {
-                    string serviceUrl = "http://localhost:5005";
-                    int cameraIndex = _appSettings.CameraIndex;
+                    _logger?.LogWarning("Production start blocked - already running");
 
-                    // 1. List available cameras
-                    List<HikDevice>? devices = null;
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        MessageBox.Show(
+                            "Production is already running.",
+                            "Already Running",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    });
+
+                    return;
+                }
+
+                _isRunning = true;
+                _isPaused = false;
+
+                _logger?.LogInfo("=== Production initialization started ===");
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    StatusTextBlock.Text = "Starting production...";
+                    LoadingOverlay.Visibility = Visibility.Visible;
+                });
+
+                _appSettings = MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+
+                if (_appSettings == null)
+                {
+                    _logger?.LogError("Failed to load application settings");
+                    MessageBox.Show("Failed to load application settings.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _isRunning = false;
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                int opencvIndex = _appSettings.CameraIndex;
+                var backend = _appSettings.CameraBackend;
+
+                _logger?.LogInfo($"Camera Backend: {backend}");
+                _logger?.LogInfo($"Camera Index: {opencvIndex}");
+
+                if (_timer != null)
+                {
+                    int intervalMs = _appSettings.SamplingInterval;
+                    if (intervalMs <= 0) intervalMs = 20;
+                    _timer.Interval = intervalMs;
+                    _logger?.LogInfo($"Timer interval: {intervalMs}ms");
+                }
+
+                _perFrameSummary.Clear();
+                _productionCancelTokenSource = new CancellationTokenSource();
+
+                // =================================================================
+                // HIKVISION BACKEND
+                // =================================================================
+                if (backend == CameraBackend.Hikvision)
+                {
+                    _logger?.LogInfo("=== Starting Hikvision backend ===");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        StatusTextBlock.Text = "Initializing Hikvision camera...";
+                    });
+
                     try
                     {
-                        var listJson = await http.GetStringAsync($"{serviceUrl}/list");
-                        Debug.WriteLine($"[HIK-LIST] {listJson}");
-                        devices = System.Text.Json.JsonSerializer.Deserialize<List<HikDevice>>(listJson);
+                        string serviceUrl = "http://localhost:5005";
+                        int cameraIndex = _appSettings.CameraIndex;
 
-                        if (devices == null || devices.Count == 0)
-                        {
-                            throw new Exception("No Hikvision cameras found. Please connect a camera and restart the service.");
-                        }
+                        _logger?.LogInfo($"Service URL: {serviceUrl}");
+                        _logger?.LogInfo($"Camera Index: {cameraIndex}");
 
-                        Debug.WriteLine($"[HIK-LIST] Found {devices.Count} camera(s)");
-                    }
-                    catch (HttpRequestException ex)
-                    {
-                        throw new Exception($"Cannot connect to Hikvision service at {serviceUrl}.\n\nPlease ensure:\n1. Python service is running (python hik_server.py)\n2. Service is listening on port 5005", ex);
-                    }
-
-                    // 2. Check if camera needs to be started
-                    bool needsStart = false;
-                    try
-                    {
-                        var testResponse = await http.GetAsync($"{serviceUrl}/stream",
-                            HttpCompletionOption.ResponseHeadersRead,
-                            new CancellationTokenSource(1000).Token);
-                        needsStart = !testResponse.IsSuccessStatusCode;
-                    }
-                    catch
-                    {
-                        needsStart = true;
-                    }
-
-                    // 3. Start camera if needed
-                    if (needsStart)
-                    {
-                        Debug.WriteLine($"[HIK] Starting camera index {cameraIndex}");
-
-                        try
-                        {
-                            await http.GetAsync($"{serviceUrl}/stop");
-                            Debug.WriteLine("[HIK] Stopped previous camera session");
-                            await Task.Delay(200);
-                        }
-                        catch (Exception stopEx)
-                        {
-                            Debug.WriteLine($"[HIK] Stop warning: {stopEx.Message}");
-                        }
-
-                        var startResponse = await http.GetAsync($"{serviceUrl}/start/{cameraIndex}");
-                        var startJson = await startResponse.Content.ReadAsStringAsync();
-                        Debug.WriteLine($"[HIK] Start response: {startJson}");
-
-                        if (!startJson.Contains("\"status\":\"started\"") && !startJson.Contains("started"))
-                        {
-                            throw new Exception($"Failed to start Hikvision camera {cameraIndex}.\n\nResponse: {startJson}\n\nAvailable cameras: {devices?.Count ?? 0}");
-                        }
-
-                        // Apply camera settings
-                        try
-                        {
-                            await http.GetStringAsync($"{serviceUrl}/set/exposure/{_appSettings.HikExposureTime}");
-                            await http.GetStringAsync($"{serviceUrl}/set/gain/{_appSettings.HikGain}");
-                            await http.GetStringAsync($"{serviceUrl}/set/gamma/{_appSettings.HikGamma}");
-                            await http.GetStringAsync($"{serviceUrl}/set/blacklevel/{_appSettings.HikBlackLevel}");
-                            Debug.WriteLine("[HIK] Camera parameters applied");
-                        }
-                        catch (Exception paramEx)
-                        {
-                            Debug.WriteLine($"[HIK] Warning: Failed to set parameters: {paramEx.Message}");
-                            _logger?.LogWarning($"Could not apply camera parameters: {paramEx.Message}");
-                        }
-
-                        await Task.Delay(500);
-                    }
-                    else
-                    {
-                        Debug.WriteLine("[HIK] Camera already started");
-                    }
-
-                    _logger?.LogInfo("Hikvision camera ready for production");
-
-                    // 4. Initialize Inference Engine
-                    Debug.WriteLine("[HIK] Initializing inference engine...");
-
-                    var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
-                    string pythonDllPath = settings?.PythonDllPath ?? @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python313.dll";
-
-                    if (!System.IO.File.Exists(pythonDllPath))
-                    {
-                        string errorMsg = $"Python DLL not found:\n{pythonDllPath}";
-
+                        // 1. List available cameras
+                        _logger?.LogInfo("[STEP-1] Listing available cameras...");
                         await Dispatcher.InvokeAsync(() =>
                         {
-                            LoadingOverlay.Visibility = Visibility.Collapsed;
-                            StatusTextBlock.Text = "Python DLL not found";
-                            MessageBox.Show(errorMsg, "Inference Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            StatusTextBlock.Text = "Connecting to camera service...";
                         });
 
-                        return;
-                    }
+                        List<HikDevice>? devices = null;
+                        try
+                        {
+                            _logger?.LogInfo($"HTTP GET {serviceUrl}/list");
+                            var listJson = await http.GetStringAsync($"{serviceUrl}/list");
+                            _logger?.LogInfo($"List response: {listJson}");
 
-                    if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(
-                            pythonDllPath, _logger, out _inferenceEngine, out var tempInitError))
-                    {
-                        string errorMsg = $"Failed to initialize inference engine:\n\n{tempInitError}";
-                        _logger?.LogError(errorMsg);
+                            devices = System.Text.Json.JsonSerializer.Deserialize<List<HikDevice>>(listJson);
 
+                            if (devices == null || devices.Count == 0)
+                            {
+                                _logger?.LogError("No cameras found in service response");
+                                throw new Exception("No Hikvision cameras found. Please connect a camera and restart the service.");
+                            }
+
+                            _logger?.LogInfo($"Found {devices.Count} camera(s)");
+
+                            for (int i = 0; i < devices.Count; i++)
+                            {
+                                _logger?.LogInfo($"[DEVICE-{i}] Type: {devices[i].type}, Name: {devices[i].name}");
+                            }
+                        }
+                        catch (HttpRequestException ex)
+                        {
+                            _logger?.LogError($"HTTP request failed: {ex.Message}");
+                            throw new Exception($"Cannot connect to Hikvision service at {serviceUrl}.\n\nPlease ensure:\n1. Python service is running (python hik_server.py)\n2. Service is listening on port 5005", ex);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError($"Failed to parse camera list: {ex.Message}");
+                            throw;
+                        }
+
+                        // 2. Check if camera needs to be started
+                        _logger?.LogInfo("[STEP-2] Checking if camera is already streaming...");
                         await Dispatcher.InvokeAsync(() =>
                         {
-                            LoadingOverlay.Visibility = Visibility.Collapsed;
-                            StatusTextBlock.Text = "Inference initialization failed";
-                            MessageBox.Show(errorMsg, "Inference Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            StatusTextBlock.Text = "Checking camera status...";
                         });
 
-                        return;
-                    }
-
-                    var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? string.Empty;
-
-                    if (!string.IsNullOrWhiteSpace(modelPath))
-                    {
-                        if (!System.IO.File.Exists(modelPath))
+                        bool needsStart = false;
+                        try
                         {
-                            string errorMsg = $"Model file not found:\n{modelPath}";
+                            _logger?.LogInfo($"Testing stream at {serviceUrl}/stream");
+                            var testResponse = await http.GetAsync($"{serviceUrl}/stream",
+                                HttpCompletionOption.ResponseHeadersRead,
+                                new CancellationTokenSource(1000).Token);
+
+                            needsStart = !testResponse.IsSuccessStatusCode;
+                            _logger?.LogInfo($"Stream test status: {testResponse.StatusCode}, Needs start: {needsStart}");
+                        }
+                        catch (Exception testEx)
+                        {
+                            needsStart = true;
+                            _logger?.LogInfo($"Stream not available: {testEx.Message}");
+                        }
+
+                        // 3. Start camera if needed
+                        if (needsStart)
+                        {
+                            _logger?.LogInfo("[STEP-3] Camera needs to be started");
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                StatusTextBlock.Text = $"Starting camera {cameraIndex}...";
+                            });
+
+                            _logger?.LogInfo($"Attempting to start camera index {cameraIndex}");
+
+                            // Stop any existing session
+                            try
+                            {
+                                _logger?.LogInfo($"HTTP GET {serviceUrl}/stop");
+                                await http.GetAsync($"{serviceUrl}/stop");
+                                _logger?.LogInfo("Previous camera session stopped");
+                                await Task.Delay(200);
+                            }
+                            catch (Exception stopEx)
+                            {
+                                _logger?.LogWarning($"Stop warning: {stopEx.Message}");
+                            }
+
+                            // Start the camera
+                            _logger?.LogInfo($"HTTP GET {serviceUrl}/start/{cameraIndex}");
+                            var startResponse = await http.GetAsync($"{serviceUrl}/start/{cameraIndex}");
+                            var startJson = await startResponse.Content.ReadAsStringAsync();
+                            _logger?.LogInfo($"Camera start response: {startJson}");
+
+                            if (!startJson.Contains("\"status\":\"started\"") && !startJson.Contains("started"))
+                            {
+                                _logger?.LogError($"Camera failed to start: {startJson}");
+                                throw new Exception($"Failed to start Hikvision camera {cameraIndex}.\n\nResponse: {startJson}\n\nAvailable cameras: {devices?.Count ?? 0}");
+                            }
+
+                            _logger?.LogInfo("Camera started successfully");
+
+                            // Apply camera settings
+                            _logger?.LogInfo("[STEP-4] Applying camera settings...");
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                StatusTextBlock.Text = "Applying camera settings...";
+                            });
+
+                            try
+                            {
+                                _logger?.LogInfo($"Setting Exposure: {_appSettings.HikExposureTime}");
+                                _logger?.LogInfo($"HTTP GET {serviceUrl}/set/exposure/{_appSettings.HikExposureTime}");
+                                var expResponse = await http.GetStringAsync($"{serviceUrl}/set/exposure/{_appSettings.HikExposureTime}");
+                                _logger?.LogInfo($"Exposure response: {expResponse}");
+
+                                _logger?.LogInfo($"Setting Gain: {_appSettings.HikGain}");
+                                _logger?.LogInfo($"HTTP GET {serviceUrl}/set/gain/{_appSettings.HikGain}");
+                                var gainResponse = await http.GetStringAsync($"{serviceUrl}/set/gain/{_appSettings.HikGain}");
+                                _logger?.LogInfo($"Gain response: {gainResponse}");
+
+                                _logger?.LogInfo($"Setting Gamma: {_appSettings.HikGamma}");
+                                _logger?.LogInfo($"HTTP GET {serviceUrl}/set/gamma/{_appSettings.HikGamma}");
+                                var gammaResponse = await http.GetStringAsync($"{serviceUrl}/set/gamma/{_appSettings.HikGamma}");
+                                _logger?.LogInfo($"Gamma response: {gammaResponse}");
+
+                                _logger?.LogInfo($"Setting BlackLevel: {_appSettings.HikBlackLevel}");
+                                _logger?.LogInfo($"HTTP GET {serviceUrl}/set/blacklevel/{_appSettings.HikBlackLevel}");
+                                var blackLevelResponse = await http.GetStringAsync($"{serviceUrl}/set/blacklevel/{_appSettings.HikBlackLevel}");
+                                _logger?.LogInfo($"BlackLevel response: {blackLevelResponse}");
+
+                                _logger?.LogInfo("All camera parameters applied successfully");
+                            }
+                            catch (Exception paramEx)
+                            {
+                                _logger?.LogError($"Failed to set parameters: {paramEx.Message}");
+                                _logger?.LogError($"Stack trace: {paramEx.StackTrace}");
+                            }
+
+                            _logger?.LogInfo("Waiting 500ms for settings to stabilize...");
+                            await Task.Delay(500);
+                        }
+                        else
+                        {
+                            _logger?.LogInfo("Camera already started and streaming");
+                        }
+
+                        _logger?.LogInfo("[STEP-5] Camera initialization complete");
+
+                        // 4. Initialize Inference Engine
+                        _logger?.LogInfo("[STEP-6] Initializing inference engine...");
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            StatusTextBlock.Text = "Loading AI model...";
+                        });
+
+                        var settings = _appSettings ?? MasterController.Instance.GetService<AppSettings>() ?? SettingsManager.Load();
+                        string pythonDllPath = settings?.PythonDllPath ?? @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python313.dll";
+
+                        _logger?.LogInfo($"Python DLL path: {pythonDllPath}");
+
+                        if (!System.IO.File.Exists(pythonDllPath))
+                        {
+                            string errorMsg = $"Python DLL not found: {pythonDllPath}";
+                            _logger?.LogError(errorMsg);
 
                             await Dispatcher.InvokeAsync(() =>
                             {
                                 LoadingOverlay.Visibility = Visibility.Collapsed;
-                                StatusTextBlock.Text = "Model file not found";
-                                MessageBox.Show(errorMsg, "Model Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                StatusTextBlock.Text = "Python DLL not found";
+                                MessageBox.Show(errorMsg, "Inference Error", MessageBoxButton.OK, MessageBoxImage.Error);
                             });
 
                             return;
                         }
 
-                        var logDir = _logger?.GetLogDirectory() ?? System.IO.Path.Combine(
-                            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                            "VisionAICam", "Logs");
-
-                        if (_inferenceEngine != null)
+                        _logger?.LogInfo("Creating inference engine...");
+                        if (!ClearEngine.Model.Inference.InferenceEngine.TryCreate(
+                                pythonDllPath, _logger, out _inferenceEngine, out var tempInitError))
                         {
-                            _inferenceEngine.modelPath = modelPath;
-                            _inferenceEngine.logDir = logDir;
+                            string errorMsg = $"Failed to initialize inference engine: {tempInitError}";
+                            _logger?.LogError(errorMsg);
+
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                LoadingOverlay.Visibility = Visibility.Collapsed;
+                                StatusTextBlock.Text = "Inference initialization failed";
+                                MessageBox.Show(errorMsg, "Inference Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            });
+
+                            return;
+                        }
+
+                        _logger?.LogInfo("Inference engine created successfully");
+
+                        var modelPath = _appSettings?.DefaultModelPath ?? settings?.DefaultModelPath ?? string.Empty;
+                        _logger?.LogInfo($"Model path: {modelPath}");
+
+                        if (!string.IsNullOrWhiteSpace(modelPath))
+                        {
+                            if (!System.IO.File.Exists(modelPath))
+                            {
+                                string errorMsg = $"Model file not found: {modelPath}";
+                                _logger?.LogError(errorMsg);
+
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                                    StatusTextBlock.Text = "Model file not found";
+                                    MessageBox.Show(errorMsg, "Model Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                                });
+
+                                return;
+                            }
+
+                            var logDir = _logger?.GetLogDirectory() ?? System.IO.Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                                "VisionAICam", "Logs");
+
+                            _logger?.LogInfo($"Log directory: {logDir}");
+
+                            if (_inferenceEngine != null)
+                            {
+                                _inferenceEngine.modelPath = modelPath;
+                                _inferenceEngine.logDir = logDir;
+                                _logger?.LogInfo("Inference engine configured with model and log paths");
+                            }
+
+                            _logger?.LogInfo("[STEP-7] Warming up AI model...");
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                StatusTextBlock.Text = "Warming up AI model...";
+                            });
+
+                            try
+                            {
+                                _logger?.LogInfo("Starting model prewarm...");
+                                _inferenceEngine?.PrewarmFirstFrameAsync();
+                                _logger?.LogInfo("Model prewarmed successfully");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.LogWarning($"Model prewarm warning: {ex.Message}");
+                            }
+                        }
+                        else
+                        {
+                            _logger?.LogWarning("No model path configured, skipping model load");
+                        }
+
+                        // 5. Start MJPEG stream reader
+                        _logger?.LogInfo("[STEP-8] Starting video stream...");
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            StatusTextBlock.Text = "Starting video stream...";
+                        });
+
+                        _logger?.LogInfo($"Creating MJPEG reader for {serviceUrl}/stream");
+                        _mjpegReader = new VisionAICam.Helpers.MjpegStreamReader();
+
+                        int frameCount = 0;
+                        var fpsTimer = System.Diagnostics.Stopwatch.StartNew();
+                        BitmapImage? latestFrame = null;
+                        object frameLock = new object();
+                        bool firstFrameReceived = false;
+
+                        // Start stream reader
+                        _logger?.LogInfo("Starting async stream reader...");
+                        _ = _mjpegReader.StartAsync($"{serviceUrl}/stream", frame =>
+                        {
+                            lock (frameLock)
+                            {
+                                latestFrame = frame;
+                                frameCount++;
+
+                                if (!firstFrameReceived)
+                                {
+                                    firstFrameReceived = true;
+                                    _logger?.LogInfo($"✓ FIRST FRAME RECEIVED! (Frame #{frameCount})");
+
+                                    Dispatcher.BeginInvoke(() =>
+                                    {
+                                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                                        StatusTextBlock.Text = "Production running";
+                                        _logger?.LogInfo("Loading overlay hidden, production started");
+                                    });
+                                }
+                                else if (frameCount % 100 == 0) // Log every 100 frames
+                                {
+                                    _logger?.LogInfo($"Received frame #{frameCount}");
+                                }
+                            }
+
+                            // Display frame on UI thread
+                            Dispatcher.BeginInvoke(() =>
+                            {
+                                try
+                                {
+                                    ProductionImage.Source = frame;
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger?.LogError($"Display error: {ex.Message}");
+                                }
+                            });
+                        });
+
+                        _logger?.LogInfo("Stream reader started, waiting for first frame...");
+
+                        // Timeout handler for first frame
+                        _ = Task.Run(async () =>
+                        {
+                            _logger?.LogInfo("Starting 10-second timeout watch for first frame...");
+
+                            for (int i = 1; i <= 10; i++)
+                            {
+                                await Task.Delay(1000);
+
+                                if (firstFrameReceived)
+                                {
+                                    _logger?.LogInfo($"✓ Frame received after {i} seconds");
+                                    return;
+                                }
+
+                                _logger?.LogInfo($"Waiting for frame... {i}/10 seconds (Frames received: {frameCount})");
+                            }
+
+                            if (!firstFrameReceived)
+                            {
+                                _logger?.LogError("=== NO FRAMES RECEIVED AFTER 10 SECONDS ===");
+                                _logger?.LogError($"Total frames received: {frameCount}");
+                                _logger?.LogError($"Stream URL: {serviceUrl}/stream");
+
+                                await Dispatcher.InvokeAsync(() =>
+                                {
+                                    LoadingOverlay.Visibility = Visibility.Collapsed;
+                                    StatusTextBlock.Text = "Waiting for video stream...";
+
+                                    MessageBox.Show(
+                                        $"Camera started but no video frames received after 10 seconds.\n\n" +
+                                        $"Stream URL: {serviceUrl}/stream\n" +
+                                        $"Frames received: {frameCount}\n\n" +
+                                        "Please check:\n" +
+                                        "1. Hikvision Python service is running (python hik_server.py)\n" +
+                                        "2. Camera is properly connected\n" +
+                                        "3. Check Python service console for errors\n" +
+                                        "4. Try restarting the Python service",
+                                        "No Video Stream",
+                                        MessageBoxButton.OK,
+                                        MessageBoxImage.Warning);
+                                });
+                            }
+                        });
+
+                        _logger?.LogInfo("MJPEG stream fully initialized");
+                        _logger?.LogInfo("=== Entering production inference loop ===");
+
+                        // 6. Inference loop (processes frames from stream)
+                        while (!_productionCancelToken.IsCancellationRequested)
+                        {
+                            // Your existing inference loop code here
+                            await Task.Delay(10); // Prevent tight loop
+                        }
+
+                        _logger?.LogInfo("=== Exited production loop ===");
+
+                        // Stop MJPEG stream
+                        _logger?.LogInfo("Stopping MJPEG stream...");
+                        _mjpegReader?.Stop();
+                        _mjpegReader?.Dispose();
+                        _mjpegReader = null;
+                        _logger?.LogInfo("Stream stopped and disposed");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError("=== Hikvision backend failed ===");
+                        _logger?.LogError($"Exception: {ex.Message}");
+                        _logger?.LogError($"Stack trace: {ex.StackTrace}");
+
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            StatusTextBlock.Text = $"Error: {ex.Message}";
+                            MessageBox.Show(
+                                $"Hikvision Production Error:\n\n{ex.Message}",
+                                "Hikvision Error",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Error);
+                        });
+                    }
+                    finally
+                    {
+                        _logger?.LogInfo("Entering cleanup section");
+
+                        // Clean up
+                        try
+                        {
+                            _logger?.LogInfo("Disposing MJPEG reader...");
+                            _mjpegReader?.Stop();
+                            _mjpegReader?.Dispose();
+                            _mjpegReader = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger?.LogError($"MJPEG cleanup failed: {ex.Message}");
                         }
 
                         try
                         {
-                            _inferenceEngine?.PrewarmFirstFrameAsync();
-                            Debug.WriteLine("[HIK-PREWARM] Model prewarmed successfully");
+                            _logger?.LogInfo("Disposing inference engine...");
+                            _inferenceEngine?.Dispose();
+                            _inferenceEngine = null;
                         }
                         catch (Exception ex)
                         {
-                            Debug.WriteLine($"[HIK-PREWARM] Prewarm warning: {ex.Message}");
-                            _logger?.LogWarning($"Model prewarm warning: {ex.Message}");
+                            _logger?.LogError($"Inference cleanup failed: {ex.Message}");
                         }
+
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            _isRunning = false;
+                            if (!StatusTextBlock.Text.StartsWith("Error"))
+                            {
+                                StatusTextBlock.Text = "Stopped";
+                            }
+                            LoadingOverlay.Visibility = Visibility.Collapsed;
+                            _logger?.LogInfo("UI cleaned up, production stopped");
+                        });
+
+                        _logger?.LogInfo("=== Cleanup complete ===");
                     }
+
+                    return;
+                }
+
+                // =================================================================
+                // OPENCV BACKEND
+                // =================================================================
+                _logger?.LogInfo("=== Starting OpenCV backend ===");
+
+                try
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        StatusTextBlock.Text = "Initializing OpenCV camera...";
+                    });
+
+                    _logger?.LogInfo($"Backend = OpenCV");
+                    _logger?.LogInfo($"Camera Index = {opencvIndex}");
+
+                    var options = new CameraOptions
+                    {
+                        Brightness = _appSettings.Brightness,
+                        Contrast = _appSettings.Contrast,
+                        Exposure = _appSettings.Exposure
+                    };
+
+                    _logger?.LogInfo($"Camera options - Brightness: {options.Brightness}, Contrast: {options.Contrast}, Exposure: {options.Exposure}");
+
+                    _camera = CameraFactory.Create(ClearEngine.Devices.Camera.CameraBackend.OpenCv);
+                    _logger?.LogInfo("Camera instance created");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        StatusTextBlock.Text = "Opening camera...";
+                    });
+
+                    _logger?.LogInfo($"Starting camera at index {opencvIndex}...");
+                    _camera.Start(opencvIndex, options);
+
+                    if (!_camera.IsOpened)
+                    {
+                        _logger?.LogError("Camera failed to open");
+                        StatusTextBlock.Text = "Could not open OpenCV camera.";
+                        LoadingOverlay.Visibility = Visibility.Collapsed;
+                        MessageBox.Show(
+                            $"Failed to open camera at index {opencvIndex}.\n\nPlease check:\n1. Camera is connected\n2. Camera index is correct\n3. Camera is not in use by another application",
+                            "Camera Error",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        _camera.Dispose();
+                        _camera = null;
+                        _isRunning = false;
+                        return;
+                    }
+
+                    _logger?.LogInfo("Camera opened successfully");
+
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        StatusTextBlock.Text = "Starting video feed...";
+                    });
+
+                    _logger?.LogInfo("Starting camera thread...");
+                    _cameraThread = new Thread(CameraLoop) { IsBackground = true };
+                    _cameraThread.Start();
+
+                    _logger?.LogInfo("Starting timer...");
+                    StartTimer();
+
+                    // Wait a moment for first frame
+                    _logger?.LogInfo("Waiting 500ms for first frame...");
+                    await Task.Delay(500);
 
                     await Dispatcher.InvokeAsync(() =>
                     {
@@ -386,345 +784,23 @@ namespace VisionAICam.Pages
                         StatusTextBlock.Text = "Production running";
                     });
 
-                    // 5. Start MJPEG stream reader (same as CameraPage)
-                    Debug.WriteLine("[HIK] Starting MJPEG stream...");
-
-                    _mjpegReader = new VisionAICam.Helpers.MjpegStreamReader();
-
-                    int frameCount = 0;
-                    var fpsTimer = System.Diagnostics.Stopwatch.StartNew();
-                    BitmapImage? latestFrame = null;
-                    object frameLock = new object();
-
-                    // Start stream reader
-                    _ = _mjpegReader.StartAsync($"{serviceUrl}/stream", frame =>
-                    {
-                        lock (frameLock)
-                        {
-                            latestFrame = frame;
-                            frameCount++;
-                        }
-
-                        // Display frame on UI thread
-                        Dispatcher.BeginInvoke(() =>
-                        {
-                            try
-                            {
-                                ProductionImage.Source = frame;
-                            }
-                            catch (Exception ex)
-                            {
-                                Debug.WriteLine($"[HIK] Display error: {ex.Message}");
-                            }
-                        });
-                    });
-
-                    Debug.WriteLine("[HIK] MJPEG stream started");
-
-                    // 6. Inference loop (processes frames from stream)
-                    while (!_productionCancelToken.IsCancellationRequested)
-                    {
-                        try
-                        {
-                            BitmapImage? frameToProcess = null;
-
-                            lock (frameLock)
-                            {
-                                frameToProcess = latestFrame;
-                                latestFrame = null; // Clear to avoid processing same frame twice
-                            }
-
-                            if (frameToProcess == null)
-                            {
-                                await Task.Delay(10, _productionCancelToken);
-                                continue;
-                            }
-
-                            // Convert BitmapImage to byte array for inference
-                            byte[]? frameBytes = null;
-
-                            await Dispatcher.InvokeAsync(() =>
-                            {
-                                try
-                                {
-                                    var encoder = new JpegBitmapEncoder();
-                                    encoder.Frames.Add(BitmapFrame.Create(frameToProcess));
-
-                                    using var ms = new System.IO.MemoryStream();
-                                    encoder.Save(ms);
-                                    frameBytes = ms.ToArray();
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug.WriteLine($"[HIK] Frame encode error: {ex.Message}");
-                                }
-                            });
-
-                            if (frameBytes == null || frameBytes.Length == 0)
-                            {
-                                await Task.Delay(10, _productionCancelToken);
-                                continue;
-                            }
-
-                            // Run inference if model is configured
-                            if (!string.IsNullOrEmpty(modelPath) && _inferenceEngine != null)
-                            {
-                                ClearEngine.Model.Inference.InferenceResponse? inferenceResponse = null;
-
-                                try
-                                {
-                                    inferenceResponse = _inferenceEngine?.DetectHikvisionWithError(frameBytes, modelPath, _logDir);
-
-                                    if (inferenceResponse?.Error != null)
-                                    {
-                                        Debug.WriteLine($"[PREDICT] Inference failed: {inferenceResponse.Error.ErrorType} - {inferenceResponse.Error.Message}");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Debug.WriteLine($"[PREDICT] Exception: {ex.Message}");
-                                    _logger?.LogError($"Inference error: {ex}");
-
-                                    await Dispatcher.InvokeAsync(() =>
-                                    {
-                                        DrawBoundingBoxes(Array.Empty<DetectionResult>());
-                                        UpdateFrameSummary(Array.Empty<DetectionResult>());
-                                        StatusTextBlock.Text = $"Inference error: {ex.Message}";
-                                    });
-
-                                    await Task.Delay(1000, _productionCancelToken);
-                                    continue;
-                                }
-
-                                if (inferenceResponse == null || !inferenceResponse.Success)
-                                {
-                                    await Dispatcher.InvokeAsync(() =>
-                                    {
-                                        DrawBoundingBoxes(Array.Empty<DetectionResult>());
-                                        UpdateFrameSummary(Array.Empty<DetectionResult>());
-                                    });
-
-                                    await Task.Delay(100, _productionCancelToken);
-                                    continue;
-                                }
-
-                                var raw = inferenceResponse.Detections;
-
-                                if (raw == null || raw.Length == 0)
-                                {
-                                    await Dispatcher.InvokeAsync(() =>
-                                    {
-                                        DrawBoundingBoxes(Array.Empty<DetectionResult>());
-                                        UpdateFrameSummary(Array.Empty<DetectionResult>());
-
-                                        if (fpsTimer.Elapsed.TotalSeconds >= 1.0)
-                                        {
-                                            double fps = frameCount / fpsTimer.Elapsed.TotalSeconds;
-                                            StatusTextBlock.Text = $"No detections | FPS: {fps:F1}";
-                                            frameCount = 0;
-                                            fpsTimer.Restart();
-                                        }
-                                    });
-                                }
-                                else
-                                {
-                                    var mappedDetections = raw.Select(r => new DetectionResult
-                                    {
-                                        ClassName = r.ClassName ?? string.Empty,
-                                        Confidence = r.Confidence,
-                                        Box = r.Box ?? string.Empty,
-                                        Task = r.Task ?? string.Empty,
-                                        Timestamp = DateTime.Now
-                                    }).ToArray();
-
-                                    await Dispatcher.InvokeAsync(() =>
-                                    {
-                                        try
-                                        {
-                                            DrawBoundingBoxes(mappedDetections);
-                                            UpdateFrameSummary(mappedDetections);
-
-                                            if (fpsTimer.Elapsed.TotalSeconds >= 1.0)
-                                            {
-                                                double fps = frameCount / fpsTimer.Elapsed.TotalSeconds;
-                                                StatusTextBlock.Text = $"Detections: {mappedDetections.Length} | FPS: {fps:F1}";
-                                                frameCount = 0;
-                                                fpsTimer.Restart();
-                                            }
-                                            else
-                                            {
-                                                StatusTextBlock.Text = $"Detections: {mappedDetections.Length}";
-                                            }
-                                        }
-                                        catch (Exception drawEx)
-                                        {
-                                            Debug.WriteLine($"[DRAW] Error: {drawEx.Message}");
-                                        }
-                                    });
-
-                                    // Save detection results
-                                    try
-                                    {
-                                        MasterController.Instance.AddDetectionResults(mappedDetections);
-
-                                        var store = MasterController.Instance.GetService<VisionAICam.Services.PredictionStore>();
-                                        if (store != null)
-                                            _ = store.ReplaceDetectionResultsDeltaAsync(mappedDetections);
-                                        else
-                                            _ = VisionAICam.Services.PredictionStore.Instance.ReplaceDetectionResultsDeltaAsync(mappedDetections);
-                                    }
-                                    catch (Exception storeEx)
-                                    {
-                                        _logger?.LogError($"Failed to persist predictions: {storeEx}");
-                                    }
-
-                                    // Send to robot if configured
-                                    if (mappedDetections.Length > 0)
-                                    {
-                                        var firstClassName = mappedDetections[0].ClassName;
-                                        _ = Task.Run(() => SendFirstDetectionToRobotUsingServiceAsync(firstClassName));
-                                    }
-
-                                    // Auto-snapshot if enabled
-                                    if (_appSettings?.EnableAutoSnapshot == true && frameToProcess != null)
-                                    {
-                                        try
-                                        {
-                                            string topClass = mappedDetections.FirstOrDefault()?.ClassName ?? "Unknown";
-                                            _ = SaveDetectionSnapshot(frameToProcess, frameCount, topClass, mappedDetections.Length);
-                                        }
-                                        catch (Exception snapEx)
-                                        {
-                                            Debug.WriteLine($"[SNAPSHOT] Failed: {snapEx.Message}");
-                                        }
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                // No inference - just display FPS
-                                await Dispatcher.InvokeAsync(() =>
-                                {
-                                    if (fpsTimer.Elapsed.TotalSeconds >= 1.0)
-                                    {
-                                        double fps = frameCount / fpsTimer.Elapsed.TotalSeconds;
-                                        StatusTextBlock.Text = $"Live view (no model) | FPS: {fps:F1}";
-                                        frameCount = 0;
-                                        fpsTimer.Restart();
-                                    }
-                                });
-                            }
-
-                            // Small delay to control processing rate
-                            await Task.Delay(10, _productionCancelToken);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            Debug.WriteLine("[HIK-LOOP] Operation cancelled");
-                            break;
-                        }
-                        catch (Exception loopEx)
-                        {
-                            Debug.WriteLine($"[HIK-LOOP] Error: {loopEx.Message}");
-                            _logger?.LogError($"Hikvision loop error: {loopEx}");
-                            await Task.Delay(1000, _productionCancelToken);
-                        }
-                    }
-
-                    Debug.WriteLine($"[HIK-LOOP] Exited production loop");
-
-                    // Stop MJPEG stream
-                    _mjpegReader?.Stop();
-                    _mjpegReader?.Dispose();
-                    _mjpegReader = null;
+                    _logger?.LogInfo("=== OpenCV production started successfully ===");
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[PRODUCTION] Hikvision error: {ex.Message}");
-                    _logger?.LogError($"Hikvision backend error: {ex}");
+                    _logger?.LogError("=== OpenCV start failed ===");
+                    _logger?.LogError($"Exception: {ex.Message}");
+                    _logger?.LogError($"Stack trace: {ex.StackTrace}");
 
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        StatusTextBlock.Text = $"Error: {ex.Message}";
-                        MessageBox.Show(
-                            $"Hikvision Production Error:\n\n{ex.Message}",
-                            "Hikvision Error",
-                            MessageBoxButton.OK,
-                            MessageBoxImage.Error);
-                    });
-                }
-                finally
-                {
-                    // Clean up
-                    try
-                    {
-                        _mjpegReader?.Stop();
-                        _mjpegReader?.Dispose();
-                        _mjpegReader = null;
-                    }
-                    catch { }
-
-                    try
-                    {
-                        _inferenceEngine?.Dispose();
-                        _inferenceEngine = null;
-                    }
-                    catch { }
-
-                    await Dispatcher.InvokeAsync(() =>
-                    {
-                        _isRunning = false;
-                        if (!StatusTextBlock.Text.StartsWith("Error"))
-                        {
-                            StatusTextBlock.Text = "Stopped";
-                        }
-                        LoadingOverlay.Visibility = Visibility.Collapsed;
-                    });
-                }
-
-                return;
-            }
-
-            // =================================================================
-            // OPENCV BACKEND
-            // =================================================================
-            try
-            {
-                Debug.WriteLine($"[START] Backend = OpenCV");
-                Debug.WriteLine($"[START] OpenCV Index = {opencvIndex}");
-
-                var options = new CameraOptions
-                {
-                    Brightness = _appSettings.Brightness,
-                    Contrast = _appSettings.Contrast,
-                    Exposure = _appSettings.Exposure
-                };
-
-                _camera = CameraFactory.Create(ClearEngine.Devices.Camera.CameraBackend.OpenCv);
-                _camera.Start(opencvIndex, options);
-
-                if (!_camera.IsOpened)
-                {
-                    StatusTextBlock.Text = "Could not open OpenCV camera.";
-                    LoadingOverlay.Visibility = Visibility.Collapsed;
-                    _camera.Dispose();
-                    _camera = null;
+                    MessageBox.Show($"OpenCV start failed: {ex.Message}", "OpenCV Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     _isRunning = false;
-                    return;
+                    LoadingOverlay.Visibility = Visibility.Collapsed;
                 }
-
-                _cameraThread = new Thread(CameraLoop) { IsBackground = true };
-                _cameraThread.Start();
-                StartTimer();
-
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                StatusTextBlock.Text = "OpenCV production started";
             }
-            catch (Exception ex)
+            finally
             {
-                MessageBox.Show($"OpenCV start failed: {ex.Message}", "OpenCV", MessageBoxButton.OK, MessageBoxImage.Error);
-                _isRunning = false;
-                LoadingOverlay.Visibility = Visibility.Collapsed;
+                _logger?.LogInfo("Releasing start lock");
+                _startLock.Release();
             }
         }
 

@@ -243,11 +243,78 @@ namespace VisionAICam.Pages
             {
                 using var searcher = new ManagementObjectSearcher(
                     "SELECT * FROM Win32_PnPEntity WHERE (PNPClass = 'Image' OR PNPClass = 'Camera')");
+
                 foreach (ManagementObject device in searcher.Get())
                 {
                     var name = device["Name"]?.ToString();
-                    if (!string.IsNullOrEmpty(name))
+                    var deviceId = device["DeviceID"]?.ToString();
+                    var manufacturer = device["Manufacturer"]?.ToString();
+                    var status = device["Status"]?.ToString();
+
+                    if (string.IsNullOrEmpty(name))
+                        continue;
+
+                    string nameLower = name.ToLower();
+                    string mfgLower = manufacturer?.ToLower() ?? "";
+
+                    // ✅ กรองออก: Printer brands (Brother, HP, Canon, Epson, etc.)
+                    if (nameLower.Contains("brother") ||
+                        nameLower.Contains("dcp") ||
+                        nameLower.Contains("printer") ||
+                        nameLower.Contains("scanner") ||
+                        nameLower.Contains("fax") ||
+                        nameLower.Contains("print") ||
+                        mfgLower.Contains("brother") ||
+                        mfgLower.Contains("hewlett") ||
+                        mfgLower.Contains("canon") ||
+                        mfgLower.Contains("epson"))
+                        continue;
+
+                    // ✅ กรองออก: Virtual/Software cameras
+                    if (nameLower.Contains("idea") ||
+                        nameLower.Contains("ideacamera") ||
+                        nameLower.Contains("app)") ||
+                        nameLower.Contains("virtual") ||
+                        nameLower.Contains("obs") ||
+                        nameLower.Contains("snap") ||
+                        nameLower.Contains("manycam") ||
+                        nameLower.Contains("xsplit"))
+                        continue;
+
+                    // ✅ กรองออก: IR/Infrared cameras
+                    if (nameLower.Contains("infrared") ||
+                        nameLower.Contains("ir_camera") ||
+                        nameLower.Contains("ir camera") ||
+                        nameLower.Contains("user facing") ||
+                        nameLower.Contains("azurewave") ||
+                        nameLower.Contains("ov9734"))
+                        continue;
+
+                    // ✅ กรองออก: Driver-only devices
+                    if (nameLower.Contains("driver") ||
+                        nameLower.Contains("composite"))
+                        continue;
+
+                    // ✅ ตรวจสอบว่าอุปกรณ์พร้อมใช้งาน
+                    if (status != null && status != "OK")
+                        continue;
+
+                    // ✅ เลือกเฉพาะ: อุปกรณ์ที่มีคำว่า camera/webcam/video หรือเป็น USB device
+                    bool isLikelyCamera =
+                        nameLower.Contains("camera") ||
+                        nameLower.Contains("webcam") ||
+                        nameLower.Contains("cam") ||
+                        (nameLower.Contains("video") && !nameLower.Contains("composite")) ||
+                        (deviceId != null && deviceId.Contains("USB\\VID_"));
+
+                    // ✅ ยกเว้น: USB Composite Device
+                    if (nameLower.Contains("usb") && nameLower.Contains("composite"))
+                        continue;
+
+                    if (isLikelyCamera)
+                    {
                         CameraComboBox.Items.Add(new ComboBoxItem { Content = name });
+                    }
                 }
             }
             catch { }

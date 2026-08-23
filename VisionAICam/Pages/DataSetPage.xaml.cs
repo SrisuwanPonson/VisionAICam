@@ -154,6 +154,13 @@ namespace VisionAICam.Pages
         private double _autoCannyThresh2 = 150.0;   // Canny threshold 2
         private double _autoMinContourArea = 100.0; // Minimum contour area
         private double _autoBlurKernel = 5.0;       // Blur kernel size
+
+        // Find the existing field declarations section and ADD these new fields:
+        private ShapeInfo? _hoveredShapeInfo = null;
+        private bool _isEditMode = false;
+        private System.Windows.Threading.DispatcherTimer? _blinkTimer = null;
+        private bool _blinkState = false;
+        private Border? _editOptionsPanel = null;
         public DataSetPage()
         {
             InitializeComponent();
@@ -784,12 +791,64 @@ namespace VisionAICam.Pages
 
             if (!IsPointInImageBounds(pt))
             {
-                SetStatus("Click inside the image to annotate.");
+                SetStatus("⚠️ Click inside the image to annotate");
                 _mouseLeftDown = false;
                 return;
             }
 
-            // Check if clicking on a handle (start reshape immediately)
+            // EDIT MODE
+            if (_isEditMode && _activeShapeInfo != null)
+            {
+                // Check resize handles first
+                foreach (var handle in _handles)
+                {
+                    if (IsPointOverHandle(pt, handle))
+                    {
+                        _activeHandle = handle;
+                        if (handle.Tag is HitType ht) _currentHit = ht;
+                        else if (handle.Tag is PolygonVertexHit pvh) _currentHit = HitType.Body;
+                        _reshapeShapeInfo = _activeShapeInfo;
+                        BoundingBoxCanvas.CaptureMouse();
+                        SetStatus($"🔄 RESIZING: '{_activeShapeInfo.Metadata?.Label}' | Drag to resize | Release to finish");
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
+                // Check if clicked inside shape (for moving)
+                bool clickedInsideShape = false;
+
+                if (_activeShapeInfo.Shape is Rectangle rect)
+                {
+                    double left = Canvas.GetLeft(rect);
+                    double top = Canvas.GetTop(rect);
+                    double right = left + rect.Width;
+                    double bottom = top + rect.Height;
+
+                    clickedInsideShape = pt.X >= left && pt.X <= right && pt.Y >= top && pt.Y <= bottom;
+                }
+                else if (_activeShapeInfo.Shape.IsMouseOver)
+                {
+                    clickedInsideShape = true;
+                }
+
+                if (clickedInsideShape)
+                {
+                    _isDraggingShape = true;
+                    _dragStartPoint = pt;
+                    BoundingBoxCanvas.CaptureMouse();
+                    BoundingBoxCanvas.Cursor = Cursors.SizeAll;
+                    SetStatus($"📦 MOVING: '{_activeShapeInfo.Metadata?.Label}' | Drag to move | Release to finish");
+                    e.Handled = true;
+                    return;
+                }
+                else
+                {
+                    ExitEditMode();
+                }
+            }
+
+            // Check handles (non-edit mode)
             foreach (var handle in _handles)
             {
                 if (IsPointOverHandle(pt, handle))
@@ -799,21 +858,35 @@ namespace VisionAICam.Pages
                     else if (handle.Tag is PolygonVertexHit pvh) _currentHit = HitType.Body;
                     _reshapeShapeInfo = _activeShapeInfo;
                     BoundingBoxCanvas.CaptureMouse();
-                    SetStatus("Reshape started.");
+                    SetStatus("🔄 Reshape started | Drag handle to resize");
                     e.Handled = true;
                     return;
                 }
             }
 
-            // DELAYED DRAG: remember candidate shape under cursor
-            if (!_isDrawing)
+            // Click on shape = enter edit mode
+            if (!_isDrawing && _activeHandle == null && !_isEditMode)
+            {
+                var clickedShape = _shapeInfos.LastOrDefault(info =>
+                    info.Shape.IsMouseOver || info.LabelBlock?.IsMouseOver == true);
+
+                if (clickedShape != null)
+                {
+                    EnterEditMode(clickedShape);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // NORMAL MODE: Delayed drag
+            if (!_isDrawing && !_isEditMode)
             {
                 _pendingShapeInfo = _shapeInfos.LastOrDefault(info =>
-                    info.Shape.IsMouseOver || info.LabelBlock.IsMouseOver);
+                    info.Shape.IsMouseOver || info.LabelBlock?.IsMouseOver == true);
 
                 if (_pendingShapeInfo != null)
                 {
-                    SetStatus("Hold and move to start dragging the shape.");
+                    SetStatus($"👆 Click detected on '{_pendingShapeInfo.Metadata?.Label}' | Hold and move to drag");
                     BoundingBoxCanvas.CaptureMouse();
                     e.Handled = true;
                     return;
@@ -821,8 +894,6 @@ namespace VisionAICam.Pages
                 else
                 {
                     RemoveResizeHandles();
-
-                    // ⭐ NEW: Clear table selection when clicking empty space
                     if (AnnotationListView != null)
                     {
                         AnnotationListView.SelectedItem = null;
@@ -830,13 +901,13 @@ namespace VisionAICam.Pages
                 }
             }
 
-            // ⭐⭐⭐ MISSING CODE: Start new drawing! ⭐⭐⭐
+            // Start drawing
             if (!_isDrawing && LabelingImage?.Source != null)
             {
                 string label = LabelComboBox?.SelectedItem?.ToString();
                 if (string.IsNullOrWhiteSpace(label))
                 {
-                    SetStatus("Please select a class label first.");
+                    SetStatus("⚠️ Please select a class label first");
                     return;
                 }
 
@@ -847,18 +918,18 @@ namespace VisionAICam.Pages
                     case DrawingMode.Rectangle:
                         StartRectangle(pt, label);
                         BoundingBoxCanvas.CaptureMouse();
-                        SetStatus($"Drawing rectangle for '{label}'. Drag to size, release to finish.");
+                        SetStatus($"✏️ DRAWING Rectangle: '{label}' | Drag to size | Release to finish");
                         break;
 
                     case DrawingMode.Polygon:
                         StartPolygon(pt, label);
-                        SetStatus($"Drawing polygon for '{label}'. Click to add points, Space/Right-click to finish.");
+                        SetStatus($"✏️ DRAWING Polygon: '{label}' | Click to add points | Space/Right-click to finish");
                         break;
 
                     case DrawingMode.FreePen:
                         StartFreePen(pt, label);
                         BoundingBoxCanvas.CaptureMouse();
-                        SetStatus($"Drawing free-pen for '{label}'. Drag to draw, release/Right-click to finish.");
+                        SetStatus($"✏️ DRAWING Free-pen: '{label}' | Drag to draw | Release/Right-click to finish");
                         break;
                 }
 
@@ -866,10 +937,9 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            // Handle subsequent polygon clicks (add point)
             if (_isDrawing && _currentDrawingMode == DrawingMode.Polygon)
             {
-                StartPolygon(pt, string.Empty); // label already set
+                StartPolygon(pt, string.Empty);
                 e.Handled = true;
             }
         }
@@ -1655,7 +1725,7 @@ namespace VisionAICam.Pages
         // Replace the ENTIRE BoundingBoxCanvas_MouseMove method (lines 1148-1265) with this:
         private void BoundingBoxCanvas_MouseMove(object sender, MouseEventArgs e)
         {
-            // If we are middle-panning, handle it and skip other pointer logic
+            // Middle-pan handling
             if (_isMiddlePanning && e.MiddleButton == MouseButtonState.Pressed && _panTransform != null)
             {
                 var current = e.GetPosition(this);
@@ -1666,30 +1736,75 @@ namespace VisionAICam.Pages
                 return;
             }
 
-            // Use unscaled logical position so drawing calculations ignore zoom
             SWPoint pt = GetMousePointUnscaled();
             SWPoint clampedPt = ClampPointToImage(pt);
 
-            // ===== DRAWING MODE HANDLING =====
+            // ⭐ EDIT MODE DRAG: Immediate, smooth dragging
+            // ⭐ ส่วน EDIT MODE DRAG ใน MouseMove
+            if (_isEditMode && _isDraggingShape && _activeShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
+            {
+                Vector delta = new Vector(pt.X - _dragStartPoint.X, pt.Y - _dragStartPoint.Y);
+
+                Debug.WriteLine($"[DRAG] pt=({pt.X},{pt.Y}), start=({_dragStartPoint.X},{_dragStartPoint.Y}), delta=({delta.X},{delta.Y})");
+
+                if (Math.Abs(delta.X) > 0.1 || Math.Abs(delta.Y) > 0.1) // มีการเคลื่อนที่จริงๆ
+                {
+                    MoveShapeAndLabel(_activeShapeInfo, delta);
+                    UpdateEditPanelPosition(_activeShapeInfo);
+                    _dragStartPoint = pt; // ⭐ สำคัญมาก! อัพเดท start point
+                }
+
+                BoundingBoxCanvas.Cursor = Cursors.SizeAll;
+                e.Handled = true;
+                return;
+            }
+
+            // ในส่วน RESIZE ของ MouseMove
+            if (_activeHandle != null && _reshapeShapeInfo != null)
+            {
+                if (_reshapeShapeInfo.Shape is Polyline polyShape && _activeHandle.Tag is PolygonVertexHit vertexHit)
+                {
+                    if (vertexHit.VertexIndex >= 0 && vertexHit.VertexIndex < polyShape.Points.Count)
+                    {
+                        polyShape.Points[vertexHit.VertexIndex] = clampedPt;
+                        Canvas.SetLeft(_activeHandle, clampedPt.X - _activeHandle.Width / 2);
+                        Canvas.SetTop(_activeHandle, clampedPt.Y - _activeHandle.Height / 2);
+
+                        if (_reshapeShapeInfo.Record?.Points != null && vertexHit.VertexIndex < _reshapeShapeInfo.Record.Points.Count)
+                        {
+                            _reshapeShapeInfo.Record.Points[vertexHit.VertexIndex] = clampedPt;
+                        }
+                    }
+                    // ไม่ต้องอัพเดท status บ่อยเกินไป (จะกระพริบ)
+                    e.Handled = true;
+                    return;
+                }
+                else if (_currentHit != HitType.None && _reshapeShapeInfo.Shape is Rectangle)
+                {
+                    ResizeRectangle(_reshapeShapeInfo, _currentHit, pt);
+                    RefreshHandles(_reshapeShapeInfo);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // Drawing mode handling
             if (_isDrawing && _currentDrawingShapeInfo != null)
             {
                 if (_currentDrawingMode == DrawingMode.Rectangle)
                 {
-                    // Rectangle: continuously update size while dragging
                     UpdateRectangle(clampedPt);
                     e.Handled = true;
                     return;
                 }
                 else if (_currentDrawingMode == DrawingMode.Polygon)
                 {
-                    // Polygon: update the preview line (last point follows mouse)
                     updatePolygon(clampedPt);
                     e.Handled = true;
                     return;
                 }
                 else if (_currentDrawingMode == DrawingMode.FreePen && e.LeftButton == MouseButtonState.Pressed)
                 {
-                    // FreePen: add points continuously while dragging
                     if (_currentDrawingShapeInfo.Shape is Polyline poly)
                     {
                         poly.Points.Add(clampedPt);
@@ -1700,161 +1815,731 @@ namespace VisionAICam.Pages
                 }
             }
 
-            // ===== HANDLE RESHAPE/RESIZE =====
-            if (_activeHandle != null && _reshapeShapeInfo != null)
-            {
-                if (_reshapeShapeInfo.Shape is Polyline polyShape && _activeHandle.Tag is PolygonVertexHit vertexHit)
-                {
-                    // Polygon/FreePen vertex dragging
-                    if (vertexHit.VertexIndex >= 0 && vertexHit.VertexIndex < polyShape.Points.Count)
-                    {
-                        polyShape.Points[vertexHit.VertexIndex] = clampedPt;
-                        Canvas.SetLeft(_activeHandle, clampedPt.X - _activeHandle.Width / 2);
-                        Canvas.SetTop(_activeHandle, clampedPt.Y - _activeHandle.Height / 2);
-                    }
-                    e.Handled = true;
-                    return;
-                }
-                else if (_currentHit != HitType.None && _reshapeShapeInfo.Shape is Rectangle)
-                {
-                    // Rectangle corner/edge dragging
-                    ResizeRectangle(_reshapeShapeInfo, _currentHit, pt);
-                    RefreshHandles(_reshapeShapeInfo);
-                    e.Handled = true;
-                    return;
-                }
-            }
-
-            // ===== HANDLE SHAPE DRAGGING =====
-            // Delayed drag start (clicked on shape but not moving yet)
-            if (_pendingShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
+            // ⭐ NORMAL MODE DRAG: Delayed drag with threshold
+            if (!_isEditMode && _pendingShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
             {
                 Vector delta = new Vector(pt.X - _mouseDownPoint.X, pt.Y - _mouseDownPoint.Y);
                 double distance = Math.Sqrt(delta.X * delta.X + delta.Y * delta.Y);
 
-                if (distance > 3.0)
+                if (distance > 3.0) // Threshold for normal mode
                 {
                     _isDraggingShape = true;
                     _activeShapeInfo = _pendingShapeInfo;
                     _dragStartPoint = _mouseDownPoint;
                     _pendingShapeInfo = null;
-                    SetStatus($"Dragging {_activeShapeInfo.Metadata.Label}.");
+                    BoundingBoxCanvas.Cursor = Cursors.Hand; // Different cursor for normal mode
+                    SetStatus($"[NORMAL MODE] Dragging {_activeShapeInfo.Metadata.Label}");
                 }
                 e.Handled = true;
                 return;
             }
 
-            // Active shape dragging
-            if (_isDraggingShape && _activeShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
+            // ในส่วน EDIT MODE DRAG
+            if (_isEditMode && _isDraggingShape && _activeShapeInfo != null && e.LeftButton == MouseButtonState.Pressed)
             {
                 Vector delta = new Vector(pt.X - _dragStartPoint.X, pt.Y - _dragStartPoint.Y);
-                MoveShapeAndLabel(_activeShapeInfo, delta);
-                _dragStartPoint = pt;
+
+                if (Math.Abs(delta.X) > 0.1 || Math.Abs(delta.Y) > 0.1)
+                {
+                    MoveShapeAndLabel(_activeShapeInfo, delta);
+                    UpdateEditPanelPosition(_activeShapeInfo);
+                    _dragStartPoint = pt;
+                }
+
+                BoundingBoxCanvas.Cursor = Cursors.SizeAll;
+                // ไม่ต้องอัพเดท status บ่อยเกินไป
                 e.Handled = true;
                 return;
             }
 
-            // Mouse button released during drag - finalize
             if (_isDraggingShape && e.LeftButton == MouseButtonState.Released)
             {
                 _isDraggingShape = false;
                 if (_activeShapeInfo != null)
                 {
                     UpdateAnnotationRecordFromShape(_activeShapeInfo);
-                    RefreshAnnotations();
-                    SetStatus("Shape moved.");
-                    _activeShapeInfo = null;
+
+                    if (_isEditMode)
+                    {
+                        // ⭐ Edit mode: Stay in edit mode after drag
+                        SetStatus($"[EDIT MODE] Moved '{_activeShapeInfo.Metadata?.Label}' - Still in edit mode");
+                        BoundingBoxCanvas.Cursor = Cursors.Hand;
+                    }
+                    else
+                    {
+                        // Normal mode: Exit after drag
+                        RefreshAnnotations();
+                        SetStatus("[NORMAL MODE] Shape moved");
+                        _activeShapeInfo = null;
+                        BoundingBoxCanvas.Cursor = Cursors.Cross;
+                    }
                 }
                 BoundingBoxCanvas.ReleaseMouseCapture();
                 e.Handled = true;
             }
+
+            // Hover detection (only in normal mode)
+            if (!_isDrawing && !_isDraggingShape && _reshapeShapeInfo == null && !_isEditMode && _activeHandle == null)
+            {
+                var shapeUnderMouse = _shapeInfos.LastOrDefault(info =>
+                    info.Shape.IsMouseOver || info.LabelBlock?.IsMouseOver == true);
+
+                if (shapeUnderMouse != null && shapeUnderMouse != _hoveredShapeInfo)
+                {
+                    RemoveHoverHighlight();
+                    _hoveredShapeInfo = shapeUnderMouse;
+                    ApplyHoverHighlight(_hoveredShapeInfo);
+                    BoundingBoxCanvas.Cursor = Cursors.Hand;
+                }
+                else if (shapeUnderMouse == null && _hoveredShapeInfo != null)
+                {
+                    RemoveHoverHighlight();
+                    _hoveredShapeInfo = null;
+                    BoundingBoxCanvas.Cursor = Cursors.Cross;
+                }
+            }
+            else
+            {
+                if (_hoveredShapeInfo != null)
+                {
+                    RemoveHoverHighlight();
+                    _hoveredShapeInfo = null;
+                }
+            }
         }
+        // ⭐ NEW: Update edit panel position to follow the shape
+        private void UpdateEditPanelPosition(ShapeInfo info)
+        {
+            if (_editOptionsPanel == null || info?.Shape == null) return;
+
+            double x = 10, y = 10;
+
+            if (info.Shape is Rectangle rect)
+            {
+                x = Canvas.GetLeft(rect) + rect.Width + 10;
+                y = Canvas.GetTop(rect);
+            }
+            else if (info.Shape is Polyline poly && poly.Points.Count > 0)
+            {
+                x = poly.Points.Max(p => p.X) + 10;
+                y = poly.Points.Min(p => p.Y);
+            }
+            else if (info.Shape is Polygon polygon && polygon.Points.Count > 0)
+            {
+                x = polygon.Points.Max(p => p.X) + 10;
+                y = polygon.Points.Min(p => p.Y);
+            }
+
+            Canvas.SetLeft(_editOptionsPanel, x);
+            Canvas.SetTop(_editOptionsPanel, y);
+        }
+        #region Boundary Editing Feature
+
+        // ⭐ NEW: Apply blinking/glowing hover effect
+        private void ApplyHoverHighlight(ShapeInfo info)
+        {
+            if (info?.Shape == null) return;
+
+            // Start blinking animation
+            _blinkState = false;
+            _blinkTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(400)
+            };
+            _blinkTimer.Tick += (s, e) =>
+            {
+                _blinkState = !_blinkState;
+                if (_blinkState)
+                {
+                    // Glow ON
+                    info.Shape.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                    {
+                        Color = Colors.Yellow,
+                        BlurRadius = 15,
+                        ShadowDepth = 0,
+                        Opacity = 0.9
+                    };
+
+                    if (info.Shape is Rectangle rect)
+                        rect.StrokeThickness = 3;
+                    else if (info.Shape is Polyline poly)
+                        poly.StrokeThickness = 3;
+                    else if (info.Shape is Polygon polygon)
+                        polygon.StrokeThickness = 3;
+                }
+                else
+                {
+                    // Glow OFF
+                    info.Shape.Effect = null;
+                    if (info.Shape is Rectangle rect)
+                        rect.StrokeThickness = 2;
+                    else if (info.Shape is Polyline poly)
+                        poly.StrokeThickness = 2;
+                    else if (info.Shape is Polygon polygon)
+                        polygon.StrokeThickness = 2;
+                }
+            };
+            _blinkTimer.Start();
+
+            // Show tooltip with edit hint
+            SetStatus($"Click to edit '{info.Metadata?.Label}' boundary • Double-click for quick options");
+        }
+
+        // ⭐ NEW: Remove hover highlight
+        private void RemoveHoverHighlight()
+        {
+            if (_blinkTimer != null)
+            {
+                _blinkTimer.Stop();
+                _blinkTimer = null;
+            }
+
+            if (_hoveredShapeInfo?.Shape != null)
+            {
+                _hoveredShapeInfo.Shape.Effect = null;
+
+                if (_hoveredShapeInfo.Shape is Rectangle rect)
+                    rect.StrokeThickness = 2;
+                else if (_hoveredShapeInfo.Shape is Polyline poly)
+                    poly.StrokeThickness = 2;
+                else if (_hoveredShapeInfo.Shape is Polygon polygon)
+                    polygon.StrokeThickness = 2;
+            }
+        }
+
+        // ⭐ UPDATED: Enter edit mode with enhanced resize support
+        private void EnterEditMode(ShapeInfo shapeInfo)
+        {
+            ExitEditMode();
+
+            _isEditMode = true;
+            _activeShapeInfo = shapeInfo;
+
+            RemoveHoverHighlight();
+            ApplyEditHighlight(shapeInfo);
+
+            if (shapeInfo.Shape is Rectangle)
+            {
+                AddResizeHandles(shapeInfo);
+                SetStatus($"🔧 EDIT MODE: '{shapeInfo.Metadata?.Label}' | Drag corners = Resize | Drag center = Move | ESC = Exit");
+            }
+            else if (shapeInfo.Shape is Polyline || shapeInfo.Shape is Polygon)
+            {
+                AddPolygonHandles(shapeInfo);
+                SetStatus($"🔧 EDIT MODE: '{shapeInfo.Metadata?.Label}' | Drag vertices = Reshape | Drag body = Move | ESC = Exit");
+            }
+
+            if (AnnotationListView != null && shapeInfo.Record != null)
+            {
+                AnnotationListView.SelectedItem = shapeInfo.Record;
+                AnnotationListView.ScrollIntoView(shapeInfo.Record);
+            }
+
+            ShowEditOptionsPanel(shapeInfo);
+        }
+
+        #region Enhanced Resize Functionality for Edit Mode
+
+        // ⭐ NEW: Check if mouse is over shape body (for moving entire shape)
+        private bool IsMouseOverShapeBody(ShapeInfo info, SWPoint pt)
+        {
+            if (info?.Shape == null) return false;
+
+            if (info.Shape is Rectangle rect)
+            {
+                double left = Canvas.GetLeft(rect);
+                double top = Canvas.GetTop(rect);
+                double right = left + rect.Width;
+                double bottom = top + rect.Height;
+
+                // Add margin around handles so we can distinguish body from handles
+                double margin = _handleSize;
+                return pt.X > left + margin && pt.X < right - margin &&
+                       pt.Y > top + margin && pt.Y < bottom - margin;
+            }
+            else if (info.Shape is Polygon polygon)
+            {
+                return IsPointInPolygon(pt, polygon.Points.ToList());
+            }
+            else if (info.Shape is Polyline polyline)
+            {
+                // Check if point is near any line segment
+                var points = polyline.Points.ToList();
+                for (int i = 0; i < points.Count - 1; i++)
+                {
+                    double dist = DistanceToLineSegment(pt, points[i], points[i + 1]);
+                    if (dist < 5.0) return true; // 5 pixel tolerance
+                }
+            }
+
+            return false;
+        }
+
+        // Helper: Point-in-polygon test
+        private bool IsPointInPolygon(SWPoint point, List<SWPoint> polygon)
+        {
+            int count = polygon.Count;
+            if (count < 3) return false;
+
+            bool inside = false;
+            SWPoint p1 = polygon[0];
+
+            for (int i = 1; i <= count; i++)
+            {
+                SWPoint p2 = polygon[i % count];
+
+                if (point.Y > Math.Min(p1.Y, p2.Y))
+                {
+                    if (point.Y <= Math.Max(p1.Y, p2.Y))
+                    {
+                        if (point.X <= Math.Max(p1.X, p2.X))
+                        {
+                            double xIntersection = (point.Y - p1.Y) * (p2.X - p1.X) / (p2.Y - p1.Y) + p1.X;
+
+                            if (p1.X == p2.X || point.X <= xIntersection)
+                                inside = !inside;
+                        }
+                    }
+                }
+
+                p1 = p2;
+            }
+
+            return inside;
+        }
+
+        // Helper: Distance from point to line segment
+        private double DistanceToLineSegment(SWPoint p, SWPoint lineStart, SWPoint lineEnd)
+        {
+            double dx = lineEnd.X - lineStart.X;
+            double dy = lineEnd.Y - lineStart.Y;
+
+            if (dx == 0 && dy == 0)
+                return Math.Sqrt(Math.Pow(p.X - lineStart.X, 2) + Math.Pow(p.Y - lineStart.Y, 2));
+
+            double t = ((p.X - lineStart.X) * dx + (p.Y - lineStart.Y) * dy) / (dx * dx + dy * dy);
+            t = Math.Max(0, Math.Min(1, t));
+
+            double nearestX = lineStart.X + t * dx;
+            double nearestY = lineStart.Y + t * dy;
+
+            return Math.Sqrt(Math.Pow(p.X - nearestX, 2) + Math.Pow(p.Y - nearestY, 2));
+        }
+
+        #endregion
+
+        // ⭐ NEW: Exit edit mode
+        private void ExitEditMode()
+        {
+            if (!_isEditMode) return;
+
+            _isEditMode = false;
+
+            if (_activeShapeInfo != null)
+            {
+                RemoveEditHighlight(_activeShapeInfo);
+                SetStatus($"✅ Exit Edit Mode: '{_activeShapeInfo.Metadata?.Label}' saved");
+                _activeShapeInfo = null;
+            }
+
+            RemoveResizeHandles();
+            HideEditOptionsPanel();
+
+            if (AnnotationListView != null)
+            {
+                AnnotationListView.SelectedItem = null;
+            }
+        }
+
+        // ⭐ NEW: Apply solid edit highlight
+        private void ApplyEditHighlight(ShapeInfo info)
+        {
+            if (info?.Shape == null) return;
+
+            var highlightBrush = new SolidColorBrush(Color.FromRgb(255, 215, 0)); // Gold
+
+            info.Shape.Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                Color = Colors.Gold,
+                BlurRadius = 20,
+                ShadowDepth = 0,
+                Opacity = 1.0
+            };
+
+            if (info.Shape is Rectangle rect)
+            {
+                rect.Stroke = highlightBrush;
+                rect.StrokeThickness = 4;
+            }
+            else if (info.Shape is Polyline poly)
+            {
+                poly.Stroke = highlightBrush;
+                poly.StrokeThickness = 4;
+            }
+            else if (info.Shape is Polygon polygon)
+            {
+                polygon.Stroke = highlightBrush;
+                polygon.StrokeThickness = 4;
+            }
+
+            if (info.LabelBlock != null)
+            {
+                info.LabelBlock.Foreground = highlightBrush;
+                info.LabelBlock.FontWeight = FontWeights.Bold;
+                info.LabelBlock.Background = new SolidColorBrush(Color.FromArgb(200, 0, 0, 0));
+            }
+        }
+
+        // ⭐ NEW: Remove edit highlight
+        private void RemoveEditHighlight(ShapeInfo info)
+        {
+            if (info?.Shape == null) return;
+
+            info.Shape.Effect = null;
+
+            // Restore original color
+            var originalColor = GetColorForClass(info.Metadata?.Label ?? "default");
+
+            if (info.Shape is Rectangle rect)
+            {
+                rect.Stroke = new SolidColorBrush(originalColor);
+                rect.StrokeThickness = 2;
+            }
+            else if (info.Shape is Polyline poly)
+            {
+                poly.Stroke = new SolidColorBrush(originalColor);
+                poly.StrokeThickness = 2;
+            }
+            else if (info.Shape is Polygon polygon)
+            {
+                polygon.Stroke = new SolidColorBrush(originalColor);
+                polygon.StrokeThickness = 2;
+            }
+
+            if (info.LabelBlock != null)
+            {
+                info.LabelBlock.Foreground = new SolidColorBrush(originalColor);
+                info.LabelBlock.FontWeight = FontWeights.Normal;
+                info.LabelBlock.Background = Brushes.Transparent;
+            }
+        }
+
+        // ⭐ NEW: Show edit options panel (floating near the shape)
+        // ⭐ NEW: Track resize mode state
+        private bool _resizeModeActive = false;
+
+        private void ShowEditOptionsPanel(ShapeInfo info)
+        {
+            if (_editOptionsPanel != null)
+            {
+                BoundingBoxCanvas.Children.Remove(_editOptionsPanel);
+            }
+
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(5)
+            };
+
+            // Class name change
+            var classPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, 5)
+            };
+
+            classPanel.Children.Add(new TextBlock
+            {
+                Text = "Class:",
+                Foreground = Brushes.White,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0),
+                FontWeight = FontWeights.Bold
+            });
+
+            var classCombo = new ComboBox
+            {
+                Width = 120,
+                Height = 28,
+                SelectedItem = info.Metadata?.Label
+            };
+
+            foreach (var label in _currentProject?.ClassLabels ?? new List<string>())
+            {
+                classCombo.Items.Add(label);
+            }
+
+            classCombo.SelectionChanged += (s, e) =>
+            {
+                if (classCombo.SelectedItem is string newLabel && info.Record != null)
+                {
+                    info.Metadata.Label = newLabel;
+                    info.Record.Label = newLabel;
+
+                    var newColor = GetColorForClass(newLabel);
+                    if (info.Shape is Shape shape)
+                    {
+                        shape.Stroke = new SolidColorBrush(newColor);
+                    }
+                    if (info.LabelBlock != null)
+                    {
+                        info.LabelBlock.Text = newLabel;
+                        info.LabelBlock.Foreground = new SolidColorBrush(newColor);
+                    }
+
+                    UpdateClassStats();
+                    RefreshAnnotations();
+                    SetStatus($"✅ Changed class to '{newLabel}'");
+                }
+            };
+
+            classPanel.Children.Add(classCombo);
+            panel.Children.Add(classPanel);
+
+            // ⭐ NEW: Action buttons with Resize toggle
+            var buttonPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 5, 0, 0)
+            };
+
+            // ⭐ Resize button (toggle)
+            var resizeBtn = new Button
+            {
+                Content = "📏 Resize",
+                Width = 70,
+                Height = 28,
+                Margin = new Thickness(0, 0, 5, 0),
+                Background = new SolidColorBrush(Color.FromRgb(33, 150, 243)), // Blue
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Bold
+            };
+
+            resizeBtn.Click += (s, e) =>
+            {
+                _resizeModeActive = !_resizeModeActive;
+
+                if (_resizeModeActive)
+                {
+                    // Show handles
+                    if (info.Shape is Rectangle)
+                    {
+                        AddResizeHandles(info);
+                    }
+                    else if (info.Shape is Polyline || info.Shape is Polygon)
+                    {
+                        AddPolygonHandles(info);
+                    }
+
+                    resizeBtn.Background = new SolidColorBrush(Color.FromRgb(76, 175, 80)); // Green when active
+                    resizeBtn.Content = "✓ Resizing";
+                    SetStatus($"🔄 RESIZE MODE ON: Drag handles to resize '{info.Metadata?.Label}'");
+                }
+                else
+                {
+                    // Hide handles
+                    RemoveResizeHandles();
+                    resizeBtn.Background = new SolidColorBrush(Color.FromRgb(33, 150, 243)); // Blue
+                    resizeBtn.Content = "📏 Resize";
+                    SetStatus($"🔧 RESIZE MODE OFF: Edit mode still active");
+                }
+            };
+
+            buttonPanel.Children.Add(resizeBtn);
+
+            // Delete button
+            var deleteBtn = new Button
+            {
+                Content = "🗑️ Delete",
+                Width = 70,
+                Height = 28,
+                Margin = new Thickness(0, 0, 5, 0),
+                Background = new SolidColorBrush(Color.FromRgb(211, 47, 47)),
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Bold
+            };
+
+            deleteBtn.Click += (s, e) =>
+            {
+                RemoveShape(info);
+                ExitEditMode();
+            };
+
+            buttonPanel.Children.Add(deleteBtn);
+
+            // Done button
+            var doneBtn = new Button
+            {
+                Content = "✓ Done",
+                Width = 70,
+                Height = 28,
+                Background = new SolidColorBrush(Color.FromRgb(76, 175, 80)),
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.Bold
+            };
+
+            doneBtn.Click += (s, e) => ExitEditMode();
+
+            buttonPanel.Children.Add(doneBtn);
+            panel.Children.Add(buttonPanel);
+
+            _editOptionsPanel = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(240, 33, 33, 33)), // Dark background
+                BorderBrush = new SolidColorBrush(Colors.Gold),
+                BorderThickness = new Thickness(2),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10),
+                Child = panel
+            };
+
+            // Position near the shape
+            double x = 10, y = 10;
+            if (info.Shape is Rectangle rect)
+            {
+                x = Canvas.GetLeft(rect) + rect.Width + 10;
+                y = Canvas.GetTop(rect);
+            }
+            else if (info.Shape is Polyline poly && poly.Points.Count > 0)
+            {
+                x = poly.Points.Max(p => p.X) + 10;
+                y = poly.Points.Min(p => p.Y);
+            }
+            else if (info.Shape is Polygon polygon && polygon.Points.Count > 0)
+            {
+                x = polygon.Points.Max(p => p.X) + 10;
+                y = polygon.Points.Min(p => p.Y);
+            }
+
+            Canvas.SetLeft(_editOptionsPanel, x);
+            Canvas.SetTop(_editOptionsPanel, y);
+            Canvas.SetZIndex(_editOptionsPanel, 1000);
+
+            BoundingBoxCanvas.Children.Add(_editOptionsPanel);
+        }
+
+        // ⭐ NEW: Hide edit options panel
+        private void HideEditOptionsPanel()
+        {
+            if (_editOptionsPanel != null)
+            {
+                BoundingBoxCanvas.Children.Remove(_editOptionsPanel);
+                _editOptionsPanel = null;
+            }
+        }
+
+        // ⭐ NEW: Remove a shape (helper method for delete button)
+        private void RemoveShape(ShapeInfo info)
+        {
+            if (info == null) return;
+
+            // Remove from canvas
+            if (info.Shape != null)
+                BoundingBoxCanvas.Children.Remove(info.Shape);
+            if (info.LabelBlock != null)
+                BoundingBoxCanvas.Children.Remove(info.LabelBlock);
+
+            // Remove from collections
+            _shapeInfos.Remove(info);
+            if (info.Record != null)
+                Annotations.Remove(info.Record);
+
+            // Update UI
+            RefreshAnnotations();
+            UpdateClassStats();
+            SetStatus($"Deleted '{info.Metadata?.Label}' annotation");
+        }
+
+        #endregion
 
         // REPLACE the BoundingBoxCanvas_MouseLeftButtonUp method (lines 1269-1332) with this:
         // REPLACE BoundingBoxCanvas_MouseLeftButtonUp (lines 1269-1341) with this DEBUG version:
         private void BoundingBoxCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
-            // Use the unscaled/logical mouse point so finalization matches what the user sees when zoomed.
             SWPoint pt = GetMousePointUnscaled();
             SWPoint clampedPt = ClampPointToImage(pt);
 
-            // ⭐ DEBUG: Log state
-            Debug.WriteLine($"[MouseUp] _isDrawing={_isDrawing}, Mode={_currentDrawingMode}, HasShape={_currentDrawingShapeInfo != null}");
-
-            // reset pending state since mouse button released
             _mouseLeftDown = false;
-            if (_pendingShapeInfo != null)
-            {
-                Debug.WriteLine("[MouseUp] Clearing pending shape");
-                _pendingShapeInfo = null;
-                BoundingBoxCanvas.ReleaseMouseCapture();
-                return; // ⭐ IMPORTANT: return here so we don't continue
-            }
 
-            // Handle polygon vertex dragging
+            // Handle RESIZE completion
             if (_activeHandle != null && _reshapeShapeInfo != null)
             {
-                Debug.WriteLine("[MouseUp] Handling reshape");
                 BoundingBoxCanvas.ReleaseMouseCapture();
-                if (IsShapeFullyInImage(_reshapeShapeInfo))
-                {
-                    UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
-                    RefreshAnnotations();
+                UpdateAnnotationRecordFromShape(_reshapeShapeInfo);
 
-                    if (_reshapeShapeInfo.Shape is Polyline)
-                        AddPolygonHandles(_reshapeShapeInfo);
-                    else
-                        AddResizeHandles(_reshapeShapeInfo);
+                if (_reshapeShapeInfo.Shape is Rectangle)
+                {
+                    AddResizeHandles(_reshapeShapeInfo);
+                }
+                else if (_reshapeShapeInfo.Shape is Polyline || _reshapeShapeInfo.Shape is Polygon)
+                {
+                    AddPolygonHandles(_reshapeShapeInfo);
+                }
+
+                if (!_isEditMode)
+                {
+                    _activeHandle = null;
+                    _reshapeShapeInfo = null;
+                    _currentHit = HitType.None;
+                    SetStatus("✅ Resize completed");
                 }
                 else
                 {
-                    SetStatus("Shape must remain inside the image.");
+                    _activeHandle = null;
+                    _currentHit = HitType.None;
+                    SetStatus($"✅ RESIZE DONE: '{_reshapeShapeInfo.Metadata?.Label}' | Edit mode still active");
                 }
 
-                _activeHandle = null;
-                _reshapeShapeInfo = null;
-                _currentHit = HitType.None;
+                e.Handled = true;
                 return;
             }
 
-            // Handle shape dragging completion
+            // Clear pending
+            if (_pendingShapeInfo != null)
+            {
+                _pendingShapeInfo = null;
+                BoundingBoxCanvas.ReleaseMouseCapture();
+                return;
+            }
+
+            // Handle drag completion
             if (_isDraggingShape && _activeShapeInfo != null)
             {
-                Debug.WriteLine("[MouseUp] Finishing drag");
                 UpdateAnnotationRecordFromShape(_activeShapeInfo);
-                RefreshAnnotations();
                 _isDraggingShape = false;
-                _activeShapeInfo = null;
                 BoundingBoxCanvas.ReleaseMouseCapture();
-                SetStatus("Shape moved.");
+
+                if (!_isEditMode)
+                {
+                    RefreshAnnotations();
+                    SetStatus($"✅ Move completed: '{_activeShapeInfo.Metadata?.Label}'");
+                    _activeShapeInfo = null;
+                }
+                else
+                {
+                    SetStatus($"✅ MOVE DONE: '{_activeShapeInfo.Metadata?.Label}' | Edit mode still active");
+                }
+
                 return;
             }
 
             // Handle drawing finalization
             if (_isDrawing && _currentDrawingShapeInfo != null)
             {
-                Debug.WriteLine($"[MouseUp] Finalizing drawing, mode={_currentDrawingMode}");
-
                 if (_currentDrawingMode == DrawingMode.Rectangle)
                 {
-                    Debug.WriteLine("[MouseUp] Finalizing Rectangle");
                     FinalizeRectangle(clampedPt);
                     _isDrawing = false;
                     BoundingBoxCanvas.ReleaseMouseCapture();
+                    SetStatus("✅ Rectangle created");
                 }
                 else if (_currentDrawingMode == DrawingMode.FreePen)
                 {
-                    Debug.WriteLine("[MouseUp] Finalizing FreePen");
                     FinalizeFreePen(clampedPt);
                     _isDrawing = false;
                     BoundingBoxCanvas.ReleaseMouseCapture();
-                    SetStatus("Free-pen stroke completed.");
+                    SetStatus("✅ Free-pen stroke completed");
                 }
-                // Polygon is still finalized via right-click or spacebar
-            }
-            else
-            {
-                Debug.WriteLine($"[MouseUp] NOT finalizing: _isDrawing={_isDrawing}, _currentDrawingShapeInfo={_currentDrawingShapeInfo != null}");
             }
         }
         #endregion
@@ -2423,18 +3108,104 @@ namespace VisionAICam.Pages
 
         private void MoveShapeAndLabel(ShapeInfo info, Vector delta)
         {
+            if (info?.Shape == null) return;
+
+            Debug.WriteLine($"[MoveShape] delta=({delta.X}, {delta.Y})"); // ⭐ ดู delta
+
             if (info.Shape is Rectangle rect)
             {
-                Vector clampedDelta = ClampDragDeltaToImage(info, delta);
-                Canvas.SetLeft(rect, Canvas.GetLeft(rect) + clampedDelta.X);
-                Canvas.SetTop(rect, Canvas.GetTop(rect) + clampedDelta.Y);
-                Canvas.SetLeft(info.LabelBlock, Canvas.GetLeft(info.LabelBlock) + clampedDelta.X);
-                Canvas.SetTop(info.LabelBlock, Canvas.GetTop(info.LabelBlock) + clampedDelta.Y);
+                // ⭐ ลบ ClampDragDeltaToImage ออกก่อน - ใช้ delta ตรงๆ
+                double newLeft = Canvas.GetLeft(rect) + delta.X;
+                double newTop = Canvas.GetTop(rect) + delta.Y;
 
-                var p0 = (SWPoint)info.Record.Points[0];
-                var p1 = (SWPoint)info.Record.Points[1];
-                info.Record.Points[0] = new SWPoint(p0.X + clampedDelta.X, p0.Y + clampedDelta.Y);
-                info.Record.Points[1] = new SWPoint(p1.X + clampedDelta.X, p1.Y + clampedDelta.Y);
+                Debug.WriteLine($"[MoveShape] Rectangle: {Canvas.GetLeft(rect)} → {newLeft}");
+
+                Canvas.SetLeft(rect, newLeft);
+                Canvas.SetTop(rect, newTop);
+                Canvas.SetLeft(info.LabelBlock, Canvas.GetLeft(info.LabelBlock) + delta.X);
+                Canvas.SetTop(info.LabelBlock, Canvas.GetTop(info.LabelBlock) + delta.Y);
+
+                // Update record
+                if (info.Record?.Points != null && info.Record.Points.Count >= 2)
+                {
+                    var p0 = (SWPoint)info.Record.Points[0];
+                    var p1 = (SWPoint)info.Record.Points[1];
+                    info.Record.Points[0] = new SWPoint(p0.X + delta.X, p0.Y + delta.Y);
+                    info.Record.Points[1] = new SWPoint(p1.X + delta.X, p1.Y + delta.Y);
+                }
+
+                // Update handles
+                foreach (var handle in _handles)
+                {
+                    Canvas.SetLeft(handle, Canvas.GetLeft(handle) + delta.X);
+                    Canvas.SetTop(handle, Canvas.GetTop(handle) + delta.Y);
+                }
+            }
+            else if (info.Shape is Polyline poly)
+            {
+                Debug.WriteLine($"[MoveShape] Polyline: {poly.Points.Count} points");
+
+                for (int i = 0; i < poly.Points.Count; i++)
+                {
+                    var oldPoint = poly.Points[i];
+                    poly.Points[i] = new SWPoint(oldPoint.X + delta.X, oldPoint.Y + delta.Y);
+                }
+
+                // Update record
+                if (info.Record?.Points != null)
+                {
+                    for (int i = 0; i < info.Record.Points.Count && i < poly.Points.Count; i++)
+                    {
+                        info.Record.Points[i] = poly.Points[i];
+                    }
+                }
+
+                // Move label
+                if (poly.Points.Count > 0)
+                {
+                    Canvas.SetLeft(info.LabelBlock, poly.Points[0].X + 1);
+                    Canvas.SetTop(info.LabelBlock, poly.Points[0].Y + 1);
+                }
+
+                // Update handles
+                for (int i = 0; i < _handles.Count && i < poly.Points.Count; i++)
+                {
+                    Canvas.SetLeft(_handles[i], poly.Points[i].X - _handles[i].Width / 2);
+                    Canvas.SetTop(_handles[i], poly.Points[i].Y - _handles[i].Height / 2);
+                }
+            }
+            else if (info.Shape is Polygon polygon)
+            {
+                Debug.WriteLine($"[MoveShape] Polygon: {polygon.Points.Count} points");
+
+                for (int i = 0; i < polygon.Points.Count; i++)
+                {
+                    var oldPoint = polygon.Points[i];
+                    polygon.Points[i] = new SWPoint(oldPoint.X + delta.X, oldPoint.Y + delta.Y);
+                }
+
+                // Update record
+                if (info.Record?.Points != null)
+                {
+                    for (int i = 0; i < info.Record.Points.Count && i < polygon.Points.Count; i++)
+                    {
+                        info.Record.Points[i] = polygon.Points[i];
+                    }
+                }
+
+                // Move label
+                if (polygon.Points.Count > 0)
+                {
+                    Canvas.SetLeft(info.LabelBlock, polygon.Points[0].X + 1);
+                    Canvas.SetTop(info.LabelBlock, polygon.Points[0].Y + 1);
+                }
+
+                // Update handles
+                for (int i = 0; i < _handles.Count && i < polygon.Points.Count; i++)
+                {
+                    Canvas.SetLeft(_handles[i], polygon.Points[i].X - _handles[i].Width / 2);
+                    Canvas.SetTop(_handles[i], polygon.Points[i].Y - _handles[i].Height / 2);
+                }
             }
         }
 
@@ -4065,6 +4836,14 @@ namespace VisionAICam.Pages
         {
             if (NewClassTextBox.IsFocused)
                 return;
+
+            // ⭐ NEW STEP 5: Exit edit mode with Escape key (HIGHEST PRIORITY)
+            if (e.Key == Key.Escape && _isEditMode)
+            {
+                ExitEditMode();
+                e.Handled = true;
+                return;
+            }
 
             if (e.Key == Key.F) { NextImage_Click(sender, e); e.Handled = true; }
             else if (e.Key == Key.S) { PrevImage_Click(sender, e); e.Handled = true; }

@@ -30,6 +30,122 @@
                           ShadowDepth="0"
                           Opacity="0.6"
                           BlurRadius="12"/>
+
+        <!-- ✅ ComboBox style for dark theme -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton x:Name="ToggleButton"
+                                          Grid.Column="0"
+                                          Focusable="false"
+                                          IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          ClickMode="Press"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="{TemplateBinding Background}"
+                                                BorderBrush="{TemplateBinding BorderBrush}"
+                                                BorderThickness="{TemplateBinding BorderThickness}"
+                                                CornerRadius="3">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition/>
+                                                    <ColumnDefinition Width="20"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Path Grid.Column="1"
+                                                      HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center"
+                                                      Data="M 0 0 L 4 4 L 8 0 Z"
+                                                      Fill="{StaticResource ForegroundBrush}"/>
+                                            </Grid>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter Name="ContentSite"
+                                              IsHitTestVisible="False"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              Margin="6,3,23,3"
+                                              VerticalAlignment="Center"
+                                              HorizontalAlignment="Left"
+                                              TextElement.Foreground="{StaticResource ForegroundBrush}"/>
+                            <Popup Name="Popup"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="Slide">
+                                <Grid Name="DropDown"
+                                      SnapsToDevicePixels="True"
+                                      MinWidth="{TemplateBinding ActualWidth}"
+                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <Border x:Name="DropDownBorder"
+                                            Background="{StaticResource CardBackground}"
+                                            BorderThickness="1"
+                                            BorderBrush="{StaticResource PanelBorderBrush}">
+                                        <ScrollViewer Margin="4,6,4,6" SnapsToDevicePixels="True">
+                                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Grid>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ✅ ComboBoxItem style for dark theme -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderThickness="0"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource PanelBorderBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource PanelBackground}"/>
+                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ✅ TextBox style for dark theme -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="{StaticResource CardBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="FontSize" Value="14"/>
+        </Style>
     </Page.Resources>
 
     <Page.Background>
@@ -145,20 +261,18 @@
                                    Foreground="{StaticResource ForegroundBrush}"
                                    FontWeight="SemiBold"
                                    FontSize="14"/>
-                        <ComboBox x:Name="ModelArchComboBox" 
-                                  Width="200" 
-                                  Height="32" 
-                                  SelectionChanged="ModelArchComboBox_SelectionChanged"
-                                  Background="{StaticResource CardBackground}"
-                                  Foreground="{StaticResource ForegroundBrush}"
-                                  BorderBrush="{StaticResource PanelBorderBrush}"
-                                  FontSize="14">
-                            <ComboBoxItem Content="YOLOv8n"/>
-                            <ComboBoxItem Content="YOLOv8s"/>
-                            <ComboBoxItem Content="YOLOv8m"/>
-                            <ComboBoxItem Content="YOLOv8l"/>
-                            <ComboBoxItem Content="YOLOv8x"/>
-                        </ComboBox>
+                        <Border Background="{StaticResource CardBackground}"
+                                BorderBrush="{StaticResource AccentBrush}"
+                                BorderThickness="2"
+                                CornerRadius="4"
+                                Padding="8,6"
+                                Height="32"
+                                Width="200">
+                            <TextBlock Text="YOLOv8 (Auto)" 
+                                       Foreground="{StaticResource AccentBrush}"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                        </Border>
                     </StackPanel>
                 </Border>
             </Grid>

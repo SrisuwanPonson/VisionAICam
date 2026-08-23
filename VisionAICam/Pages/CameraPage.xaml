@@ -24,21 +24,46 @@
             <Setter Property="FontSize" Value="16"/>
             <Setter Property="Padding" Value="12,6"/>
             <Setter Property="Height" Value="36"/>
-            <Setter Property="Margin" Value="0,0,12,0"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>        
             <Setter Property="BorderBrush" Value="#FF1565C0"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="6">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- ✅ Hover effect -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF2196F3"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#FF1E88E5"/>
+                            </Trigger>
+                            <!-- ✅ Click/Press effect -->
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF0D47A1"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#FF0A3D8F"/>
+                                <Setter TargetName="Border" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <!-- ✅ Disabled effect -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Border" Property="Background" Value="#FF9E9E9E"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#FF757575"/>
+                                <Setter Property="Foreground" Value="#FFBDBDBD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
         </Style>
 
         <Style x:Key="RoundedComboBoxStyle" TargetType="ComboBox">
@@ -50,6 +75,49 @@
             <Setter Property="Margin" Value="0,0,12,0"/>
             <Setter Property="BorderBrush" Value="#FF90CAF9"/>
             <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- ✅ Stop button style (Red variant) -->
+        <Style x:Key="StopButtonStyle" TargetType="Button" BasedOn="{StaticResource RoundedButtonStyle}">
+            <Setter Property="Background" Value="#FFD32F2F"/>
+            <Setter Property="BorderBrush" Value="#FFC62828"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <!-- ✅ Hover effect (Red) -->
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FFE53935"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#FFD32F2F"/>
+                            </Trigger>
+                            <!-- ✅ Click/Press effect (Dark Red) -->
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FFB71C1C"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#FFA10000"/>
+                                <Setter TargetName="Border" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <ScaleTransform ScaleX="0.95" ScaleY="0.95"/>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <!-- ✅ Disabled effect -->
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Border" Property="Background" Value="#FF9E9E9E"/>
+                                <Setter TargetName="Border" Property="BorderBrush" Value="#FF757575"/>
+                                <Setter Property="Foreground" Value="#FFBDBDBD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RenderTransformOrigin" Value="0.5,0.5"/>
         </Style>
     </Page.Resources>
 
@@ -127,9 +195,7 @@
                                 </Button>
                                 <!-- ✅ Stop button with icon -->
                                 <Button x:Name="StopCameraButton"
-                                       Style="{StaticResource RoundedButtonStyle}"
-                                       Background="#FFD32F2F"
-                                       BorderBrush="#FFC62828"
+                                       Style="{StaticResource StopButtonStyle}"
                                        ToolTip="Stop camera"
                                        Width="120"
                                        Click="StopCameraButton_Click">

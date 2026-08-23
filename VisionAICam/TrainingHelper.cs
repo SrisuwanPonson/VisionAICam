@@ -544,7 +544,13 @@ namespace VisionAICam.Utilities
             string pythonPath;
             try
             {
-                pythonPath = ResolvePythonPath(GetScriptRoot());
+                //pythonPath = ResolvePythonPath(GetScriptRoot());
+                pythonPath = @"C:\ClearEngine\VisionAICam\PythonEnv\Python313\python.exe";
+
+                if (!File.Exists(pythonPath))
+                {
+                    throw new FileNotFoundException($"Python executable not found at: {pythonPath}");
+                }
             }
             catch (FileNotFoundException ex)
             {

@@ -417,165 +417,78 @@ namespace VisionAICam.Pages
             return panel;
         }
         #region New function
-        private (List<TrainingOption> options, Dictionary<string, string[]> sources) BuildModelOptions(string arch)
+        private (List<TrainingOption> options, Dictionary<string, string[]> sources) BuildModelOptions(string baseArch, string datasetPath = null)
         {
-            string baseArch = arch;
-            string variant = null;
-
-            // Normalize architecture and extract variant
-            if (arch.StartsWith("YOLOv5"))
-            {
-                baseArch = "YOLOv5";
-                variant = arch["YOLOv5".Length..].ToLower();
-            }
-            else if (arch.StartsWith("YOLOv8"))
-            {
-                baseArch = "YOLOv8";
-                variant = arch["YOLOv8".Length..].ToLower();
-            }
-
-            // Define reusable defaults
-            string defaultVariant = variant ?? "n";
-            string defaultInput = "640";
+            List<TrainingOption> options;
+            Dictionary<string, string[]> sources;
             string defaultMode = "scratch";
 
-            var sources = new Dictionary<string, string[]>();
-            var options = new List<TrainingOption>();
+            // ✅ Get dataset info - use parameter if provided
+            int totalSamples = GetDatasetSampleCount(datasetPath);
+            string autoVariant = DetermineYoloVariant(totalSamples);
+            int autoInputSize = DetermineInputSize(datasetPath);
 
             switch (baseArch)
             {
-                case "YOLOv5":
-                    if (variant.Contains("obb"))
-                    {
-                        sources = new()
-                {
-                    { "Architecture", new[] { "YOLOv5-OBB" } },
-                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
-                    { "Input Size", new[] { "320", "416", "512", "640" } },
-                    { "Backbone", new[] { "CSPDarknet", "Custom-ResNet" } },
-                    { "Pretrained Weights", new[] {
-                        "yolov5n_obb", "yolov5s_obb", "yolov5m_obb",
-                        "yolov5l_obb", "yolov5x_obb", "None"
-                    }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
-                };
-
-                        options = new()
-                {
-                    new TrainingOption { Name = "Architecture", Value = "YOLOv5-OBB" },
-                    new TrainingOption { Name = "Variant", Value = defaultVariant },
-                    new TrainingOption { Name = "Input Size", Value = defaultInput },
-                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
-                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov5{defaultVariant}_obb" },
-                    new TrainingOption { Name = "Training mode", Value = defaultMode }
-                };
-                    }
-                    else
-                    {
-                        sources = new()
-                {
-                    { "Architecture", new[] { "YOLOv5" } },
-                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
-                    { "Input Size", new[] { "320", "416", "512", "640" } },
-                    { "Backbone", new[] { "CSPDarknet", "Custom-ResNet" } },
-                    { "Pretrained Weights", new[] {
-                        "yolov5n", "yolov5s", "yolov5m",
-                        "yolov5l", "yolov5x", "None"
-                    }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
-                };
-
-                        options = new()
-                {
-                    new TrainingOption { Name = "Architecture", Value = "YOLOv5" },
-                    new TrainingOption { Name = "Variant", Value = defaultVariant },
-                    new TrainingOption { Name = "Input Size", Value = defaultInput },
-                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
-                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov5{defaultVariant}" },
-                    new TrainingOption { Name = "Training mode", Value = defaultMode }
-                };
-                    }
-                    break;
-
+                case "YOLOv8-Seg":
                 case "YOLOv8":
-                    if (variant.Contains("obb"))
                     {
-                        sources = new()
-                {
-                    { "Architecture", new[] { "YOLOv8-OBB" } },
-                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
-                    { "Input Size", new[] { "320", "416", "512", "640", "768" } },
-                    { "Backbone", new[] { "None" } },
-                    { "Pretrained Weights", new[] {
-                        "yolov8n_obb", "yolov8s_obb", "yolov8m_obb",
-                        "yolov8l_obb", "yolov8x_obb", "None"
-                    }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
-                };
-
-                        options = new()
-                {
-                    new TrainingOption { Name = "Architecture", Value = "YOLOv8-OBB" },
-                    new TrainingOption { Name = "Variant", Value = defaultVariant },
-                    new TrainingOption { Name = "Input Size", Value = defaultInput },
-                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
-                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{defaultVariant}_obb" },
-                    new TrainingOption { Name = "Training mode", Value = defaultMode }
-                };
-                    }
-                    else if (variant.Contains("seg"))
+                        if (baseArch == "YOLOv8-Seg")
+                        {
+                            sources = new()
                     {
-                        sources = new()
-                {
-                    { "Architecture", new[] { "YOLOv8-Seg" } },
-                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
-                    { "Input Size", new[] { "320", "416", "512", "640", "768" } },
-                    { "Backbone", new[] { "None" } },
-                    { "Pretrained Weights", new[] {
-                        "yolov8n_seg", "yolov8s_seg", "yolov8m_seg",
-                        "yolov8l_seg", "yolov8x_seg", "None"
-                    }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
-                };
+                        { "Architecture", new[] { "YOLOv8-Seg" } },
+                        { "Variant", new[] { autoVariant } }, // ✅ Auto-selected, single option
+                        { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                        { "Backbone", new[] { "None" } },
+                        { "Pretrained Weights", new[] {
+                            $"yolov8{autoVariant}_seg"
+                        }},
+                        { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    };
 
-                        options = new()
-                {
-                    new TrainingOption { Name = "Architecture", Value = "YOLOv8-Seg" },
-                    new TrainingOption { Name = "Variant", Value = defaultVariant },
-                    new TrainingOption { Name = "Input Size", Value = defaultInput },
-                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
-                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{defaultVariant}_seg" },
-                    new TrainingOption { Name = "Training mode", Value = defaultMode }
-                };
-                    }
-                    else
+                            options = new()
                     {
-                        sources = new()
-                {
-                    { "Architecture", new[] { "YOLOv8" } },
-                    { "Variant", new[] { "n", "s", "m", "l", "x" } },
-                    { "Input Size", new[] { "320", "416", "512", "640", "768" } },
-                    { "Backbone", new[] { "None" } },
-                    { "Pretrained Weights", new[] {
-                        "yolov8n", "yolov8s", "yolov8m",
-                        "yolov8l", "yolov8x", "None"
-                    }},
-                    { "Training mode", new[] { "scratch", "topup", "benchmark" } }
-                };
+                        new TrainingOption { Name = "Architecture", Value = "YOLOv8-Seg" },
+                        new TrainingOption { Name = "Variant", Value = autoVariant },
+                        new TrainingOption { Name = "Input Size", Value = autoInputSize.ToString() },
+                        new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                        new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{autoVariant}_seg" },
+                        new TrainingOption { Name = "Training mode", Value = defaultMode },
+                        new TrainingOption { Name = "📊 Dataset Size", Value = $"{totalSamples} samples" }, // ✅ Show sample count
+                        new TrainingOption { Name = "🤖 Auto Variant", Value = $"yolov8{autoVariant} (recommended)" } // ✅ Show recommendation
+                    };
+                        }
+                        else
+                        {
+                            sources = new()
+                    {
+                        { "Architecture", new[] { "YOLOv8" } },
+                        { "Variant", new[] { autoVariant } }, // ✅ Auto-selected, single option
+                        { "Input Size", new[] { "320", "416", "512", "640", "768" } },
+                        { "Backbone", new[] { "None" } },
+                        { "Pretrained Weights", new[] {
+                            $"yolov8{autoVariant}"
+                        }},
+                        { "Training mode", new[] { "scratch", "topup", "benchmark" } }
+                    };
 
-                        options = new()
-                {
-                    new TrainingOption { Name = "Architecture", Value = "YOLOv8" },
-                    new TrainingOption { Name = "Variant", Value = defaultVariant },
-                    new TrainingOption { Name = "Input Size", Value = defaultInput },
-                    new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
-                    new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{defaultVariant}" },
-                    new TrainingOption { Name = "Training mode", Value = defaultMode }
-                };
+                            options = new()
+                    {
+                        new TrainingOption { Name = "Architecture", Value = "YOLOv8" },
+                        new TrainingOption { Name = "Variant", Value = autoVariant },
+                        new TrainingOption { Name = "Input Size", Value = autoInputSize.ToString() },
+                        new TrainingOption { Name = "Backbone", Value = sources["Backbone"][0] },
+                        new TrainingOption { Name = "Pretrained Weights", Value = $"yolov8{autoVariant}" },
+                        new TrainingOption { Name = "Training mode", Value = defaultMode },
+                        new TrainingOption { Name = "📊 Dataset Size", Value = $"{totalSamples} samples" }, // ✅ Show sample count
+                        new TrainingOption { Name = "🤖 Auto Variant", Value = $"yolov8{autoVariant} (recommended)" } // ✅ Show recommendation
+                    };
+                        }
                     }
                     break;
 
-                // Other architectures unchanged
+                // Other architectures unchanged...
                 case "YOLOv3":
                 case "YOLOv4":
                 case "YOLOv7":
@@ -591,7 +504,7 @@ namespace VisionAICam.Pages
                     options = new()
             {
                 new TrainingOption { Name = "Architecture", Value = baseArch },
-                new TrainingOption { Name = "Input Size", Value = defaultInput },
+                new TrainingOption { Name = "Input Size", Value = "640" },
                 new TrainingOption { Name = "Backbone", Value = "Darknet" },
                 new TrainingOption { Name = "Pretrained Weights", Value = "Default" },
                 new TrainingOption { Name = "Training mode", Value = defaultMode }
@@ -612,7 +525,7 @@ namespace VisionAICam.Pages
                     options = new()
             {
                 new TrainingOption { Name = "Architecture", Value = baseArch },
-                new TrainingOption { Name = "Input Size", Value = defaultInput },
+                new TrainingOption { Name = "Input Size", Value = "640" },
                 new TrainingOption { Name = "Backbone", Value = "ResNet50" },
                 new TrainingOption { Name = "Pretrained Weights", Value = "COCO" },
                 new TrainingOption { Name = "Training mode", Value = defaultMode }
@@ -636,7 +549,7 @@ namespace VisionAICam.Pages
                     options = new()
             {
                 new TrainingOption { Name = "Architecture", Value = baseArch },
-                new TrainingOption { Name = "Input Size", Value = defaultInput },
+                new TrainingOption { Name = "Input Size", Value = "640" },
                 new TrainingOption { Name = "Backbone", Value = "ResNet" },
                 new TrainingOption { Name = "Pretrained Weights", Value = "Default" },
                 new TrainingOption { Name = "Training mode", Value = defaultMode }
@@ -655,7 +568,7 @@ namespace VisionAICam.Pages
                     options = new()
             {
                 new TrainingOption { Name = "Architecture", Value = "ONNX" },
-                new TrainingOption { Name = "Input Size", Value = defaultInput },
+                new TrainingOption { Name = "Input Size", Value = "640" },
                 new TrainingOption { Name = "Opset", Value = "13" },
                 new TrainingOption { Name = "Training mode", Value = defaultMode }
             };
@@ -673,14 +586,140 @@ namespace VisionAICam.Pages
                     options = new()
             {
                 new TrainingOption { Name = "Architecture", Value = "Custom" },
-                new TrainingOption { Name = "Input Size", Value = defaultInput },
+                new TrainingOption { Name = "Input Size", Value = "640" },
                 new TrainingOption { Name = "Backbone", Value = "UserDefined" },
                 new TrainingOption { Name = "Training mode", Value = defaultMode }
             };
                     break;
+
+                default:
+                    sources = new();
+                    options = new();
+                    break;
             }
 
             return (options, sources);
+        }
+
+        // ✅ NEW: Get total dataset sample count
+        private int GetDatasetSampleCount(string datasetPath)
+        {
+            try
+            {       
+                if (string.IsNullOrEmpty(datasetPath))
+                    return 0;
+
+                string datasetFolder = datasetPath;
+                if (!Directory.Exists(datasetFolder))
+                {
+                    Debug.WriteLine($"[GET SAMPLE COUNT] Path not found: {datasetFolder}");
+                    return 0;
+                }
+
+                var splits = new[] { "train", "valid", "test" };
+                var imageExts = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".gif" };
+                int totalCount = 0;
+
+                foreach (var split in splits)
+                {
+                    string imgDir = System.IO.Path.Combine(datasetFolder, split, "images");
+                    if (Directory.Exists(imgDir))
+                    {
+                        int count = Directory.GetFiles(imgDir)
+                            .Count(f => imageExts.Contains(System.IO.Path.GetExtension(f).ToLowerInvariant()));
+                        totalCount += count;
+                        Debug.WriteLine($"[GET SAMPLE COUNT] {split}: {count} images");
+                    }
+                }
+
+                Debug.WriteLine($"[GET SAMPLE COUNT] Total: {totalCount} samples");
+                return totalCount;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[GET SAMPLE COUNT ERROR] {ex.Message}");
+                return 0;
+            }
+        }
+
+        // ✅ NEW: Determine YOLO variant based on dataset size
+        private string DetermineYoloVariant(int sampleCount)
+        {
+            // Auto-select variant based on dataset size
+            if (sampleCount < 100)
+                return "n";  // nano - fastest, smallest (good for tiny datasets or quick prototyping)
+            else if (sampleCount < 500)
+                return "s";  // small - good for small datasets
+            else if (sampleCount < 2000)
+                return "m";  // medium - balanced
+            else if (sampleCount < 5000)
+                return "l";  // large - for larger datasets
+            else
+                return "x";  // xlarge - slowest, most accurate (for very large datasets)
+        }
+
+        // ✅ NEW: Determine optimal input size based on dataset path
+        private int DetermineInputSize(string datasetPath)
+        {
+            // Placeholder logic: adjust based on actual dataset characteristics
+            int defaultSize = 640;
+            int minSize = 320;
+            int maxSize = 1280;
+
+            try
+            {
+                if (string.IsNullOrEmpty(datasetPath))
+                    return defaultSize;
+
+                // For demonstration, return a fixed value or calculate based on dataset characteristics
+                return defaultSize;
+            }
+            catch
+            {
+                return defaultSize;
+            }
+        }
+
+        // ✅ Helper: Get dataset path from dataset block
+        // ✅ Helper: Get dataset path from dataset block
+        private string GetDatasetPath()
+        {
+            try
+            {
+                if (datasetBlock == null) return string.Empty;
+
+                // datasetBlock is a Border with a Grid as content
+                var border = datasetBlock as Border;
+                if (border == null) return string.Empty;
+
+                // Get the Grid inside Border.Child
+                var grid = border.Child as Grid;
+                if (grid == null) return string.Empty;
+
+                // Find ScrollViewer in Grid.Children
+                var scrollViewer = grid.Children.OfType<ScrollViewer>().FirstOrDefault();
+                if (scrollViewer == null) return string.Empty;
+
+                // Get StackPanel from ScrollViewer.Content
+                var stackPanel = scrollViewer.Content as StackPanel;
+                if (stackPanel == null) return string.Empty;
+
+                // Find DataGrid in StackPanel.Children
+                var dataGrid = stackPanel.Children.OfType<DataGrid>().FirstOrDefault();
+                if (dataGrid == null) return string.Empty;
+
+                // Get dataset options from ItemsSource
+                var items = dataGrid.ItemsSource as List<TrainingOption>;
+                if (items == null) return string.Empty;
+
+                // Find "Dataset Path" option
+                var pathOption = items.FirstOrDefault(opt => opt.Name == "Dataset Path");
+                return pathOption?.Value ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private void ModelArchComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -693,9 +732,9 @@ namespace VisionAICam.Pages
             modelBlock = null;
             trainBlock = null;
 
-            string selectedArch = (ModelArchComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "YOLOv8";
-            var (modelOptions, modelSources) =
-                BuildModelOptions(selectedArch);
+            // ✅ Force YOLOv8 only
+            string selectedArch = "YOLOv8";
+            var (modelOptions, modelSources) = BuildModelOptions(selectedArch);
             var trainingSources = BuildTrainingSources();
 
             var trainingOptions = trainingSources
@@ -718,11 +757,6 @@ namespace VisionAICam.Pages
             trainBlock = CreateBlock(trainPanel, trainBlockX, trainBlockY, "Train");
             TrainingCanvas.Children.Add(trainBlock);
 
-            //var trainingMode = modelOptions.FirstOrDefault(opt => opt.Name == "Training mode")?.Value;
-            //if (!string.IsNullOrEmpty(trainingMode))
-            //    GlobalSignals.TrainingModeChanged.Fire(trainingMode);
-
-            //TrainingStatusText.Text = $"Model and training options updated for {selectedArch}.";
             SaveBlockStates();
         }
 
@@ -1085,7 +1119,7 @@ namespace VisionAICam.Pages
             });
             panel.Children.Add(statsGrid);
 
-            ModelArchComboBox.Text = ""; // Reset model selection if applicable
+          // ModelArchComboBox.Text = ""; // Reset model selection if applicable
             return panel;
         }
 
@@ -1246,19 +1280,22 @@ namespace VisionAICam.Pages
                                             datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
                                             TrainingCanvas.Children.Add(datasetBlock);
 
+                                            // ✅ เพิ่มบรรทัดนี้ - สร้าง model block อัตโนมัติด้วย YOLOv8
+                                            RefreshModelBlock(datasetPath);
+
                                             switch (datasetType)
                                             {
                                                 case "Segmentation":
-                                                    TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
+                                                    TrainingStatusText.Text = "YOLOv8-Seg model auto-configured based on dataset size.";
                                                     break;
                                                 case "YOLO_OBB":
-                                                    TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
+                                                    TrainingStatusText.Text = "YOLOv8 OBB model auto-configured based on dataset size.";
                                                     break;
                                                 case "YOLO":
-                                                    TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
+                                                    TrainingStatusText.Text = "YOLOv8 model auto-configured based on dataset size.";
                                                     break;
                                                 default:
-                                                    TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
+                                                    TrainingStatusText.Text = "YOLOv8 model auto-configured based on dataset size.";
                                                     break;
                                             }
 
@@ -1548,7 +1585,7 @@ namespace VisionAICam.Pages
             trainBlock = null;
             datasetBlock = new Border();
             DatasetComboBox.Items.Clear();
-            ModelArchComboBox.SelectedIndex = -1;
+            //ModelArchComboBox.SelectedIndex = -1;
         }
 
         private void OpenModel_Click(object sender, RoutedEventArgs e)
@@ -1580,7 +1617,7 @@ namespace VisionAICam.Pages
             trainBlock = null;
             datasetBlock = null;
             DatasetComboBox.Items.Clear();
-            ModelArchComboBox.SelectedIndex = -1;
+            //ModelArchComboBox.SelectedIndex = -1;
             TrainingStatusText.Text = "Project closed.";
             SaveBlockStates();
         }
@@ -1780,7 +1817,7 @@ namespace VisionAICam.Pages
                     var key = opt.Name.Trim().ToLowerInvariant().Replace(" ", "_");
                     var value = opt.Value?.Trim() ?? "";
                     // Quote value if it contains spaces or special characters
-                    if (value.Contains(' ') || value.Contains('"'))
+                    if (value.Contains(' ') || value.Contains("\""))
                         value = $"\"{value.Replace("\"", "\\\"")}\"";
                     return $"{key}={value}";
                 });
@@ -2000,19 +2037,22 @@ namespace VisionAICam.Pages
                                 datasetBlock = CreateBlock(detailsGrid, 10, 10, "Dataset");
                                 TrainingCanvas.Children.Add(datasetBlock);
 
+                                // ✅ เพิ่มบรรทัดนี้ - สร้าง model block อัตโนมัติด้วย YOLOv8
+                                RefreshModelBlock(datasetPath);
+
                                 switch (datasetType)
                                 {
                                     case "Segmentation":
-                                        TrainingStatusText.Text = "Segmentation dataset added. Now select a model.";
+                                        TrainingStatusText.Text = "YOLOv8-Seg model auto-configured based on dataset size.";
                                         break;
                                     case "YOLO_OBB":
-                                        TrainingStatusText.Text = "YOLO OBB dataset added. Now select a model.";
+                                        TrainingStatusText.Text = "YOLOv8 OBB model auto-configured based on dataset size.";
                                         break;
                                     case "YOLO":
-                                        TrainingStatusText.Text = "Normal YOLO dataset added. Now select a model.";
+                                        TrainingStatusText.Text = "YOLOv8 model auto-configured based on dataset size.";
                                         break;
                                     default:
-                                        TrainingStatusText.Text = "Dataset added. Type could not be determined. Now select a model.";
+                                        TrainingStatusText.Text = "YOLOv8 model auto-configured based on dataset size.";
                                         break;
                                 }
 
@@ -2039,7 +2079,47 @@ namespace VisionAICam.Pages
         }
 
 
+        // ✅ ลบ method เดิม: ModelArchComboBox_SelectionChanged
+        // แทนที่ด้วย method นี้ที่ถูกเรียกเมื่อ dataset ถูกเลือก
 
+        private void RefreshModelBlock(string datasetPath = null)
+        {
+            if (TrainingCanvas == null) return;
+
+            TrainingCanvas.Children.Remove(modelBlock);
+            TrainingCanvas.Children.Remove(trainBlock);
+            modelBlock = null;
+            trainBlock = null;
+
+            // ✅ Force YOLOv8 only
+            string selectedArch = "YOLOv8";
+
+            // ✅ Pass dataset path to BuildModelOptions
+            var (modelOptions, modelSources) = BuildModelOptions(selectedArch, datasetPath);
+            var trainingSources = BuildTrainingSources();
+
+            var trainingOptions = trainingSources
+                .Select(kvp => new TrainingOption { Name = kvp.Key, Value = kvp.Value[0] })
+                .ToList();
+
+            double datasetBlockX = 10;
+            double datasetBlockWidth = 230;
+            double gap = 10;
+            double modelBlockX = datasetBlockX + datasetBlockWidth + gap;
+            double modelBlockY = 10;
+            double trainBlockX = modelBlockX + 230 + gap;
+            double trainBlockY = modelBlockY;
+
+            var modelPanel = CreateModelDetailGrid(modelOptions, $"🧠 {selectedArch}", modelSources);
+            modelBlock = CreateBlock(modelPanel, modelBlockX, modelBlockY, "Model");
+            TrainingCanvas.Children.Add(modelBlock);
+
+            var trainPanel = CreateTrainDetailGrid(trainingOptions, "🚀 Training Options", trainingSources);
+            trainBlock = CreateBlock(trainPanel, trainBlockX, trainBlockY, "Train");
+            TrainingCanvas.Children.Add(trainBlock);
+
+            SaveBlockStates();
+        }
 
         private void ProjectTypeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -2074,3 +2154,5 @@ namespace VisionAICam.Pages
         }
     }
 }
+
+
