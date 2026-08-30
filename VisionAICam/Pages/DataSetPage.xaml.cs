@@ -2,6 +2,7 @@
 using ClearEngine.Model.Inference;
 using Microsoft.VisualBasic.Logging;
 using Ookii.Dialogs.Wpf;
+using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -17,8 +18,15 @@ using System.Windows.Shapes;
 using VisionAICam.Core;
 using static System.Windows.Forms.Design.AxImporter;
 using SWPath = System.IO.Path;
-// Explicitly disambiguate WPF Point to avoid conflicts with other Point types.
+// Explicitly disambiguate WPF types to avoid conflicts with OpenCvSharp types.
 using SWPoint = System.Windows.Point;
+using SWSize = System.Windows.Size;
+using SWRect = System.Windows.Rect;
+using SWWindow = System.Windows.Window;
+// OpenCvSharp types (explicit when needed)
+using CvPoint = OpenCvSharp.Point;
+using CvSize = OpenCvSharp.Size;
+using CvRect = OpenCvSharp.Rect;
 
 namespace VisionAICam.Pages
 {
@@ -136,8 +144,8 @@ namespace VisionAICam.Pages
         private System.Timers.Timer? _timer;
         // Add these fields near other private fields in DataSetPage class
         private bool _isMiddlePanning = false;
-        private Point _middlePanStartScreen;
-        private Point _middlePanStartPan;
+        private SWPoint _middlePanStartScreen;
+        private SWPoint _middlePanStartPan;
         private TranslateTransform? _panTransform;
         // Add these fields to store original colors for restoration (around line 70 with other private fields)
         private readonly Dictionary<ShapeInfo, Brush> _originalShapeColors = new Dictionary<ShapeInfo, Brush>();
@@ -741,7 +749,7 @@ namespace VisionAICam.Pages
             if (BoundingBoxCanvas == null)
                 return new SWPoint(0, 0);
 
-            var win = Window.GetWindow(this);
+            var win = SWWindow.GetWindow(this);
             if (win != null)
             {
                 try
@@ -1134,7 +1142,7 @@ namespace VisionAICam.Pages
                                         // Shift each point
                                         var pts = polyline.Points;
                                         for (int i = 0; i < pts.Count; i++)
-                                            pts[i] = new Point(pts[i].X + dx, pts[i].Y + dy);
+                                            pts[i] = new SWPoint(pts[i].X + dx, pts[i].Y + dy);
                                         polyline.Points = new PointCollection(pts);
 
                                         if (_currentDrawingShapeInfo.Record?.Points != null)
@@ -1154,7 +1162,7 @@ namespace VisionAICam.Pages
                                     {
                                         var pts = polygon.Points;
                                         for (int i = 0; i < pts.Count; i++)
-                                            pts[i] = new Point(pts[i].X + dx, pts[i].Y + dy);
+                                            pts[i] = new SWPoint(pts[i].X + dx, pts[i].Y + dy);
                                         polygon.Points = new PointCollection(pts);
 
                                         if (_currentDrawingShapeInfo.Record?.Points != null)
@@ -1533,7 +1541,7 @@ namespace VisionAICam.Pages
                 }
 
                 // record start pan offset
-                _middlePanStartPan = new Point(_panTransform?.X ?? 0.0, _panTransform?.Y ?? 0.0);
+                _middlePanStartPan = new SWPoint(_panTransform?.X ?? 0.0, _panTransform?.Y ?? 0.0);
 
                 Cursor = Cursors.SizeAll;
                 BoundingBoxCanvas.CaptureMouse();
@@ -3683,13 +3691,13 @@ namespace VisionAICam.Pages
             }
 
             // Create an edit dialog window
-            var editWindow = new Window
+            var editWindow = new SWWindow
             {
                 Title = "Edit Annotation",
                 Width = 450,
                 Height = 450, // ⭐ INCREASED to 450 to ensure buttons are visible
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Owner = Window.GetWindow(this),
+                Owner = SWWindow.GetWindow(this),
                 ResizeMode = ResizeMode.CanResize,
                 Background = new SolidColorBrush(Color.FromRgb(37, 50, 56)),
                 MinWidth = 400, // ⭐ Set minimum dimensions
@@ -4146,15 +4154,15 @@ namespace VisionAICam.Pages
                     imageName =>
                     {
                         var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
+                        if (path == null) return new SWSize(0, 0);
                         try
                         {
                             using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
+                            return new SWSize(img.Width, img.Height);
                         }
                         catch
                         {
-                            return new Size(0, 0);
+                            return new SWSize(0, 0);
                         }
                     },
                     trainRatio: 0.7, 0.2, 0.1,
@@ -4412,15 +4420,15 @@ namespace VisionAICam.Pages
                     imageName =>
                     {
                         var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
+                        if (path == null) return new SWSize(0, 0);
                         try
                         {
                             using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
+                            return new SWSize(img.Width, img.Height);
                         }
                         catch
                         {
-                            return new Size(0, 0);
+                            return new SWSize(0, 0);
                         }
                     },
                     trainRatio: 0.7, 0.2, 0.1,
@@ -4461,15 +4469,15 @@ namespace VisionAICam.Pages
                     imageName =>
                     {
                         var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
+                        if (path == null) return new SWSize(0, 0);
                         try
                         {
                             using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
+                            return new SWSize(img.Width, img.Height);
                         }
                         catch
                         {
-                            return new Size(0, 0);
+                            return new SWSize(0, 0);
                         }
                     },
                     trainRatio: 0.7, 0.2, 0.1,
@@ -4527,15 +4535,15 @@ namespace VisionAICam.Pages
                     imageName =>
                     {
                         var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
+                        if (path == null) return new SWSize(0, 0);
                         try
                         {
                             using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
+                            return new SWSize(img.Width, img.Height);
                         }
                         catch
                         {
-                            return new Size(0, 0);
+                            return new SWSize(0, 0);
                         }
                     },
                     trainRatio: 0.7, 0.2, 0.1,
@@ -4573,15 +4581,15 @@ namespace VisionAICam.Pages
                     imageName =>
                     {
                         var path = _currentProject.ImagePaths.FirstOrDefault(p => System.IO.Path.GetFileName(p) == imageName);
-                        if (path == null) return new Size(0, 0);
+                        if (path == null) return new SWSize(0, 0);
                         try
                         {
                             using var img = System.Drawing.Image.FromFile(path);
-                            return new Size(img.Width, img.Height);
+                            return new SWSize(img.Width, img.Height);
                         }
                         catch
                         {
-                            return new Size(0, 0);
+                            return new SWSize(0, 0);
                         }
                     },
                     trainRatio: 0.7, 0.2, 0.1,
@@ -4631,12 +4639,12 @@ namespace VisionAICam.Pages
 
                 if (values != null && values.Count == 8)
                 {
-                    var points = new List<Point>
+                    var points = new List<SWPoint>
             {
-                new Point((int)values[0], (int)values[1]),
-                new Point((int)values[2], (int)values[3]),
-                new Point((int)values[4], (int)values[5]),
-                new Point((int)values[6], (int)values[7])
+                new SWPoint((int)values[0], (int)values[1]),
+                new SWPoint((int)values[2], (int)values[3]),
+                new SWPoint((int)values[4], (int)values[5]),
+                new SWPoint((int)values[6], (int)values[7])
             };
 
                     rotatedAnnotations.Add(new AnnotationRecord
@@ -4663,7 +4671,7 @@ namespace VisionAICam.Pages
                 SelectedImageIndex = project.SelectedImageIndex
             };
         }
-        private MinAreaRect GetMinAreaRect(List<Point> points)
+        private MinAreaRect GetMinAreaRect(List<SWPoint> points)
         {
             if (points == null || points.Count < 3)
                 throw new ArgumentException("At least 3 points are required for minimum area rectangle.");
@@ -4697,7 +4705,7 @@ namespace VisionAICam.Pages
             {
                 double dx = p.X - cx;
                 double dy = p.Y - cy;
-                return new Point(
+                return new SWPoint(
                     dx * cosT + dy * sinT,
                     -dx * sinT + dy * cosT
                 );
@@ -4714,15 +4722,15 @@ namespace VisionAICam.Pages
 
             return new MinAreaRect
             {
-                Center = new Point(cx, cy),
-                Size = new Size(width, height),
+                Center = new SWPoint(cx, cy),
+                Size = new SWSize(width, height),
                 Angle = theta * 180.0 / Math.PI // convert to degrees
             };
         }
         private struct MinAreaRect
         {
-            public Point Center;
-            public Size Size;
+            public SWPoint Center;
+            public SWSize Size;
             public double Angle; // In degrees
         }
         private List<double> GetRotatedBoxAs8Values(double cx, double cy, double w, double h, double angleDegrees)
@@ -4734,12 +4742,12 @@ namespace VisionAICam.Pages
             double w2 = w / 2.0;
             double h2 = h / 2.0;
 
-            var corners = new List<Point>
+            var corners = new List<SWPoint>
             {
-                new Point(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
-                new Point(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
-                new Point(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
-                new Point(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
+                new SWPoint(cx - w2 * cosA + h2 * sinA, cy - w2 * sinA - h2 * cosA), // top-left
+                new SWPoint(cx + w2 * cosA + h2 * sinA, cy + w2 * sinA - h2 * cosA), // top-right
+                new SWPoint(cx + w2 * cosA - h2 * sinA, cy + w2 * sinA + h2 * cosA), // bottom-right
+                new SWPoint(cx - w2 * cosA - h2 * sinA, cy - w2 * sinA + h2 * cosA)  // bottom-left
             };
 
             return corners.SelectMany(p => new List<double> { p.X, p.Y }).ToList();
@@ -5065,12 +5073,103 @@ namespace VisionAICam.Pages
                     return;
                 }
 
+                // Ask user if they want to resize images to 640x640
+                var resizeResult = MessageBox.Show(
+                    $"Found {_imagePaths.Count} images.\n\nDo you want to resize all images to 640x640 and save them?\n\n" +
+                    "This will create new files with '_640x640' suffix in the same folder.",
+                    "Resize Images",
+                    MessageBoxButton.YesNoCancel,
+                    MessageBoxImage.Question);
+
+                if (resizeResult == MessageBoxResult.Cancel)
+                {
+                    SetStatus("Operation cancelled.");
+                    return;
+                }
+
+                if (resizeResult == MessageBoxResult.Yes)
+                {
+                    SetStatus("Resizing images to 640x640...");
+                    var resizedPaths = new List<string>();
+                    int successCount = 0;
+                    int failCount = 0;
+
+                    foreach (var imagePath in _imagePaths)
+                    {
+                        try
+                        {
+                            // Load image with OpenCV
+                            Mat originalMat = Cv2.ImRead(imagePath, ImreadModes.Color);
+                            if (originalMat.Empty())
+                            {
+                                failCount++;
+                                continue;
+                            }
+
+                            // Resize to 640x640
+                            Mat resizedMat = new Mat();
+                            Cv2.Resize(originalMat, resizedMat, new OpenCvSharp.Size(640, 640), 0, 0, InterpolationFlags.Linear);
+
+                            // Create new filename with _640x640 suffix
+                            string directory = System.IO.Path.GetDirectoryName(imagePath);
+                            string fileName = System.IO.Path.GetFileNameWithoutExtension(imagePath);
+                            string extension = System.IO.Path.GetExtension(imagePath);
+                            string resizedFilePath = System.IO.Path.Combine(directory, $"{fileName}_640x640{extension}");
+
+                            // Save resized image
+                            Cv2.ImWrite(resizedFilePath, resizedMat);
+                            resizedPaths.Add(resizedFilePath);
+                            successCount++;
+
+                            // Cleanup
+                            originalMat.Dispose();
+                            resizedMat.Dispose();
+
+                            // Update status periodically
+                            if (successCount % 10 == 0)
+                            {
+                                SetStatus($"Resized {successCount}/{_imagePaths.Count} images...");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            failCount++;
+                            Debug.WriteLine($"Failed to resize {imagePath}: {ex.Message}");
+                        }
+                    }
+
+                    // Update image paths to use resized images
+                    if (resizedPaths.Count > 0)
+                    {
+                        _imagePaths = resizedPaths;
+                        MessageBox.Show(
+                            $"Resize complete!\n\nSuccess: {successCount}\nFailed: {failCount}\n\n" +
+                            "Now using resized images (640x640) for annotation.",
+                            "Resize Complete",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    }
+                    else
+                    {
+                        MessageBox.Show("Failed to resize any images. Using original images.",
+                            "Resize Failed",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Warning);
+                    }
+                }
+
                 _currentImageIndex = 0;
                 await LoadImageAtIndex(_currentImageIndex);
-                // Insert inside LoadFolder_Click after _currentImageIndex = 0; await LoadImageAtIndex...
+
+                // Augmentation option
                 if (_currentProject != null)
                 {
-                    var res = MessageBox.Show("Augment images now to increase dataset size and update project? (You can skip and run later)", "Augment dataset", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    var res = MessageBox.Show(
+                        "Augment images now to increase dataset size and update project? (You can skip and run later)",
+                        "Augment dataset",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question);
+
                     if (res == MessageBoxResult.Yes)
                     {
                         await AugmentCurrentProjectImagesAsync();
@@ -5198,7 +5297,7 @@ namespace VisionAICam.Pages
 
         private void FullScreenToggleButton_Click(object sender, RoutedEventArgs e)
         {
-            var window = Window.GetWindow(this);
+            var window = SWWindow.GetWindow(this);
             if (window == null) return;
 
             if (!_isFullScreen)
@@ -7515,7 +7614,7 @@ namespace VisionAICam.Pages
                                 ImageName = System.IO.Path.GetFileName(outFile),
                                 Label = ann.Label,
                                 AnnotationType = ann.AnnotationType,
-                                Points = ann.Points != null ? ann.Points.Select(p => new Point(p.X, p.Y)).ToList() : new List<Point>(),
+                                Points = ann.Points != null ? ann.Points.Select(p => new SWPoint(p.X, p.Y)).ToList() : new List<SWPoint>(),
                                 RawValues = ann.RawValues != null ? new List<double>(ann.RawValues) : null
                             };
 
@@ -7561,7 +7660,7 @@ namespace VisionAICam.Pages
                                 for (int i = 0; i < ann.Points.Count; i++)
                                 {
                                     var p = ann.Points[i];
-                                    ann.Points[i] = new Point(p.X - offsetX, p.Y - offsetY);
+                                    ann.Points[i] = new SWPoint(p.X - offsetX, p.Y - offsetY);
                                 }
                             }
 
@@ -7691,9 +7790,9 @@ namespace VisionAICam.Pages
             using (var dc = dv.RenderOpen())
             {
                 // black background
-                dc.DrawRectangle(Brushes.Black, null, new Rect(0, 0, targetWidth, targetHeight));
+                dc.DrawRectangle(Brushes.Black, null, new SWRect(0, 0, targetWidth, targetHeight));
                 // draw (scaled) transformed image at computed position; DrawImage will crop automatically if negative offsets
-                dc.DrawImage(src, new Rect(drawLeft, drawTop, drawW, drawH));
+                dc.DrawImage(src, new SWRect(drawLeft, drawTop, drawW, drawH));
             }
 
             var rtb = new RenderTargetBitmap(

@@ -591,7 +591,28 @@ namespace VisionAICam.Pages
                 _runningInferenceTask = Task.Run(() =>
                 {
                     ClearEngine.Model.Inference.InferenceEngine? engine = null;
-                    var modelPath = _app_settings?.DefaultModelPath ?? "model.pt";
+
+
+
+                    // Priority: ModelPathText.Text > _app_settings.DefaultModelPath > "model.pt"
+                    string modelPath;
+                    string modelPathFromTextBox = string.Empty;
+
+                    SafeInvokeOnUi(() =>
+                    {
+                        modelPathFromTextBox = ModelPathText.Text?.Trim() ?? string.Empty;
+                    });
+
+                    if (!string.IsNullOrWhiteSpace(modelPathFromTextBox) &&
+                        modelPathFromTextBox != "(none)" &&
+                        File.Exists(modelPathFromTextBox))
+                    {
+                        modelPath = modelPathFromTextBox;
+                    }
+                    else
+                    {
+                        modelPath = _app_settings?.DefaultModelPath ?? "model.pt";
+                    }
                     var logDir = ClearEngine.Logging.Logger.Instance.GetLogDirectory();
                     bool engineIsCached = false;
 
