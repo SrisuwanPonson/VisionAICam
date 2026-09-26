@@ -37,6 +37,13 @@ namespace VisionAICam
         public double AutoCannyT2 { get; set; } = 150.0;
         public double AutoMinArea { get; set; } = 100.0;
 
+        // Auto-repair thresholds for fragmented contour repair
+        public double AutoRepairCoverageThreshold { get; set; } = 0.45; // fraction 0..1
+        public double AutoRepairStrengthThreshold { get; set; } = 0.55; // fraction 0..1
+        // Enable auto-repair during AutoLabel and optionally auto-accept repairs
+        public bool EnableAutoRepair { get; set; } = true;
+        public bool EnableAutoAcceptRepairs { get; set; } = false;
+
         // -----------------------------
         // OpenCV camera settings
         // -----------------------------

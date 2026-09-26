@@ -39,6 +39,7 @@ namespace VisionAICam.Pages
         public string Task { get; set; } = "";
     }
 
+
     public class FrameSummary
     {
         public string ClassName { get; set; } = "";
@@ -632,11 +633,110 @@ namespace VisionAICam.Pages
                         _logger?.LogInfo("MJPEG stream fully initialized");
                         _logger?.LogInfo("=== Entering production inference loop ===");
 
+                        // Prepare model/log paths for inference (Hikvision stream)
+                        var hikModelPath = _appSettings?.DefaultModelPath ?? SettingsManager.Load()?.DefaultModelPath ?? "model.pt";
+                        var hikLogDir = _logger?.GetLogDirectory();
+
                         // 6. Inference loop (processes frames from stream)
                         while (!_productionCancelToken.IsCancellationRequested)
                         {
-                            // Your existing inference loop code here
-                            await Task.Delay(10); // Prevent tight loop
+                            BitmapImage? frameCopy = null;
+                            // grab latest frame safely
+                            lock (frameLock)
+                            {
+                                if (latestFrame != null)
+                                {
+                                    frameCopy = latestFrame;
+                                    // keep latestFrame as-is so UI still shows it; don't null it out
+                                }
+                            }
+
+                            if (frameCopy == null)
+                            {
+                                await Task.Delay(10);
+                                continue;
+                            }
+
+                            // Convert to Mat and run inference
+                            OpenCvSharp.Mat? cvMat = null;
+                            try
+                            {
+                                cvMat = VisionAICam.Helpers.BitmapSourceToMatExtensions.ToMat(frameCopy);
+
+                                // Ensure BGR 3-channel and target size like Diagnostics
+                                var targetSize = new OpenCvSharp.Size(640, 480);
+                                if (cvMat.Channels() == 4)
+                                {
+                                    var tmp = new OpenCvSharp.Mat();
+                                    OpenCvSharp.Cv2.CvtColor(cvMat, tmp, OpenCvSharp.ColorConversionCodes.BGRA2BGR);
+                                    cvMat.Dispose();
+                                    cvMat = tmp;
+                                }
+                                if (cvMat.Width != targetSize.Width || cvMat.Height != targetSize.Height)
+                                {
+                                    var resized = new OpenCvSharp.Mat();
+                                    OpenCvSharp.Cv2.Resize(cvMat, resized, targetSize, 0, 0, OpenCvSharp.InterpolationFlags.Linear);
+                                    cvMat.Dispose();
+                                    cvMat = resized;
+                                }
+
+                                // Run inference with error reporting
+                                var resp = InferenceEngineInstance?.DetectWithError(cvMat, hikModelPath, hikLogDir);
+                                ClearEngine.Model.Inference.DetectionResult[] remoteResults = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+                                if (resp == null)
+                                {
+                                    Debug.WriteLine("[HIK-INFER] null response from engine");
+                                }
+                                else if (!resp.Success)
+                                {
+                                    Debug.WriteLine($"[HIK-INFER] inference failed: {resp.Error}");
+                                    try
+                                    {
+                                        var debugFile = System.IO.Path.Combine(hikLogDir ?? System.IO.Path.GetTempPath(), $"hik_debug_{DateTime.Now:yyyyMMdd_HHmmss}.jpg");
+                                        OpenCvSharp.Cv2.ImWrite(debugFile, cvMat);
+                                        Debug.WriteLine($"[HIK-INFER] Saved debug frame: {debugFile}");
+                                    }
+                                    catch { }
+                                }
+                                else
+                                {
+                                    remoteResults = resp.Detections ?? Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+                                }
+
+                                // Map and display results
+                                var mapped = new Collection<DetectionResult>();
+                                foreach (var r in remoteResults)
+                                {
+                                    mapped.Add(new DetectionResult
+                                    {
+                                        ClassName = r.ClassName ?? string.Empty,
+                                        Confidence = r.Confidence,
+                                        Box = r.Box ?? string.Empty,
+                                        Task = r.Task ?? string.Empty
+                                    });
+                                }
+
+                                try { if (frameCopy.CanFreeze) frameCopy.Freeze(); } catch { }
+
+                                Dispatcher.BeginInvoke(() =>
+                                {
+                                    try { ProductionImage.Source = frameCopy; } catch { }
+                                    DrawBoundingBoxes(mapped);
+                                    UpdateFrameSummary(mapped);
+                                });
+
+                                try { MasterController.Instance.AddDetectionResults(mapped); } catch { }
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug.WriteLine($"[HIK-INFER] loop error: {ex.Message}");
+                            }
+                            finally
+                            {
+                                try { cvMat?.Dispose(); } catch { }
+                            }
+
+                            await Task.Delay(30);
                         }
 
                         _logger?.LogInfo("=== Exited production loop ===");
@@ -770,6 +870,14 @@ namespace VisionAICam.Pages
                     _logger?.LogInfo("Starting camera thread...");
                     _cameraThread = new Thread(CameraLoop) { IsBackground = true };
                     _cameraThread.Start();
+
+                    // Start a robust inference loop task that reads frames continuously and runs prediction.
+                    // This runs in parallel to the camera thread and uses the production cancellation token.
+                    if (_productionCancelTokenSource != null)
+                    {
+                        _ = Task.Run(() => InferenceLoop(_productionCancelTokenSource.Token));
+                        _logger?.LogInfo("Inference loop task started.");
+                    }
 
                     _logger?.LogInfo("Starting timer...");
                     StartTimer();
@@ -1249,7 +1357,90 @@ namespace VisionAICam.Pages
                             {
                                 cvMat = VisionAICam.Helpers.BitmapSourceToMatExtensions.ToMat(bitmap);
 
-                                var remoteResults = InferenceEngineInstance?.Detect(cvMat, modelPath, logDir);
+                                // Align Production preprocessing with Diagnostics page: ensure BGR 3-channel and resize to 640x480
+                                try
+                                {
+                                    var targetSize = new OpenCvSharp.Size(640, 480);
+
+                                    if (cvMat.Channels() == 4)
+                                    {
+                                        var bgrMat = new Mat();
+                                        Cv2.CvtColor(cvMat, bgrMat, ColorConversionCodes.BGRA2BGR);
+                                        cvMat.Dispose();
+                                        cvMat = bgrMat;
+                                        Debug.WriteLine("[PROD] Converted BGRA->BGR");
+                                    }
+
+                                    if (cvMat.Width != targetSize.Width || cvMat.Height != targetSize.Height)
+                                    {
+                                        var resizedMat = new Mat();
+                                        Cv2.Resize(cvMat, resizedMat, targetSize, 0, 0, InterpolationFlags.Linear);
+                                        cvMat.Dispose();
+                                        cvMat = resizedMat;
+                                        Debug.WriteLine($"[PROD] Resized frame to {targetSize.Width}x{targetSize.Height}");
+                                    }
+
+                                    Debug.WriteLine($"[PROD] ModelPath={modelPath}");
+                                    Debug.WriteLine($"[PROD] Mat: {cvMat.Width}x{cvMat.Height}, Channels={cvMat.Channels()}, Type={cvMat.Type()}");
+
+                                    Mat[]? splitChannels = null;
+                                    try
+                                    {
+                                        splitChannels = Cv2.Split(cvMat);
+                                        for (int c = 0; c < splitChannels.Length; c++)
+                                        {
+                                            Cv2.MinMaxLoc(splitChannels[c], out double minVal, out double maxVal);
+                                            var mean = Cv2.Mean(splitChannels[c]).Val0;
+                                            Debug.WriteLine($"[PROD] Channel {c}: min={minVal:F1}, max={maxVal:F1}, mean={mean:F1}");
+                                        }
+                                    }
+                                    finally
+                                    {
+                                        if (splitChannels != null)
+                                        {
+                                            foreach (var ch in splitChannels)
+                                                ch.Dispose();
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[PROD] Preprocessing error: {ex.Message}");
+                                }
+
+                                // Use DetectWithError to capture Python-side errors and save a debug frame when detection fails
+                                ClearEngine.Model.Inference.DetectionResult[] remoteResults = Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+                                try
+                                {
+                                    var resp = InferenceEngineInstance?.DetectWithError(cvMat, modelPath, logDir);
+                                    if (resp == null)
+                                    {
+                                        Debug.WriteLine("[PROD] InferenceEngine.DetectWithError returned null response");
+                                    }
+                                    else if (!resp.Success)
+                                    {
+                                        Debug.WriteLine($"[PROD] Inference failed: {resp.Error?.ToString()}");
+                                        try
+                                        {
+                                            var debugDir = !string.IsNullOrWhiteSpace(logDir) ? logDir : System.IO.Path.GetTempPath();
+                                            var debugFile = System.IO.Path.Combine(debugDir, $"prod_debug_frame_{DateTime.Now:yyyyMMdd_HHmmss}.jpg");
+                                            Cv2.ImWrite(debugFile, cvMat);
+                                            Debug.WriteLine($"[PROD] Saved debug frame: {debugFile}");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Debug.WriteLine($"[PROD] Failed saving debug frame: {ex.Message}");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        remoteResults = resp.Detections ?? Array.Empty<ClearEngine.Model.Inference.DetectionResult>();
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"[PROD] DetectWithError threw: {ex.Message}");
+                                }
 
                                 var mapped = new Collection<DetectionResult>();
                                 if (remoteResults != null)
@@ -1340,6 +1531,120 @@ namespace VisionAICam.Pages
                 catch { }
 
                 _cameraLoopRunning = false;
+            }
+        }
+
+        // Background inference loop: captures frames continuously and runs detection.
+        private async Task InferenceLoop(CancellationToken token)
+        {
+            try
+            {
+                while (!token.IsCancellationRequested && _camera != null && _camera.IsOpened)
+                {
+                    try
+                    {
+                        if (_isPaused || !_isRunning)
+                        {
+                            await Task.Delay(50, token);
+                            continue;
+                        }
+
+                        var bitmap = _camera.CaptureCurrentFrame();
+                        if (bitmap == null)
+                        {
+                            await Task.Delay(30, token);
+                            continue;
+                        }
+
+                        OpenCvSharp.Mat? cvMat = null;
+                        try
+                        {
+                            cvMat = VisionAICam.Helpers.BitmapSourceToMatExtensions.ToMat(bitmap);
+
+                            // Normalize to Diagnostics preprocessing
+                            var targetSize = new OpenCvSharp.Size(640, 480);
+                            if (cvMat.Channels() == 4)
+                            {
+                                var tmp = new OpenCvSharp.Mat();
+                                OpenCvSharp.Cv2.CvtColor(cvMat, tmp, OpenCvSharp.ColorConversionCodes.BGRA2BGR);
+                                cvMat.Dispose();
+                                cvMat = tmp;
+                            }
+                            if (cvMat.Width != targetSize.Width || cvMat.Height != targetSize.Height)
+                            {
+                                var resized = new OpenCvSharp.Mat();
+                                OpenCvSharp.Cv2.Resize(cvMat, resized, targetSize, 0, 0, OpenCvSharp.InterpolationFlags.Linear);
+                                cvMat.Dispose();
+                                cvMat = resized;
+                            }
+
+                            var modelPath = _appSettings?.DefaultModelPath ?? SettingsManager.Load()?.DefaultModelPath ?? "model.pt";
+                            var logDir = _logger.GetLogDirectory();
+
+                            var resp = InferenceEngineInstance?.DetectWithError(cvMat, modelPath, logDir);
+                            if (resp == null)
+                            {
+                                Debug.WriteLine("[INFERENCE-LOOP] engine returned null response");
+                            }
+                            else if (!resp.Success)
+                            {
+                                Debug.WriteLine($"[INFERENCE-LOOP] inference failed: {resp.Error}");
+                                // optionally save debug frame
+                                try
+                                {
+                                    var debugDir = !string.IsNullOrWhiteSpace(logDir) ? logDir : System.IO.Path.GetTempPath();
+                                    var debugFile = System.IO.Path.Combine(debugDir, $"prod_infer_debug_{DateTime.Now:yyyyMMdd_HHmmss}.jpg");
+                                    OpenCvSharp.Cv2.ImWrite(debugFile, cvMat);
+                                    Debug.WriteLine($"[INFERENCE-LOOP] saved debug frame: {debugFile}");
+                                }
+                                catch { }
+                            }
+                            else
+                            {
+                                var mapped = new Collection<DetectionResult>();
+                                foreach (var r in resp.Detections ?? Array.Empty<ClearEngine.Model.Inference.DetectionResult>())
+                                {
+                                    mapped.Add(new DetectionResult
+                                    {
+                                        ClassName = r.ClassName ?? string.Empty,
+                                        Confidence = r.Confidence,
+                                        Box = r.Box ?? string.Empty,
+                                        Task = r.Task ?? string.Empty
+                                    });
+                                }
+
+                                try
+                                {
+                                    if (bitmap.CanFreeze) bitmap.Freeze();
+                                }
+                                catch { }
+
+                                Dispatcher.BeginInvoke(() =>
+                                {
+                                    try { ProductionImage.Source = bitmap; } catch { }
+                                    DrawBoundingBoxes(mapped);
+                                    UpdateFrameSummary(mapped);
+                                });
+                            }
+                        }
+                        finally
+                        {
+                            try { cvMat?.Dispose(); } catch { }
+                        }
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[INFERENCE-LOOP] error: {ex.Message}");
+                    }
+
+                    await Task.Delay(40, token);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[INFERENCE-LOOP] fatal: {ex.Message}");
             }
         }
 

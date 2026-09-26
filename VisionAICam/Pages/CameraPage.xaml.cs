@@ -895,6 +895,9 @@ namespace VisionAICam.Pages
 
         private async void SnapshotButton_Click(object sender, RoutedEventArgs e)
         {
+            SnapshotButton.IsEnabled = false;
+            Mat? mat = null;
+
             try
             {
                 BitmapSource? frame = null;
@@ -946,7 +949,7 @@ namespace VisionAICam.Pages
                 }
 
                 // ⭐ Convert BitmapSource → Mat (OpenCV)
-                Mat mat = OpenCvSharp.WpfExtensions.BitmapSourceConverter.ToMat(frame);
+                mat = OpenCvSharp.WpfExtensions.BitmapSourceConverter.ToMat(frame);
 
                 string basePath = _appSettings?.DefaultImagePath ??
                                   Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
@@ -963,13 +966,43 @@ namespace VisionAICam.Pages
                 string filePath = Path.Combine(savePath, fileName);
 
                 mat.SaveImage(filePath);
-                MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
 
-                mat.Dispose();
+                // Count images in today's folder (only common raster extensions)
+                int count = 0;
+                try
+                {
+                    if (Directory.Exists(savePath))
+                    {
+                        count = Directory.EnumerateFiles(savePath)
+                                         .Count(p =>
+                                         {
+                                             var ext = Path.GetExtension(p)?.ToLowerInvariant();
+                                             return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp";
+                                         });
+                    }
+                }
+                catch { /* tolerate IO errors when counting */ }
+
+                // Update UI with the new count (must run on UI thread)
+                try
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        lblSaveStatus.Text = $"Saved today: {count}";
+                    });
+                }
+                catch { }
+
+                //MessageBox.Show($"Snapshot saved to {filePath}.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to save snapshot: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                try { mat?.Dispose(); } catch { }
+                SnapshotButton.IsEnabled = true;
             }
         }
 
