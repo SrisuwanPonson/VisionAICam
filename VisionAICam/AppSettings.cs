@@ -96,6 +96,18 @@ namespace VisionAICam
         public int MasterControllerPort { get; set; } = 502;
         public bool SwapFloatWords { get; set; } = false;
         public ushort RobotRegisterAddress { get; set; } = 10;
+        // Modbus server settings
+        // When true, MasterController will start the Modbus TCP server automatically on startup.
+        public bool ModbusAutoStart { get; set; } = true;
+
+        // Port for Modbus TCP server to listen on. Defaults to standard Modbus port 502.
+        public int ModbusPort { get; set; } = 502;
+
+        // When true, X/Y coordinates are written as float32 (two registers). When false, int16 is used.
+        public bool ModbusUseFloatCoordinates { get; set; } = true;
+
+        // Maximum number of objects to publish to Modbus (caps register usage).
+        public int ModbusMaxObjects { get; set; } = 100;
 
         // -----------------------------
         // Reference colors

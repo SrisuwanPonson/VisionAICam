@@ -11,6 +11,7 @@ namespace ClearEngine.Model.Inference
     // Lightweight DTO returned by the inference library
     public class DetectionResult
     {
+        public string ClassID { get; set; } = "";
         public string ClassName { get; set; } = "";
         public double Confidence { get; set; }
         public string Box { get; set; } = ""; // "x1,y1,x2,y2" or "cx,cy,w,h,angle"
@@ -406,9 +407,23 @@ namespace ClearEngine.Model.Inference
                                         double b2 = Convert.ToDouble(box[2]);
                                         double b3 = Convert.ToDouble(box[3]);
 
+                                        // Attempt to read class_id from python result (if provided)
+                                        string classIdStr = "";
+                                        try
+                                        {
+                                            var cidObj = det["class_id"];
+                                            if (cidObj != null) classIdStr = cidObj.ToString();
+                                            else
+                                            {
+                                                try { cidObj = det.GetAttr("class_id"); if (cidObj != null) classIdStr = cidObj.ToString(); } catch { }
+                                            }
+                                        }
+                                        catch { }
+
                                         detections.Add(new DetectionResult
                                         {
                                             ClassName = className ?? "",
+                                            ClassID = classIdStr ?? "",
                                             Confidence = confidence,
                                             Box = $"{b0},{b1},{b2},{b3}",
                                             Task = "detect"
@@ -433,9 +448,23 @@ namespace ClearEngine.Model.Inference
                                         double r3 = Convert.ToDouble(rotateBox[3]);
                                         double r4 = Convert.ToDouble(rotateBox[4]);
 
+                                        // Attempt to read class_id from python result (if provided)
+                                        string classIdStr = "";
+                                        try
+                                        {
+                                            var cidObj = det["class_id"];
+                                            if (cidObj != null) classIdStr = cidObj.ToString();
+                                            else
+                                            {
+                                                try { cidObj = det.GetAttr("class_id"); if (cidObj != null) classIdStr = cidObj.ToString(); } catch { }
+                                            }
+                                        }
+                                        catch { }
+
                                         detections.Add(new DetectionResult
                                         {
                                             ClassName = className ?? "",
+                                            ClassID = classIdStr ?? "",
                                             Confidence = confidence,
                                             Box = $"{r0},{r1},{r2},{r3},{r4}",
                                             Task = "obb"

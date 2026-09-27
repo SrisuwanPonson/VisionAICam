@@ -22,6 +22,7 @@ using System.ComponentModel;
 using System.Reflection; // <-- add this
 using ClearEngine.Logging;
 using VisionAICam.Helpers; // UiHelpers
+using VisionAICam.Core;
 namespace VisionAICam.Pages
 {
     /// <summary>
@@ -73,6 +74,42 @@ namespace VisionAICam.Pages
             this.Loaded += DiagnosticsPage_Loaded;
             this.Unloaded += DiagnosticsPage_Unloaded;
             this.IsVisibleChanged += DiagnosticsPage_IsVisibleChanged;
+
+            // Initialize Modbus UI values
+            try
+            {
+                SafeInvokeOnUi(() =>
+                {
+                    try
+                    {
+                        var settings = SettingsManager.Load();
+                        ModbusPortText.Text = (settings?.MasterControllerPort ?? 502).ToString();
+                    }
+                    catch { ModbusPortText.Text = "(unknown)"; }
+
+                    ModbusStatusText.Text = MasterController.Instance.IsModbusServerRunning ? "Running" : "Stopped";
+                    try { ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot(); } catch { ModbusSnapshotTextBox.Text = string.Empty; }
+                });
+
+                // Subscribe to status changes so UI updates
+                MasterController.Instance.ModbusServerStatusChanged += (running) =>
+                {
+                    SafeInvokeOnUi(() =>
+                    {
+                        ModbusStatusText.Text = running ? "Running" : "Stopped";
+                        try { ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot(); } catch { }
+                    });
+                };
+                // Update snapshot when server-side data changes (e.g., detections written)
+                MasterController.Instance.ModbusDataChanged += () =>
+                {
+                    SafeInvokeOnUi(() =>
+                    {
+                        try { ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot(); } catch { }
+                    });
+                };
+            }
+            catch { }
         }
 
         private void DiagnosticsPage_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -855,6 +892,179 @@ namespace VisionAICam.Pages
                 if (Dispatcher.CheckAccess()) action(); else Dispatcher.BeginInvoke(action);
             }
             catch { }
+        }
+
+        private void WriteRegisterButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!int.TryParse(ModbusAddrText.Text, out int addr))
+                {
+                    MessageBox.Show("Invalid address", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                if (!int.TryParse(ModbusValueText.Text, out int val))
+                {
+                    MessageBox.Show("Invalid value", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                ushort uval = unchecked((ushort)val);
+                bool ok = MasterController.Instance.WriteHoldingRegister(addr, uval);
+                if (ok)
+                {
+                    MessageBox.Show($"Wrote 0x{uval:X4} to {addr}", "Modbus", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot();
+                }
+                else
+                {
+                    MessageBox.Show($"Failed to write register {addr}", "Modbus", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Write failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void WriteTestPatternButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                int count = 3;
+                // try to parse count from ModbusValueText if user provided
+                if (int.TryParse(ModbusValueText.Text, out var parsed) && parsed >= 0) count = Math.Min(100, parsed);
+
+                bool ok = MasterController.Instance.WriteTestPattern(count);
+                if (ok)
+                {
+                    MessageBox.Show($"Wrote test pattern with {count} objects", "Modbus", MessageBoxButton.OK, MessageBoxImage.Information);
+                    ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot();
+                }
+                else
+                {
+                    MessageBox.Show("Failed to write test pattern", "Modbus", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"WriteTestPattern failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void RefreshModbusSnapshotButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot();
+            }
+            catch { }
+        }
+
+        private async void ModbusClientConnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                string host = ModbusClientHostText.Text.Trim();
+                if (!int.TryParse(ModbusClientPortText.Text, out int port)) port = 502;
+
+                bool ok = await MasterController.Instance.RobotService.ConnectTcpAsync(host, port).ConfigureAwait(false);
+                SafeInvokeOnUi(() =>
+                {
+                    ModbusClientStatusText.Text = ok ? "Connected" : "Connect failed";
+                    ModbusClientStatusText.Foreground = ok ? System.Windows.Media.Brushes.LightGreen : System.Windows.Media.Brushes.Orange;
+                });
+                // subscribe to service connection changed
+                MasterController.Instance.RobotService.ConnectionChanged += (connected) =>
+                {
+                    SafeInvokeOnUi(() => ModbusClientStatusText.Text = connected ? "Connected" : "Disconnected");
+                };
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Connect failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void ModbusClientDisconnectButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                MasterController.Instance.RobotService.Disconnect();
+                SafeInvokeOnUi(() => ModbusClientStatusText.Text = "Disconnected");
+            }
+            catch { }
+        }
+
+        private async void ReadRegistersButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!ushort.TryParse(ModbusClientSlaveText.Text, out ushort slaveId)) slaveId = 1;
+                if (!ushort.TryParse(ModbusClientAddrText.Text, out ushort addr)) addr = 1000;
+                if (!ushort.TryParse(ModbusCountText.Text, out ushort count)) count = 1;
+
+                var svc = MasterController.Instance.RobotService;
+                if (svc == null || !svc.IsConnected)
+                {
+                    MessageBox.Show("Client not connected", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Adjust for 1-based vs 0-based addressing if requested by the user
+                bool oneBased = ModbusOneBasedCheck?.IsChecked == true;
+                ushort startAddr = addr;
+                if (oneBased)
+                {
+                    // prevent underflow
+                    startAddr = (addr == 0) ? (ushort)0 : (ushort)(addr - 1);
+                }
+
+                var regs = await svc.ReadHoldingRegistersAsync((byte)slaveId, startAddr, count).ConfigureAwait(false);
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine($"Read {regs.Length} regs from {(oneBased ? addr : startAddr)} (slave {slaveId}):");
+                for (int i = 0; i < regs.Length; i++) sb.AppendLine($"{(oneBased ? (addr + i) : (startAddr + i)),6}: 0x{regs[i]:X4} ({regs[i]})");
+
+                SafeInvokeOnUi(() => ModbusClientResultTextBox.Text = sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Read failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private async void WriteRegisterClientButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (!ushort.TryParse(ModbusClientSlaveText.Text, out ushort slaveId)) slaveId = 1;
+                if (!ushort.TryParse(ModbusClientAddrText.Text, out ushort addr)) { MessageBox.Show("Invalid address", "Error", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+                if (!int.TryParse(ModbusValueText.Text, out int ival)) { MessageBox.Show("Invalid value", "Error", MessageBoxButton.OK, MessageBoxImage.Warning); return; }
+
+                var svc = MasterController.Instance.RobotService;
+                if (svc == null || !svc.IsConnected)
+                {
+                    MessageBox.Show("Client not connected", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                // Respect 1-based addressing option for client writes
+                bool oneBasedWrite = ModbusOneBasedCheck?.IsChecked == true;
+                ushort writeAddr = addr;
+                if (oneBasedWrite)
+                {
+                    writeAddr = (addr == 0) ? (ushort)0 : (ushort)(addr - 1);
+                }
+
+                ushort uval = unchecked((ushort)ival);
+                await svc.WriteSingleRegisterAsync((byte)slaveId, writeAddr, uval).ConfigureAwait(false);
+                SafeInvokeOnUi(() => ModbusClientResultTextBox.Text = $"Wrote 0x{uval:X4} to {(oneBasedWrite ? addr : writeAddr)} (slave {slaveId})");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Client write failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void LoadModelInfo()

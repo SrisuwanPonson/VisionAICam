@@ -708,9 +708,23 @@ namespace VisionAICam.Pages
                                 var mapped = new Collection<DetectionResult>();
                                 foreach (var r in remoteResults)
                                 {
+                                    // Prefer class id supplied by the inference result (r.ClassID)
+                                    string classIdStr = "0";
+                                    try
+                                    {
+                                        if (!string.IsNullOrWhiteSpace(r.ClassID)) classIdStr = r.ClassID;
+                                        else
+                                        {
+                                            var cid = MapClassToId(r.ClassName);
+                                            classIdStr = cid.ToString();
+                                        }
+                                    }
+                                    catch { classIdStr = "0"; }
+
                                     mapped.Add(new DetectionResult
                                     {
                                         ClassName = r.ClassName ?? string.Empty,
+                                        ClassId = classIdStr,
                                         Confidence = r.Confidence,
                                         Box = r.Box ?? string.Empty,
                                         Task = r.Task ?? string.Empty
@@ -727,6 +741,7 @@ namespace VisionAICam.Pages
                                 });
 
                                 try { MasterController.Instance.AddDetectionResults(mapped); } catch { }
+                                try { MasterController.Instance.WriteDetectionsToModbus(mapped); } catch { }
                             }
                             catch (Exception ex)
                             {
@@ -1448,9 +1463,23 @@ namespace VisionAICam.Pages
                                 {
                                     foreach (var r in remoteResults)
                                     {
+                                        // Prefer class id supplied by the inference result (r.ClassID)
+                                        string classIdStr = "0";
+                                        try
+                                        {
+                                            if (!string.IsNullOrWhiteSpace(r.ClassID)) classIdStr = r.ClassID;
+                                            else
+                                            {
+                                                var cid = MapClassToId(r.ClassName);
+                                                classIdStr = cid.ToString();
+                                            }
+                                        }
+                                        catch { classIdStr = "0"; }
+
                                         mapped.Add(new DetectionResult
                                         {
                                             ClassName = r.ClassName ?? string.Empty,
+                                            ClassId = classIdStr,
                                             Confidence = r.Confidence,
                                             Box = r.Box ?? string.Empty,
                                             Task = r.Task ?? string.Empty
@@ -1605,9 +1634,13 @@ namespace VisionAICam.Pages
                                 var mapped = new Collection<DetectionResult>();
                                 foreach (var r in resp.Detections ?? Array.Empty<ClearEngine.Model.Inference.DetectionResult>())
                                 {
+                                    var cid = MapClassToId(r.ClassName);
+                                    string classIdStr = cid.ToString();
+
                                     mapped.Add(new DetectionResult
                                     {
                                         ClassName = r.ClassName ?? string.Empty,
+                                        ClassId = classIdStr,
                                         Confidence = r.Confidence,
                                         Box = r.Box ?? string.Empty,
                                         Task = r.Task ?? string.Empty
