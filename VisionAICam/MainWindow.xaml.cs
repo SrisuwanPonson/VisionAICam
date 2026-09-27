@@ -16,8 +16,8 @@ namespace VisionAICam
     public partial class MainWindow : Window
     {
         private Process? _hikServerProcess;
-        private static readonly string AppVersion = "1.2.3";
-        private static readonly string AppRevision = "2026-08-30";
+        private static readonly string AppVersion = "1.2.5";
+        private static readonly string AppRevision = "2026-09-27";
         private int _totalDetectionCount = 0;
         private int _sessionDetectionCount = 0;
         private int _frameCount = 0;

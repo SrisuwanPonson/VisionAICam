@@ -637,8 +637,9 @@ namespace VisionAICam.Pages
                         var hikModelPath = _appSettings?.DefaultModelPath ?? SettingsManager.Load()?.DefaultModelPath ?? "model.pt";
                         var hikLogDir = _logger?.GetLogDirectory();
 
-                        // 6. Inference loop (processes frames from stream)
-                        while (!_productionCancelToken.IsCancellationRequested)
+                // 6. Inference loop (processes frames from stream)
+                        var hikToken = _productionCancelToken;
+                        while (!hikToken.IsCancellationRequested)
                         {
                             BitmapImage? frameCopy = null;
                             // grab latest frame safely
@@ -653,7 +654,7 @@ namespace VisionAICam.Pages
 
                             if (frameCopy == null)
                             {
-                                await Task.Delay(10);
+                                try { await Task.Delay(10, hikToken); } catch (OperationCanceledException) { break; }
                                 continue;
                             }
 
@@ -736,7 +737,7 @@ namespace VisionAICam.Pages
                                 try { cvMat?.Dispose(); } catch { }
                             }
 
-                            await Task.Delay(30);
+                            await Task.Delay(50);
                         }
 
                         _logger?.LogInfo("=== Exited production loop ===");
