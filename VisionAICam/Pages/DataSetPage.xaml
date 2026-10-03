@@ -493,7 +493,8 @@
                             BorderThickness="2" 
                             CornerRadius="8" 
                             Padding="0" 
-                            Background="{StaticResource CardBackground}">
+                            Background="{StaticResource CardBackground}"
+                            MaxHeight="520">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -511,7 +512,7 @@
                                     <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
                                         <Grid x:Name="ZoomContainer"
                                               HorizontalAlignment="Center"
-                                              VerticalAlignment="Center">
+                                              VerticalAlignment="Top">
                                             <Grid.RenderTransform>
                                                 <TransformGroup>
                                                     <ScaleTransform x:Name="ZoomTransform" ScaleX="1" ScaleY="1"/>
@@ -519,7 +520,8 @@
                                                 </TransformGroup>
                                             </Grid.RenderTransform>
                                             <Image x:Name="LabelingImage"
-                                                   Stretch="None"
+                                                   Stretch="Uniform"
+                                                   RenderOptions.BitmapScalingMode="HighQuality"
                                                    RenderTransformOrigin="0.5,0.5"/>
                                             <Canvas x:Name="BoundingBoxCanvas"
                                                     Background="Transparent"

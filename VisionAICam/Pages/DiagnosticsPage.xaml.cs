@@ -84,6 +84,9 @@ namespace VisionAICam.Pages
                     {
                         var settings = SettingsManager.Load();
                         ModbusPortText.Text = (settings?.MasterControllerPort ?? 502).ToString();
+                        // initialize one-based checkboxes from settings
+                        try { ModbusOneBasedCheck.IsChecked = settings?.ModbusClientOneBased ?? true; } catch { }
+                        try { ModbusServerOneBasedCheck.IsChecked = settings?.ModbusServerOneBased ?? true; } catch { }
                     }
                     catch { ModbusPortText.Text = "(unknown)"; }
 
@@ -911,10 +914,16 @@ namespace VisionAICam.Pages
                 }
 
                 ushort uval = unchecked((ushort)val);
-                bool ok = MasterController.Instance.WriteHoldingRegister(addr, uval);
+                // Server uses 1-based addressing for user input (always enabled). Convert to 0-based internal address.
+                int userAddr = addr;
+                // Respect server-side 1-based checkbox if present; default was previously 1-based
+                bool serverOneBased = true;
+                try { serverOneBased = ModbusServerOneBasedCheck?.IsChecked == true; } catch { }
+                int writeAddr = serverOneBased ? ((userAddr == 0) ? 0 : (userAddr - 1)) : userAddr;
+                bool ok = MasterController.Instance.WriteHoldingRegister(writeAddr, uval);
                 if (ok)
                 {
-                    MessageBox.Show($"Wrote 0x{uval:X4} to {addr}", "Modbus", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show($"Wrote 0x{uval:X4} to {userAddr}", "Modbus", MessageBoxButton.OK, MessageBoxImage.Information);
                     ModbusSnapshotTextBox.Text = MasterController.Instance.GetModbusSnapshot();
                 }
                 else
@@ -935,6 +944,9 @@ namespace VisionAICam.Pages
                 int count = 3;
                 // try to parse count from ModbusValueText if user provided
                 if (int.TryParse(ModbusValueText.Text, out var parsed) && parsed >= 0) count = Math.Min(100, parsed);
+
+                // If server one-based setting is changed by user, persist it
+                try { var settings = SettingsManager.Load(); settings.ModbusServerOneBased = ModbusServerOneBasedCheck?.IsChecked == true; SettingsManager.Save(settings); } catch { }
 
                 bool ok = MasterController.Instance.WriteTestPattern(count);
                 if (ok)
@@ -980,6 +992,8 @@ namespace VisionAICam.Pages
                 {
                     SafeInvokeOnUi(() => ModbusClientStatusText.Text = connected ? "Connected" : "Disconnected");
                 };
+                // persist client one-based setting
+                try { var settings = SettingsManager.Load(); settings.ModbusClientOneBased = ModbusOneBasedCheck?.IsChecked == true; SettingsManager.Save(settings); } catch { }
             }
             catch (Exception ex)
             {
@@ -1049,8 +1063,9 @@ namespace VisionAICam.Pages
                     return;
                 }
 
-                // Respect 1-based addressing option for client writes
+                // Respect 1-based addressing option for client writes (and persist)
                 bool oneBasedWrite = ModbusOneBasedCheck?.IsChecked == true;
+                try { var settings = SettingsManager.Load(); settings.ModbusClientOneBased = ModbusOneBasedCheck?.IsChecked == true; SettingsManager.Save(settings); } catch { }
                 ushort writeAddr = addr;
                 if (oneBasedWrite)
                 {

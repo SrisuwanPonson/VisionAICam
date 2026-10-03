@@ -1,0 +1,41 @@
+<Window x:Class="TestAppModbus.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Modbus Test Client" Height="350" Width="600">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="Host:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox x:Name="HostText" Width="140" Text="127.0.0.1" />
+            <TextBlock Text="Port:" VerticalAlignment="Center" Margin="12,0,8,0" />
+            <TextBox x:Name="PortText" Width="60" Text="502" />
+            <TextBlock Text="SlaveId:" VerticalAlignment="Center" Margin="12,0,8,0" />
+            <TextBox x:Name="SlaveText" Width="40" Text="1" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,8">
+            <TextBlock Text="Start:" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <TextBox x:Name="StartText" Width="80" Text="1000" />
+            <CheckBox x:Name="OneBasedCheck" Content="1-based" IsChecked="False" VerticalAlignment="Center" Margin="8,0,0,0" />
+            <TextBlock Text="Count:" VerticalAlignment="Center" Margin="12,0,8,0" />
+            <TextBox x:Name="CountText" Width="60" Text="10" />
+
+            <Button x:Name="ReadButton" Content="Read" Margin="12,0,0,0" Width="80" Click="ReadButton_Click" />
+            <Button x:Name="WriteButton" Content="Write 1000=1" Margin="8,0,0,0" Width="120" Click="WriteButton_Click" />
+        </StackPanel>
+
+        <TextBox x:Name="ResultBox" Grid.Row="2" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" AcceptsReturn="True" IsReadOnly="True"/>
+
+        <StatusBar Grid.Row="3" VerticalAlignment="Bottom">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusText">Ready</TextBlock>
+            </StatusBarItem>
+        </StatusBar>
+    </Grid>
+</Window>

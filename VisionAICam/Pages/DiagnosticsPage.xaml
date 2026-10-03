@@ -243,6 +243,7 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0" HorizontalAlignment="Left">
                                         <TextBlock Text="Addr:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                         <TextBox x:Name="ModbusAddrText" Width="80" Text="1000"/>
+                                        <CheckBox x:Name="ModbusServerOneBasedCheck" Content="Use 1-based addressing" Margin="8,0,0,0" IsChecked="True" VerticalAlignment="Center"/>
                                         <TextBlock Text="Value:" VerticalAlignment="Center" Margin="12,0,6,0"/>
                                         <TextBox x:Name="ModbusValueText" Width="120" Text="0"/>
                                         <Button x:Name="WriteRegisterButton" Content="Write (Server)" Margin="12,0,0,0" Click="WriteRegisterButton_Click"/>

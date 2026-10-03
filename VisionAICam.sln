@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.10.12201.205 stable
+VisualStudioVersion = 18.10.12201.205
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionAICam", "VisionAICam\VisionAICam.csproj", "{DB6E74B6-3BAD-4B83-AF44-9825CCE82EB7}"
 EndProject
@@ -18,6 +18,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BasicDemo", "MvCameraControlNet\BasicDemo\BasicDemo.csproj", "{D063BDD8-9149-4D51-B2CF-B2C5A098F5F9}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BasicDemoWPF", "MvCameraControlNet\BasicDemoWPF\BasicDemoWPF.csproj", "{AA49201A-021B-4CAE-8558-9E61C87376F0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestAppModbus", "TestAppModbus\TestAppModbus.csproj", "{4602B341-7AC0-4ACD-91AA-B876FDA16B84}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -125,6 +127,18 @@ Global
 		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|x64.Build.0 = Release|x64
 		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|x86.ActiveCfg = Release|Any CPU
 		{AA49201A-021B-4CAE-8558-9E61C87376F0}.Release|x86.Build.0 = Release|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Debug|x64.Build.0 = Debug|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Debug|x86.Build.0 = Debug|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Release|x64.ActiveCfg = Release|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Release|x64.Build.0 = Release|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Release|x86.ActiveCfg = Release|Any CPU
+		{4602B341-7AC0-4ACD-91AA-B876FDA16B84}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

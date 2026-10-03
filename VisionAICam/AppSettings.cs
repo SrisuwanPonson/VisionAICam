@@ -109,6 +109,13 @@ namespace VisionAICam
         // Maximum number of objects to publish to Modbus (caps register usage).
         public int ModbusMaxObjects { get; set; } = 100;
 
+        // Addressing options for Modbus UI
+        // When true, the Diagnostics client panel will treat user addresses as 1-based
+        public bool ModbusClientOneBased { get; set; } = false;
+
+        // When true, the Diagnostics server panel will treat user addresses as 1-based
+        public bool ModbusServerOneBased { get; set; } = false;
+
         // -----------------------------
         // Reference colors
         // -----------------------------
